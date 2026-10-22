@@ -62,8 +62,9 @@ describe("json edge cases", function()
   end)
 
   it("should decode unicode escapes including surrogate pairs", function()
-    local node = json.parse_all([["é 😀"]])
-    assert.are.equal("\195\169 \240\159\152\128", node.str)
+    local node = json.parse_all('"\\u00e9\\ud83d\\ude00"')
+    assert.are.equal("\195\169\240\159\152\128", node.str)
+    assert.are.equal('"\\u00e9\\ud83d\\ude00"', node.lit)
   end)
 
   it("should return an error message for unterminated strings and trailing commas", function()

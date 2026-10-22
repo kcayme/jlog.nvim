@@ -68,6 +68,7 @@ describe("filter", function()
     local fields = { tags = { "a", "b" } }
     assert.is_true(match("tags~b", fields))
     assert.is_false(match("tags=a", fields))
+    assert.is_true(match("tags!=a", fields))
   end)
 
   it("should reject dangling OR", function()

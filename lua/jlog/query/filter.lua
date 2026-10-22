@@ -93,6 +93,7 @@ local function finish_term(term)
   local re
 
   if term.op == "~" or not term.field then
+    -- intentionally honors the user's 'ignorecase' (spec §7: same flavor as `/`); no \C
     ok, re = pcall(vim.regex, term.value)
     if not ok then
       return "invalid regex `" .. term.value .. "`"
@@ -158,6 +159,7 @@ local function matches_term(term, ctx)
   local value
   local text
   local number
+  local equal
 
   if not op then
     return term.re:match_str(ctx.raw) ~= nil
@@ -174,23 +176,26 @@ local function matches_term(term, ctx)
     return term.re:match_str(text) ~= nil
   end
 
-  if type(value) == "table" then
-    return false
+  if op == "=" or op == "!=" then
+    -- a present table never equals a scalar
+    if type(value) == "table" then
+      equal = false
+    elseif type(value) == "number" and term.num then
+      equal = value == term.num
+    elseif term.lower then
+      equal = tostring(value):lower() == term.lower
+    else
+      equal = tostring(value) == term.value
+      if not equal and term.num then
+        equal = tonumber(value) == term.num
+      end
+    end
+
+    return equal == (op == "=")
   end
 
-  if op == "=" or op == "!=" then
-    if term.lower then
-      text = tostring(value):lower()
-      value = text == term.lower
-    else
-      value = tostring(value) == term.value
-    end
-    if not value and term.num then
-      number = tonumber(ctx.get(term.field))
-      value = number == term.num
-    end
-
-    return value == (op == "=")
+  if type(value) == "table" then
+    return false
   end
 
   number = tonumber(value)

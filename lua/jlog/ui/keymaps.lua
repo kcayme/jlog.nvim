@@ -3,6 +3,13 @@ local M = {}
 ---@alias JLogKeymapScope "view"|"sidebar"|"raw"
 ---@alias JLogKeymapHandler fun(ws: table, bufnr: integer)
 
+---Off a facet row, the sidebar keys keep their built-in meaning (`<CR>` moves down, `g` starts `gg`).
+---@param ws table workspace
+---@param action string
+local function feed_default(ws, action)
+  vim.api.nvim_feedkeys(vim.keycode(ws.opts.keymaps[action]), "n", false)
+end
+
 -- Workspace methods (`close`, `focus_sidebar`, ...) are looked up on keypress, so `ws` may be a plain table here.
 ---@type table<JLogKeymapScope, table<string, JLogKeymapHandler>>
 local SCOPES = {
@@ -44,6 +51,16 @@ local SCOPES = {
   sidebar = {
     close = function(ws)
       ws:close()
+    end,
+    add_filter = function(ws)
+      if not ws.sidebar:activate() then
+        feed_default(ws, "add_filter")
+      end
+    end,
+    group_by = function(ws)
+      if not ws.sidebar:group_at_cursor() then
+        feed_default(ws, "group_by")
+      end
     end,
   },
   raw = {

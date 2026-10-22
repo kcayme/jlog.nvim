@@ -30,41 +30,53 @@ local function by_count(left, right)
   return left.value < right.value
 end
 
----@param idxs integer[]
----@param flat fun(i: integer): table<string, any>
----@param top_n integer
----@return JLogFacet[]
-M.count = function(idxs, flat, top_n)
-  local fields = {}
-  local names = {}
-  local facets = {}
+---@class JLogFacetCounter
+---@field fields table<string, {counts: table<string, integer>, distinct: integer, capped: boolean}>
+---@field names string[]
 
-  for _, idx in ipairs(idxs) do
-    for name, value in pairs(flat(idx)) do
-      local field = fields[name]
-      local text = tostring(value)
+---Incremental counting, so a caller can feed flattened entries as it produces them.
+---@return JLogFacetCounter
+M.counter = function()
+  return { fields = {}, names = {} }
+end
 
-      if not field then
-        field = { counts = {}, distinct = 0, capped = false }
-        fields[name] = field
-        names[#names + 1] = name
-      end
+---@param counter JLogFacetCounter
+---@param flat table<string, any>
+M.add = function(counter, flat)
+  local fields, names = counter.fields, counter.names
 
-      if field.counts[text] then
-        field.counts[text] = field.counts[text] + 1
-      elseif field.distinct < MAX_DISTINCT then
-        field.counts[text] = 1
-        field.distinct = field.distinct + 1
-      else
-        field.capped = true
-      end
+  for name, value in pairs(flat) do
+    local field = fields[name]
+    local text = tostring(value)
+
+    if not field then
+      field = { counts = {}, distinct = 0, capped = false }
+      fields[name] = field
+      names[#names + 1] = name
+    end
+
+    if field.counts[text] then
+      field.counts[text] = field.counts[text] + 1
+    elseif field.distinct < MAX_DISTINCT then
+      field.counts[text] = 1
+      field.distinct = field.distinct + 1
+    else
+      field.capped = true
     end
   end
+end
+
+---@param counter JLogFacetCounter
+---@param top_n integer
+---@return JLogFacet[]
+M.result = function(counter, top_n)
+  local names = counter.names
+  local facets = {}
 
   table.sort(names, sort_names)
 
   for _, name in ipairs(names) do
-    local field = fields[name]
+    local field = counter.fields[name]
     local top = {}
 
     for value, count in pairs(field.counts) do
@@ -79,6 +91,20 @@ M.count = function(idxs, flat, top_n)
   end
 
   return facets
+end
+
+---@param idxs integer[]
+---@param flat fun(i: integer): table<string, any>
+---@param top_n integer
+---@return JLogFacet[]
+M.count = function(idxs, flat, top_n)
+  local counter = M.counter()
+
+  for _, idx in ipairs(idxs) do
+    M.add(counter, flat(idx))
+  end
+
+  return M.result(counter, top_n)
 end
 
 return M

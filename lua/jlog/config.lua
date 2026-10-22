@@ -12,7 +12,6 @@
 
 ---@class JLogViewOptions
 ---@field mode JLogViewMode
----@field time_format string
 ---@field sort JLogSort
 
 ---@class JLogUnwrapOptions
@@ -63,7 +62,7 @@ M.defaults = {
     level = { "level", "lvl", "severity" },
     message = { "msg", "message" },
   },
-  view = { mode = "compact", time_format = "%H:%M:%S", sort = "asc" },
+  view = { mode = "compact", sort = "asc" },
   unwrap = { enable = true, max_depth = 4 },
   sidebar = { width = 40, position = "right" },
   facets = { top_values = 10 },

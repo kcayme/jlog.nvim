@@ -61,7 +61,7 @@ local function clause(name, value)
     return name .. "=" .. value
   end
 
-  return name .. '="' .. value:gsub('"', '\\"') .. '"'
+  return name .. '="' .. value:gsub('[\\"]', "\\%0") .. '"'
 end
 
 ---@param sidebar JLogSidebar
@@ -134,25 +134,47 @@ Sidebar.render = function(self)
   end
 end
 
----Filters (non-blank lines under FILTERS) and the group field (first non-blank line under GROUP BY).
+---@param text string trimmed line
+---@return boolean
+local function ends_sections(text)
+  return text == HEADERS.fields or vim.startswith(text, "▸") or vim.startswith(text, "▾")
+end
+
+---Filters (non-blank lines under FILTERS, or before any header) and the group field (first non-blank line under
+---GROUP BY). Reading stops at FIELDS or the first facet line. Without a GROUP BY header there is no group, and
+---the filters end at the first blank line, so a former group line never turns into a filter.
 ---@return {filters: string[], group: string|nil}
 Sidebar.read = function(self)
   local spec = { filters = {} }
-  local section
+  local lines = vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)
+  local has_group = false
+  local section = "filters"
+  local text
 
-  for _, line in ipairs(vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)) do
-    if line == HEADERS.filters then
-      section = "filters"
-    elseif line == HEADERS.group then
-      section = "group"
-    elseif line == HEADERS.fields then
+  for _, line in ipairs(lines) do
+    text = vim.trim(line)
+    if ends_sections(text) then
       break
-    elseif line:find("%S") then
-      if section == "filters" then
-        spec.filters[#spec.filters + 1] = vim.trim(line)
-      elseif section == "group" and not spec.group then
-        spec.group = vim.trim(line)
+    end
+    has_group = has_group or text == HEADERS.group
+  end
+
+  for _, line in ipairs(lines) do
+    text = vim.trim(line)
+    if ends_sections(text) then
+      break
+    elseif text == HEADERS.filters then
+      section = "filters"
+    elseif text == HEADERS.group then
+      section = "group"
+    elseif text == "" then
+      if not has_group and section == "filters" then
+        section = nil
       end
+    elseif section == "filters" then
+      spec.filters[#spec.filters + 1] = text
+    elseif section == "group" and not spec.group then
+      spec.group = text
     end
   end
 

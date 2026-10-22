@@ -49,6 +49,45 @@ describe("workspace", function()
     assert.are.equal(2, #ws.entries)
   end)
 
+  describe("open_raw", function()
+    local tmp, size, group
+
+    before_each(function()
+      tmp = vim.fn.tempname() .. ".jsonl"
+      vim.fn.writefile(vim.fn.readfile("tests/fixtures/app.jsonl", "b"), tmp, "b")
+      size = vim.fn.getfsize(tmp)
+      -- stands in for auto-open: the buffer for the file is created but never read
+      group = vim.api.nvim_create_augroup("jlog.test.placeholder", { clear = true })
+      vim.api.nvim_create_autocmd("BufReadCmd", { group = group, pattern = tmp, callback = function() end })
+    end)
+    after_each(function()
+      pcall(vim.api.nvim_del_augroup_by_id, group)
+    end)
+
+    local function assert_raw_and_write()
+      assert.are.same(vim.fn.readfile(tmp), vim.api.nvim_buf_get_lines(0, 0, -1, false))
+      assert.are.equal(2, vim.api.nvim_win_get_cursor(0)[1])
+      vim.cmd("write")
+      assert.are.equal(size, vim.fn.getfsize(tmp))
+    end
+
+    it("should read the file after the workspace replaced its placeholder", function()
+      vim.cmd("tabnew")
+      vim.cmd("edit " .. vim.fn.fnameescape(tmp))
+      local ws = assert(workspace.open({ path = tmp }))
+      ws:open_raw(2)
+      assert_raw_and_write()
+    end)
+
+    it("should read the file when an empty unread buffer for it exists elsewhere", function()
+      local ws = assert(workspace.open({ path = tmp }))
+      vim.cmd("tabnew")
+      vim.cmd("edit " .. vim.fn.fnameescape(tmp))
+      ws:open_raw(2)
+      assert_raw_and_write()
+    end)
+  end)
+
   it("should apply in chunks and let a newer apply supersede an in-flight one", function()
     local lines = {}
     for i = 1, 25000 do

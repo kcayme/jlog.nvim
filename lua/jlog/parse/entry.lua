@@ -4,6 +4,17 @@ local M = {}
 
 local ALIAS_FIELDS = { time = "time", level = "level", msg = "message" }
 
+-- `get` runs per entry per field: split each dotted path once (paths are few: filter, group and facet fields)
+local path_segments = setmetatable({}, {
+  __index = function(cache, path)
+    local segments = vim.split(path, ".", { plain = true })
+
+    rawset(cache, path, segments)
+
+    return segments
+  end,
+})
+
 ---Resolve the first path segment: a real key wins, otherwise the first configured alias present.
 ---@param decoded table
 ---@param segment string
@@ -100,7 +111,7 @@ end
 ---@param opts JLogOptions
 ---@return any
 M.get = function(entry, decoded, path, opts)
-  local segments = vim.split(path, ".", { plain = true })
+  local segments = path_segments[path]
   local current = decoded
   local depth = 0
   local label_key

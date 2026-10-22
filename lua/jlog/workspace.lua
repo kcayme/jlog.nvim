@@ -95,6 +95,21 @@ local function is_placeholder(bufnr, path)
     and vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] == ""
 end
 
+---Wipe empty, unmodified buffers named `path` (e.g. auto-open's placeholder): `:tabedit` would reuse such a
+---buffer without reading the file, and a `:w` there would truncate it.
+---@param path string
+local function wipe_placeholders(path)
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    if
+      vim.api.nvim_buf_get_name(bufnr) == path
+      and vim.api.nvim_buf_is_loaded(bufnr)
+      and is_placeholder(bufnr, path)
+    then
+      pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
+    end
+  end
+end
+
 ---@param ws JLogWorkspace
 ---@param bufnr integer
 ---@return integer|nil
@@ -138,9 +153,10 @@ local function create_layout(ws, path)
 
   if not reuse then
     vim.cmd("tabnew")
-    -- the new tab's empty buffer goes away once the view replaces it
-    vim.bo.bufhidden = "wipe"
   end
+  -- the empty buffer goes away once the view replaces it: a kept placeholder named after the file would
+  -- later be reused by `:tabedit` without reading the file, and `:w` there would truncate it
+  vim.bo.bufhidden = "wipe"
   ws.tab = vim.api.nvim_get_current_tabpage()
   view_win = vim.api.nvim_get_current_win()
   vim.api.nvim_win_set_buf(view_win, ws.view.bufnr)
@@ -392,6 +408,7 @@ Workspace.open_raw = function(self, lnum)
   local ok, err
 
   if self.path then
+    wipe_placeholders(self.path)
     -- keep auto-open from claiming the file again
     vim.opt.eventignore:append("BufReadCmd")
     ok, err = pcall(vim.cmd.tabedit, vim.fn.fnameescape(self.path))

@@ -41,6 +41,35 @@ describe("sidebar", function()
     assert.is_false(vim.bo[sb].modified)
   end)
 
+  it("should not turn the group into a filter when the GROUP BY header is deleted", function()
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    ws:add_filter("level=INFO")
+    ws:set_group("request_id")
+    local sb = ws.sidebar.bufnr
+    for row, line in ipairs(vim.api.nvim_buf_get_lines(sb, 0, -1, false)) do
+      if line == "GROUP BY" then
+        vim.api.nvim_buf_set_lines(sb, row - 1, row, false, {})
+        break
+      end
+    end
+    vim.api.nvim_buf_call(sb, function()
+      vim.cmd("write")
+    end)
+    assert.are.same({ "level=INFO" }, ws.state.filters)
+    assert.is_nil(ws.state.group)
+  end)
+
+  it("should quote and escape a facet value ending in a backslash", function()
+    local buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { '{"msg":"a","p":"C:\\\\dir x\\\\"}', '{"msg":"b","p":"y"}' })
+    ws = assert(require("jlog.workspace").open({ bufnr = buf }))
+    ws.sidebar:expand_field("p")
+    ws.sidebar:cursor_to_value("p", "C:\\dir x\\")
+    vim.api.nvim_feedkeys(vim.keycode("<CR>"), "x", false)
+    assert.are.same({ 'p="C:\\\\dir x\\\\"' }, ws.state.filters)
+    assert.is_truthy(ws.view.winbar_text:find(" 1/2 ", 1, true))
+  end)
+
   it("should set the group from a field name", function()
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/loki.json", ":p") })
     ws.sidebar:cursor_to_value("request_id")

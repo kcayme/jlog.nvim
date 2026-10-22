@@ -60,6 +60,23 @@ describe("view", function()
     assert.is_nil(maps["R"])
   end)
 
+  it("should restore the winbar when a chunked render is replaced by a small one", function()
+    local lines = {}
+    for index = 1, 12000 do
+      lines[index] = '{"msg":"m' .. index .. '"}'
+    end
+    local v = view.new(make_ws(table.concat(lines, "\n")))
+    vim.api.nvim_win_set_buf(0, v.bufnr)
+    v:set_winbar("jlog · test")
+    local items = {}
+    for index = 1, 12000 do
+      items[index] = { kind = "entry", idx = index }
+    end
+    v:render(items)
+    v:render(all({ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }))
+    assert.are.equal("%#JLogWinbar#jlog · test", vim.wo.winbar)
+  end)
+
   it("should leave user highlight overrides alone", function()
     vim.api.nvim_set_hl(0, "JLogLevelError", { fg = "#ff0000" })
     require("jlog").set_highlights()

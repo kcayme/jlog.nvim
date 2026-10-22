@@ -20,6 +20,8 @@ local M = {}
 
 local SYNC_LIMIT = 5000
 local CHUNK_SIZE = 2000
+-- expanded entries build spans and many lines each: smaller chunks keep a tick within ~16ms
+local EXPANDED_CHUNK_SIZE = 500
 local ERROR_LEVELS = { error = true, fatal = true, panic = true }
 
 local ns = vim.api.nvim_create_namespace("jlog.view")
@@ -72,7 +74,7 @@ local function apply_winbar(view, text)
   local winbar = text == "" and "" or "%#JLogWinbar#" .. text:gsub("%%", "%%%%")
 
   for _, winid in ipairs(vim.fn.win_findbuf(view.bufnr)) do
-    vim.wo[winid].winbar = winbar
+    vim.wo[winid][0].winbar = winbar
   end
 end
 
@@ -203,12 +205,14 @@ vim.api.nvim_set_decoration_provider(ns, { on_win = on_win, on_line = on_line })
 View.render = function(self, items, on_done)
   local generation = self.generation + 1
   local total = #items
+  local chunk_size = self.ws.state.mode == "expanded" and EXPANDED_CHUNK_SIZE or CHUNK_SIZE
   local next_item
 
   self.generation = generation
   self.items, self.line_item, self.item_line, self.entry_item, self.first_header = items, {}, {}, {}, nil
 
   local function finish()
+    apply_winbar(self, self.winbar_text)
     for _, winid in ipairs(vim.fn.win_findbuf(self.bufnr)) do
       apply_window_options(self, winid)
     end
@@ -231,11 +235,11 @@ View.render = function(self, items, on_done)
   end
 
   -- the first chunk is synchronous so the first screen shows at once
-  append_items(self, 1, CHUNK_SIZE, true)
-  next_item = CHUNK_SIZE + 1
+  append_items(self, 1, chunk_size, true)
+  next_item = chunk_size + 1
 
   local function step()
-    local last = math.min(next_item + CHUNK_SIZE - 1, total)
+    local last = math.min(next_item + chunk_size - 1, total)
 
     if self.generation ~= generation or not vim.api.nvim_buf_is_valid(self.bufnr) then
       return
@@ -243,7 +247,6 @@ View.render = function(self, items, on_done)
     append_items(self, next_item, last, false)
     next_item = last + 1
     if next_item > total then
-      apply_winbar(self, self.winbar_text)
       finish()
 
       return
@@ -252,7 +255,7 @@ View.render = function(self, items, on_done)
     vim.schedule(step)
   end
 
-  apply_winbar(self, "jlog · rendering " .. math.floor(CHUNK_SIZE * 100 / total) .. "%")
+  apply_winbar(self, "jlog · rendering " .. math.floor(chunk_size * 100 / total) .. "%")
   vim.schedule(step)
 end
 
@@ -382,6 +385,9 @@ View.show_raw = function(self)
   vim.bo[bufnr].bufhidden = "wipe"
   vim.bo[bufnr].modifiable = false
   vim.b[bufnr].jlog_src = entry.src
+  if entry.json_at then
+    vim.bo[bufnr].filetype = "json"
+  end
   keymaps.attach(bufnr, "raw", self.ws)
   vim.api.nvim_open_win(bufnr, true, {
     relative = "editor",

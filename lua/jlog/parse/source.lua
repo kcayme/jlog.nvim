@@ -11,25 +11,6 @@ local json = require("jlog.parse.json")
 
 local M = {}
 
----@param body string
----@return integer|nil
-local function find_json_at(body)
-  local json_at = body:find("{", 1, true)
-  local ok
-  local decoded
-
-  if not json_at then
-    return nil
-  end
-
-  ok, decoded = pcall(vim.json.decode, body:sub(json_at))
-  if not ok or type(decoded) ~= "table" then
-    return nil
-  end
-
-  return json_at
-end
-
 ---@param node JLogNode
 ---@param key string
 ---@return JLogNode|nil
@@ -68,7 +49,7 @@ local function loki_entry(node, text, index)
   end
 
   entry.body = scalar_text(line_node):gsub("\n$", "")
-  entry.json_at = find_json_at(entry.body)
+  entry.json_at = (json.object_at(entry.body))
   entry.ts = scalar_text(field_of(node, "timestamp"))
   entry.labels = {}
   if fields and fields.t == "object" then
@@ -141,7 +122,7 @@ M.append_lines = function(entries, lines, first_lnum)
     line = line:gsub("\r$", "")
     if line:find("%S") then
       last = entries[#entries]
-      json_at = find_json_at(line)
+      json_at = (json.object_at(line))
       if not json_at and last and last.json_at then
         last.cont = last.cont or {}
         table.insert(last.cont, line)

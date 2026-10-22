@@ -375,6 +375,27 @@ M.find = function(text)
   return node, prefix
 end
 
+---Fast path for jsonl lines: the first `{` in `text` and the `vim.json.decode` of everything from it, when that is a table.
+---@param text string
+---@return integer|nil pos byte position of the first `{`
+---@return table|nil decoded
+M.object_at = function(text)
+  local pos = str_find(text, "{", 1, true)
+  local ok
+  local decoded
+
+  if not pos then
+    return nil, nil
+  end
+
+  ok, decoded = pcall(vim.json.decode, str_sub(text, pos))
+  if not ok or type(decoded) ~= "table" then
+    return nil, nil
+  end
+
+  return pos, decoded
+end
+
 ---Recursively attach `inner`/`prefix` to string nodes that contain JSON, in place.
 ---@param node JLogNode
 ---@param max_depth integer maximum number of string-in-string layers to unwrap

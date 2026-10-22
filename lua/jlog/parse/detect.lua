@@ -28,20 +28,9 @@ end
 ---@param opts JLogOptions
 ---@return boolean
 local function is_log_line(line, opts)
-  local json_at = line:find("{", 1, true)
-  local ok
-  local decoded
+  local _, decoded = json.object_at(line)
 
-  if not json_at then
-    return false
-  end
-
-  ok, decoded = pcall(vim.json.decode, line:sub(json_at))
-  if not ok or type(decoded) ~= "table" then
-    return false
-  end
-
-  return has_log_key(vim.tbl_keys(decoded), opts)
+  return decoded ~= nil and has_log_key(vim.tbl_keys(decoded), opts)
 end
 
 ---@param head string

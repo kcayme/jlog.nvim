@@ -103,16 +103,15 @@ M.get = function(entry, decoded, path, opts)
   local segments = vim.split(path, ".", { plain = true })
   local current = decoded
   local depth = 0
+  local label_key
 
-  if segments[1] == "labels" then
-    if not entry.labels or not segments[2] then
-      return nil
-    end
-    if segments[2] == "_ts" then
+  if path:sub(1, 7) == "labels." then
+    label_key = path:sub(8)
+    if label_key == "_ts" then
       return entry.ts
     end
 
-    return entry.labels[segments[2]]
+    return entry.labels and entry.labels[label_key]
   end
 
   for index, segment in ipairs(segments) do

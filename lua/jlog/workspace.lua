@@ -413,6 +413,10 @@ Workspace.open_raw = function(self, lnum)
     vim.opt.eventignore:append("BufReadCmd")
     ok, err = pcall(vim.cmd.tabedit, vim.fn.fnameescape(self.path))
     vim.o.eventignore = saved
+    if ok then
+      -- auto-open leaves buffers marked raw alone, also on `:edit!`
+      vim.b.jlog_raw = true
+    end
   else
     ok, err = pcall(vim.cmd, "tab sbuffer " .. self.bufnr)
   end
@@ -430,6 +434,20 @@ end
 ---@return JLogWorkspace|nil
 M.find = function(key)
   return registry[key]
+end
+
+---The workspace shown in the current tab.
+---@return JLogWorkspace|nil
+M.current = function()
+  local tab = vim.api.nvim_get_current_tabpage()
+
+  for _, ws in pairs(registry) do
+    if ws.tab == tab then
+      return ws
+    end
+  end
+
+  return nil
 end
 
 ---Open (or focus) the workspace for a file or buffer: view on the left, sidebar on the right.

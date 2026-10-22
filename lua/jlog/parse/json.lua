@@ -20,6 +20,9 @@ local BYTE_OPEN_BRACKET = 91
 local BYTE_CLOSE_BRACKET = 93
 local BYTE_OPEN_BRACE = 123
 local BYTE_CLOSE_BRACE = 125
+local MAX_NESTING = 512
+-- shortcut: find tries only the first 8 `{`/`[` positions, raise if real prefixes hold more brackets
+local MAX_FIND_CANDIDATES = 8
 
 local LITERALS = {
   [string.byte("t")] = { word = "true", type = "boolean" },
@@ -67,6 +70,7 @@ local function parse_string(text, pos)
   end
 
   lit = str_sub(text, pos, found)
+  -- shortcut: raw control chars in strings are accepted, strict validation is not needed to display logs
   if has_escape then
     local ok, decoded = pcall(vim.json.decode, lit)
     if not ok then
@@ -80,6 +84,7 @@ local function parse_string(text, pos)
   return { t = "string", s = pos, e = found, lit = lit, str = str }, found + 1
 end
 
+-- shortcut: leading zeros (`01`) are accepted, the literal is kept verbatim so display is unaffected
 local function parse_number(text, pos)
   local _, number_end = str_find(text, "^-?%d+", pos)
   local fraction_end, exponent_end
@@ -95,7 +100,7 @@ local function parse_number(text, pos)
   return { t = "number", s = pos, e = number_end, lit = str_sub(text, pos, number_end) }, number_end + 1
 end
 
-local function parse_container(text, pos, is_object)
+local function parse_container(text, pos, is_object, depth)
   local close_byte = is_object and BYTE_CLOSE_BRACE or BYTE_CLOSE_BRACKET
   local node = { t = is_object and "object" or "array", s = pos, keys = is_object and {} or nil, vals = {} }
   local cursor = skip_ws(text, pos + 1)
@@ -124,7 +129,7 @@ local function parse_container(text, pos, is_object)
       cursor = cursor + 1
     end
 
-    value, after_or_err = parse_value(text, cursor)
+    value, after_or_err = parse_value(text, cursor, depth + 1)
     if not value then
       return nil, after_or_err
     end
@@ -144,7 +149,7 @@ local function parse_container(text, pos, is_object)
   end
 end
 
-parse_value = function(text, pos)
+parse_value = function(text, pos, depth)
   local cursor = skip_ws(text, pos)
   local byte = str_byte(text, cursor)
   local literal = LITERALS[byte]
@@ -153,7 +158,11 @@ parse_value = function(text, pos)
     return parse_string(text, cursor)
   end
   if byte == BYTE_OPEN_BRACE or byte == BYTE_OPEN_BRACKET then
-    return parse_container(text, cursor, byte == BYTE_OPEN_BRACE)
+    if depth >= MAX_NESTING then
+      return nil, "nesting too deep at " .. cursor
+    end
+
+    return parse_container(text, cursor, byte == BYTE_OPEN_BRACE, depth)
   end
   if literal then
     if str_sub(text, cursor, cursor + #literal.word - 1) ~= literal.word then
@@ -167,7 +176,7 @@ parse_value = function(text, pos)
 end
 
 local function parse_all_from(text, pos)
-  local node, after = parse_value(text, pos)
+  local node, after = parse_value(text, pos, 0)
 
   if not node then
     return nil, after
@@ -210,7 +219,7 @@ end
 ---@return JLogNode|nil node
 ---@return integer|string after_or_err position after the value, or an error message
 M.parse = function(text, pos)
-  return parse_value(text, pos or 1)
+  return parse_value(text, pos or 1, 0)
 end
 
 ---Parse `text` as exactly one JSON value; only whitespace may surround it.
@@ -221,20 +230,28 @@ M.parse_all = function(text)
   return parse_all_from(text, 1)
 end
 
----Find an object/array in `text`: the whole trimmed text, else from the first `{` or `[` to the end.
+---Find an object/array in `text`: from the first `{` or `[` (left to right) that parses through to the end.
 ---@param text string
 ---@return JLogNode|nil node offsets relative to `text`
 ---@return string|nil prefix_or_err text before the JSON (`""` when the whole text is JSON), or an error message
 M.find = function(text)
   local start = str_find(text, "[{[]")
+  local candidates = 0
   local node, err, prefix
 
   if not start then
     return nil, "no object or array found"
   end
-  node, err = parse_all_from(text, start)
+  while start and candidates < MAX_FIND_CANDIDATES do
+    node, err = parse_all_from(text, start)
+    if node then
+      break
+    end
+    candidates = candidates + 1
+    start = str_find(text, "[{[]", start + 1)
+  end
   if not node then
-    return nil, err
+    return nil, err or "no object or array found"
   end
 
   prefix = str_sub(text, 1, start - 1)

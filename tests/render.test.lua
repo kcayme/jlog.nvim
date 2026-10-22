@@ -65,6 +65,17 @@ describe("render.compact", function()
     assert.are.equal("12:50:24.970 m", render.compact(e, opts)[1])
   end)
 
+  it("should pad or cut the time fraction to milliseconds", function()
+    local function time_of(value)
+      return render.compact(one('{"time":"' .. value .. '"}'), opts)[1]
+    end
+    assert.are.equal("12:50:24.900", time_of("2026-10-16T12:50:24.9Z"))
+    assert.are.equal("12:50:24.000", time_of("2026-10-16T12:50:24Z"))
+    assert.are.equal("12:50:24.000", time_of("2026-10-16T12:50:24.Z"))
+    assert.are.equal("12:50:24.123", time_of("2026-10-16T12:50:24.123456+02:00"))
+    assert.are.equal("12:50:24.120", time_of("2026-10-16 T12:50:2412"))
+  end)
+
   it("should show unrecognised time values as-is", function()
     assert.are.equal("yesterday m", render.compact(one('{"time":"yesterday","msg":"m"}'), opts)[1])
   end)
@@ -80,6 +91,15 @@ describe("render.compact", function()
     assert.are.same({ "banner" }, (render.compact(entries[1], opts)))
     assert.are.same({ "x", "trace line" }, (render.compact(entries[2], opts)))
     assert.are.same({ { 0, 10, "JLogPlain" } }, spans[2])
+  end)
+
+  it("should return the same lines and no spans when lines_only is set", function()
+    local entries = source.build('banner\n{"level":"INFO","msg":"x","a":{"b":1}}\ntrace line', "jsonl")
+    for _, entry in ipairs(entries) do
+      local lines, spans = render.compact(entry, opts, true)
+      assert.are.same(render.compact(entry, opts), lines)
+      assert.is_nil(spans)
+    end
   end)
 
   it("should split plain multi-line bodies so no line holds a newline", function()

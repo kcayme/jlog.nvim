@@ -1,0 +1,7 @@
+booting service v1
+2026-10-22T10:00:01.000Z {"time":"2026-10-22T10:00:01.000Z","level":"INFO","msg":"start","a":1,"a":2}
+{"time":"2026-10-22T10:00:02.000Z","level":"ERROR","msg":"panic","request_id":"r1","err":"boom\nline2"}
+goroutine 1 [running]:
+main.main()
+
+{"time":"2026-10-22T10:00:03.000Z","level":"INFO","msg":"request completed","request_id":"r1","status":500,"path":"/api/licence-checks"}

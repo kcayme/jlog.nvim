@@ -1,0 +1,14 @@
+[
+  {
+    "time": "2026-10-22T10:00:01.000Z",
+    "level": "INFO",
+    "msg": "start",
+    "service": "api"
+  },
+  {
+    "time": "2026-10-22T10:00:02.000Z",
+    "level": "ERROR",
+    "msg": "boom",
+    "status": 500
+  }
+]

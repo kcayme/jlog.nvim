@@ -7,3 +7,7 @@ end, {
     return require("jlog.commands").complete(arg_lead, cmdline)
   end,
 })
+
+-- setup() is optional: auto-open and highlights work with the defaults, and a later setup() re-registers
+require("jlog.ui.highlights").setup()
+require("jlog.hooks").register(require("jlog.config").options)

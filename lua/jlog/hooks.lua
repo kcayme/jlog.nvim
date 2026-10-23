@@ -1,6 +1,3 @@
-local detect = require("jlog.parse.detect")
-local workspace = require("jlog.workspace")
-
 local M = {}
 
 local HEAD_LIMIT = 65536
@@ -75,6 +72,9 @@ end
 ---@return boolean opened
 local function try_open(bufnr, path, opts)
   local bo = vim.bo[bufnr]
+  -- required here, not at the top: plugin/jlog.lua loads this module at startup
+  local detect = require("jlog.parse.detect")
+  local workspace = require("jlog.workspace")
   local head, ws, err
 
   -- a normal buffer for the file (read before, or opened raw) is being reloaded: keep it one

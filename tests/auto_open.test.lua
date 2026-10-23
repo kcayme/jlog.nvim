@@ -210,3 +210,45 @@ describe("auto open", function()
     assert.are.equal(vim.fn.fnamemodify("tests/fixtures/loki.json", ":p"), vim.api.nvim_buf_get_name(0))
   end)
 end)
+
+describe("without setup", function()
+  ---Run a fresh nvim that loads only jlog's plugin file, run `lua_code`, and return what it prints.
+  local function run_fresh(lua_code)
+    local result = vim
+      .system({
+        "nvim",
+        "--headless",
+        "--clean",
+        "--cmd",
+        "set rtp^=.",
+        "-c",
+        "lua " .. lua_code,
+        "-c",
+        "qa!",
+      }, { text = true })
+      :wait(10000)
+
+    return vim.trim(result.stderr .. result.stdout)
+  end
+
+  it("should auto-open logs and define highlights when setup is never called", function()
+    local output = run_fresh(
+      "local cheap = package.loaded['jlog.workspace'] == nil"
+        .. " vim.cmd.edit('tests/fixtures/app.jsonl')"
+        .. " io.stdout:write(tostring(cheap), ' ', tostring(require('jlog.workspace').current() ~= nil), ' ',"
+        .. " tostring(next(vim.api.nvim_get_hl(0, { name = 'JLogTime' })) ~= nil))"
+    )
+
+    assert.are.equal("true true true", output)
+  end)
+
+  it("should use the user's options when setup is called later", function()
+    local output = run_fresh(
+      "require('jlog').setup({ auto_open = { enable = false } })"
+        .. " vim.cmd.edit('tests/fixtures/app.jsonl')"
+        .. " io.stdout:write(tostring(require('jlog.workspace').current() ~= nil))"
+    )
+
+    assert.are.equal("false", output)
+  end)
+end)

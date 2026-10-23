@@ -111,7 +111,7 @@ require("jlog").setup({
     level = { "level", "lvl", "severity" },
     message = { "msg", "message" },
   },
-  view = { mode = "compact", sort = "desc" },
+  view = { mode = "compact", sort = "desc" }, -- "desc" shows the newest entries first
   unwrap = { enable = true, max_depth = 4 },
   sidebar = { width = 40, position = "right" },
   facets = { top_values = 10 },

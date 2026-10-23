@@ -461,7 +461,7 @@ View.append = function(self, indexes, refresh)
   end
 end
 
----Copy list[first..last] to start at `dest`, safe for overlapping ranges that move up.
+---Copy list[first..last] to start at `dest`, safe for overlapping ranges that move up; selene's lua51 std rejects `table.move`.
 ---@param list any[]
 ---@param first integer
 ---@param last integer

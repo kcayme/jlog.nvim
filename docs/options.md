@@ -7,7 +7,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `fields.time` | `string[]` | `{ "time", "ts", "timestamp", "@timestamp" }` | Keys tried in order for the `time` field. |
 | `fields.level` | `string[]` | `{ "level", "lvl", "severity" }` | Keys tried in order for the `level` field. |
 | `fields.message` | `string[]` | `{ "msg", "message" }` | Keys tried in order for the `msg` field. |
-| `fields.status` | `string[]` | `{ "status", "status_code" }` | Keys of the status-code field, colored by class (`JLogStatus2xx`..`JLogStatus5xx`) in compact lines. |
+| `fields.status` | `string[]` | `{ "status", "status_code" }` | Keys of the status-code field, class-colored (`JLogStatus2xx`..`JLogStatus5xx`) in compact lines when its style is `inverted` or `pill`, e.g. `compact.fields.status = { style = "inverted" }`; a plain status field keeps its key color. |
 | `compact.style` | `JLogFieldStyle` | `"plain"` | Default style of compact fields: `"plain"` (`key=value`), `"inverted"` (value as a colored block) or `"pill"` (inverted with caps). `level` defaults to `"inverted"` and this overrides it when not `"plain"`; it never applies to `time` or `message`. |
 | `compact.order` | `string[]` | `{}` | Top-level keys shown first in compact lines, in this order. Dotted names are ignored; `time`, `level`, `message` and `status` match their role whatever the key is called; unlisted role fields stay at the front. |
 | `compact.fields` | `table<string, JLogCompactField>` | `{}` | Per field key or role (`time`, `level`, `message`, `status`) overrides; a key's entry wins over its role's. |

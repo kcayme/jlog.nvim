@@ -138,7 +138,7 @@ require("jlog").setup({
     time = { "time", "ts", "timestamp", "@timestamp" },
     level = { "level", "lvl", "severity" },
     message = { "msg", "message" },
-    status = { "status", "status_code" }, -- colored by class (2xx-5xx)
+    status = { "status", "status_code" }, -- class-colored (2xx-5xx) when styled inverted/pill
   },
   compact = {
     style = "plain", -- "plain" | "inverted" | "pill"; level defaults to "inverted"
@@ -188,7 +188,9 @@ overrides that. The global style never applies to `time` or `message`; style the
 `compact.fields.message`.
 
 Colors: a level takes its `JLogLevel*` color; a field in `fields.status` whose value is `200`-`599` takes its class
-color (`JLogStatus2xx` ... `JLogStatus5xx`); any other field takes its key's field color. Inverted and pill styles
+color (`JLogStatus2xx` ... `JLogStatus5xx`) when its style is `inverted` or `pill`, e.g.
+`compact.fields.status = { style = "inverted" }` (a plain status field keeps its key's field color, unless a format
+returns a group); any other field takes its key's field color. Inverted and pill styles
 draw that color reversed through derived `JLogBadge*` groups.
 
 `compact.order` lists top-level keys to show first, in that order. Dotted names are ignored; `time`, `level`,

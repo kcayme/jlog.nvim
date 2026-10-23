@@ -49,6 +49,24 @@ describe("workspace", function()
     assert.are.equal(2, #ws.entries)
   end)
 
+  it("should open a bracket-prefixed jsonl file and a truncated loki export when forced", function()
+    local prefixed = vim.fn.tempname() .. ".log"
+    local truncated = vim.fn.tempname() .. ".json"
+    local ws, err
+
+    vim.fn.writefile({ '[INFO] {"msg":"a","level":"INFO"}', '[WARN] {"msg":"b","level":"WARN"}' }, prefixed)
+    vim.fn.writefile({ '[{"line":"{\\"msg\\":\\"a\\"}","timestamp":"1","fields":{}},{"line":"{\\"ms' }, truncated)
+    ws, err = workspace.open({ path = prefixed, force = true })
+    assert.is_nil(err)
+    assert.are.equal("jsonl", ws.format)
+    assert.are.equal(2, #ws.entries)
+    ws, err = workspace.open({ path = truncated, force = true })
+    assert.is_nil(err)
+    assert.are.equal("jsonl", ws.format)
+    vim.fn.delete(prefixed)
+    vim.fn.delete(truncated)
+  end)
+
   describe("open_raw", function()
     local tmp, size, group
 

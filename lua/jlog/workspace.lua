@@ -798,17 +798,20 @@ M.open = function(target)
   if not format then
     return nil, "not a recognized log format"
   end
+  if format ~= "jsonl" then
+    entries, err = source.build(text, format)
+    if not entries and not target.force then
+      return nil, err
+    end
+    -- a forced open of a broken array (e.g. a truncated download) still shows every line
+    format = entries and format or "jsonl"
+  end
   if format == "jsonl" then
     -- only the first lines are parsed before the first screen; the rest follows in chunks
     entries = {}
     lines, pos = take_lines(text, 1, M.load_sizes.first)
     source.append_lines(entries, lines, 1)
     lnum = #lines + 1
-  else
-    entries, err = source.build(text, format)
-    if not entries then
-      return nil, err
-    end
   end
 
   ws = setmetatable({

@@ -97,7 +97,8 @@ end
 M.detect = function(head, opts)
   local text = head:gsub("\r", "")
 
-  if text:match("^%s*%[") then
+  -- `[INFO] {...}` lines are jsonl with a prefix: only `[` followed by an object (or `]`) is an array
+  if text:match("^%s*%[%s*[{%]]") then
     return detect_array(text:gsub("^%s*", ""), opts)
   end
 

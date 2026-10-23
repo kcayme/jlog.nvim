@@ -2,6 +2,28 @@
 ---@field time string[]
 ---@field level string[]
 ---@field message string[]
+---@field status string[] aliases of the status-code field, colored by class
+
+---@alias JLogFieldStyle "plain"|"inverted"|"pill"
+
+---@class JLogFormatContext
+---@field value string
+---@field key string
+---@field entry JLogEntry
+
+---@class JLogCompactField
+---@field style JLogFieldStyle|nil
+---@field format (fun(ctx: JLogFormatContext): string, string|nil)|nil returns the text and an optional highlight group
+
+---@class JLogPillOptions
+---@field left string
+---@field right string
+
+---@class JLogCompactOptions
+---@field style JLogFieldStyle default style of fields without their own
+---@field order string[] field keys shown first in the compact line, in this order
+---@field fields table<string, JLogCompactField> per field key or role (`time`, `level`, `message`, `status`)
+---@field pill JLogPillOptions
 
 ---@alias JLogViewMode "compact"|"expanded"
 ---@alias JLogSort "asc"|"desc"
@@ -55,6 +77,7 @@
 ---@field facets JLogFacetsOptions
 ---@field paging JLogPagingOptions
 ---@field keymaps JLogKeymapsOptions
+---@field compact JLogCompactOptions
 
 local M = {}
 
@@ -64,7 +87,9 @@ M.defaults = {
     time = { "time", "ts", "timestamp", "@timestamp" },
     level = { "level", "lvl", "severity" },
     message = { "msg", "message" },
+    status = { "status", "status_code" },
   },
+  compact = { style = "plain", order = {}, fields = {}, pill = { left = "\238\130\182", right = "\238\130\180" } },
   view = { mode = "compact", sort = "desc", field_colors = true },
   unwrap = { enable = true, max_depth = 4 },
   sidebar = { width = 45, position = "right" },

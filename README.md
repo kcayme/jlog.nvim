@@ -138,6 +138,13 @@ require("jlog").setup({
     time = { "time", "ts", "timestamp", "@timestamp" },
     level = { "level", "lvl", "severity" },
     message = { "msg", "message" },
+    status = { "status", "status_code" }, -- colored by class (2xx-5xx)
+  },
+  compact = {
+    style = "plain", -- "plain" | "inverted" | "pill"; level defaults to "inverted"
+    order = {}, -- top-level keys shown first, e.g. { "method", "path", "status" }
+    fields = {}, -- per key or role: { style = "pill", format = function(ctx) return ctx.value end }
+    pill = { left = "\238\130\182", right = "\238\130\180" }, -- Nerd Font caps; "" for square ends
   },
   view = { mode = "compact", sort = "desc", field_colors = true }, -- "desc" shows the newest entries first
   unwrap = { enable = true, max_depth = 4 },
@@ -167,6 +174,52 @@ require("jlog").setup({
 
 See [docs/options.md](docs/options.md) for every option.
 
+### Compact line formatting
+
+Each field of a compact line is drawn in a style, set globally with `compact.style` or per field with
+`compact.fields[key].style` (`key` is a field name or one of the roles `time`, `level`, `message`, `status`):
+
+- `plain`: `key=value`, the key colored per field. Example: `method=GET`.
+- `inverted`: the value only, as a colored block (the color reversed and bold). Example: ` GET `.
+- `pill`: like `inverted`, with rounded caps. Example: `(GET)`.
+
+`level` defaults to `inverted` (the badge); a global `compact.style` other than `"plain"`, or `compact.fields.level`,
+overrides that. The global style never applies to `time` or `message`; style them through `compact.fields.time` or
+`compact.fields.message`.
+
+Colors: a level takes its `JLogLevel*` color; a field in `fields.status` whose value is `200`-`599` takes its class
+color (`JLogStatus2xx` ... `JLogStatus5xx`); any other field takes its key's field color. Inverted and pill styles
+draw that color reversed through derived `JLogBadge*` groups.
+
+`compact.order` lists top-level keys to show first, in that order. Dotted names are ignored; `time`, `level`,
+`message` and `status` match their role whatever the key is called; role fields not listed stay at the front, and
+only a key's first occurrence is placed. A level moved by `order` keeps only its alignment padding before the next
+item.
+
+`compact.fields[key].format(ctx)` replaces a field's text. `ctx` has `value`, `key` and `entry`; return the text and,
+optionally, a highlight group for it. Newlines in the text are escaped. A formatted `plain` field with no returned
+group uses the key's field color. If `format` errors or returns a non-string, the default text is used and jlog warns
+once per field. `ctx` is reused between calls, so do not keep it. `format` runs on every rendered line, so its cost
+scales with the page.
+
+```lua
+compact = {
+  order = { "method", "path", "status" },
+  fields = {
+    method = { style = "pill" },
+    status = { style = "inverted" },
+    duration_ms = {
+      format = function(ctx)
+        return ctx.value .. "ms", tonumber(ctx.value) > 500 and "DiagnosticError" or nil
+      end,
+    },
+  },
+}
+```
+
+Pill caps are inline virtual text, so yanks and `/` searches never contain them and the cursor skips over them.
+They need a Nerd Font; with `pill = { left = "", right = "" }` the pills have square ends.
+
 ### Statusline plugins
 
 The log view shows its counts and filters in the winbar. A statusline plugin that draws winbars, such as lualine with
@@ -192,6 +245,11 @@ linked group's color, reversed and bold, so the level reads as a colored label i
 | `JLogLevelInfo` | INFO | badge: `DiagnosticInfo` color as background |
 | `JLogLevelDebug` | DEBUG | badge: `DiagnosticHint` color as background |
 | `JLogLevelTrace` | TRACE and unknown levels | badge: `Comment` color as background |
+| `JLogStatus2xx` | status field with a 2xx value, in compact lines | `DiagnosticOk` |
+| `JLogStatus3xx` | status field with a 3xx value | `DiagnosticInfo` |
+| `JLogStatus4xx` | status field with a 4xx value | `DiagnosticWarn` |
+| `JLogStatus5xx` | status field with a 5xx value | `DiagnosticError` |
+| `JLogBadge*` | derived on first use: a color group's color reversed and bold, for `inverted` and `pill` fields (e.g. `JLogBadgeJLogStatus2xx`) | none; redefined on `ColorScheme` |
 | `JLogMessage` | message text | `Normal` |
 | `JLogKey` | `key=` in compact, object keys in expanded, when `view.field_colors = false` | `Identifier` |
 | `JLogField1` … `JLogField8` | keys and FIELDS names, one color per field in first-seen order, cycling | the first distinctly colored of `Identifier`, `Function`, `Type`, `Constant`, `Special`, `Statement`, `PreProc`, `Character`, `Label`, `Keyword`, `Tag`, `Directory`, skipping any colored like a value (`JLogValue`, `JLogString`, `JLogNumber`, `JLogBoolean`, `JLogNull`) |

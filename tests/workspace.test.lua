@@ -233,6 +233,99 @@ describe("workspace", function()
       assert.is_truthy(view_lines[#view_lines]:find("m23", 1, true))
     end)
 
+    it("should show fields in the sidebar as they are found while loading", function()
+      local lines = {}
+      local buf, ws, header_marks
+      local timing = vim.deepcopy(workspace.timing)
+      local partial = {}
+
+      for index = 1, 30 do
+        lines[index] = index < 20 and string.format('{"msg":"m%d"}', index)
+          or string.format('{"msg":"m%d","late":"x"}', index)
+      end
+      buf = vim.api.nvim_create_buf(true, false)
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      workspace.load_sizes = { first = 4, chunk = 2 }
+      workspace.timing = { tick_ns = 0, publish_ns = 0 }
+
+      ws = assert(workspace.open({ bufnr = buf }))
+      local render = ws.sidebar.render
+      ws.sidebar.render = function(self, progress)
+        if progress then
+          partial[#partial + 1] = vim.tbl_map(function(facet)
+            return facet.name
+          end, self.facets)
+        end
+        render(self, progress)
+        if progress then
+          header_marks = vim.api.nvim_buf_get_extmarks(self.bufnr, -1, 0, -1, { details = true })
+        end
+      end
+      assert.is_true(vim.wait(2000, function()
+        return not ws.loading and ws.rendered == ws.generation
+      end))
+      workspace.timing = timing
+
+      assert.is_true(#partial > 0)
+      assert.is_truthy(vim.tbl_contains(partial[#partial], "late"))
+      assert.is_truthy(vim.iter(header_marks):any(function(mark)
+        return mark[4].virt_text and mark[4].virt_text[1][1]:find("loading", 1, true) ~= nil
+      end))
+      assert.are.equal(
+        30,
+        ws.sidebar.facets[vim.fn.index(
+          vim.tbl_map(function(facet)
+            return facet.name
+          end, ws.sidebar.facets),
+          "msg"
+        ) + 1].distinct
+      )
+      assert.are.same(
+        {},
+        vim.tbl_filter(function(mark)
+          return mark[4].virt_text ~= nil
+        end, vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, -1, 0, -1, { details = true }))
+      )
+      ws:close()
+    end)
+
+    it("should count fields while loading instead of decoding every line again", function()
+      local entry_model = require("jlog.parse.entry")
+      local decode = entry_model.decode
+      local lines = {}
+      local buf, ws
+      local decodes = 0
+
+      for index = 1, 40 do
+        lines[index] = string.format('{"msg":"m%d","level":"INFO"}', index)
+      end
+      buf = vim.api.nvim_create_buf(true, false)
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      workspace.load_sizes = { first = 4, chunk = 3 }
+      entry_model.decode = function(...)
+        decodes = decodes + 1
+        return decode(...)
+      end
+
+      ws = assert(workspace.open({ bufnr = buf }))
+      local ok = vim.wait(2000, function()
+        return not ws.loading and ws.rendered == ws.generation
+      end)
+      entry_model.decode = decode
+
+      assert.is_true(ok)
+      -- only the first slice's apply decodes; the rest was counted from the load's own decode
+      assert.is_true(decodes <= 4, "decoded " .. decodes .. " times")
+      for _, facet in ipairs(ws.sidebar.facets) do
+        if facet.name == "msg" then
+          assert.are.equal(40, facet.distinct)
+        elseif facet.name == "level" then
+          assert.are.same({ { value = "INFO", count = 40 } }, facet.top)
+        end
+      end
+      ws:close()
+    end)
+
     it("should stop loading when the workspace is closed", function()
       local lines = {}
       local buf, ws

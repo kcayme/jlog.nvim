@@ -114,20 +114,26 @@ end
 ---@param entries JLogEntry[] mutated
 ---@param lines string[]
 ---@param first_lnum integer source line number of `lines[1]`
-M.append_lines = function(entries, lines, first_lnum)
+---@param on_json fun(entry: JLogEntry, decoded: table)|nil called with each new JSON entry and its decoded object
+M.append_lines = function(entries, lines, first_lnum, on_json)
   local last
-  local json_at
+  local json_at, decoded
+  local entry
 
   for index, line in ipairs(lines) do
     line = line:gsub("\r$", "")
     if line:find("%S") then
       last = entries[#entries]
-      json_at = (json.object_at(line))
+      json_at, decoded = json.object_at(line)
       if not json_at and last and last.json_at then
         last.cont = last.cont or {}
         table.insert(last.cont, line)
       else
-        table.insert(entries, { src = first_lnum + index - 1, raw = line, body = line, json_at = json_at })
+        entry = { src = first_lnum + index - 1, raw = line, body = line, json_at = json_at }
+        table.insert(entries, entry)
+        if json_at and on_json then
+          on_json(entry, decoded)
+        end
       end
     end
   end

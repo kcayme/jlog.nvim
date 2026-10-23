@@ -34,6 +34,7 @@ local view_mod = require("jlog.ui.view")
 ---@field augroup integer
 ---@field generation integer bumped per apply; stale chunked applies stop
 ---@field fields_seen table<string, boolean>
+---@field published {names: integer, at: number} fields the sidebar shows from the current counter, and when
 ---@field closed boolean|nil
 ---@field size integer bytes of the file read so far (path sources)
 ---@field complete boolean the bytes read so far end on a newline
@@ -55,14 +56,15 @@ local HEAD_LIMIT = 65536
 local SYNC_LIMIT = 20000
 -- entries scanned between checks of the tick's time budget
 local SCAN_BATCH = 500
--- a chunked loop yields to the event loop after this much work, keeping every tick within ~16ms
-local TICK_NS = 12e6
 local DEBOUNCE_MS = 200
 local TAIL_CHECK = 256
 local POLL_MS = 500
 
 -- jsonl lines parsed before the first screen, and later between checks of the tick's time budget
 M.load_sizes = { first = 2000, chunk = 500 }
+-- tick_ns: a chunked loop yields to the event loop after this much work, keeping every tick within ~16ms;
+-- publish_ns: the sidebar shows newly found fields at most this often while a load or apply runs
+M.timing = { tick_ns = 12e6, publish_ns = 250e6 }
 
 ---@type table<string, JLogWorkspace>
 local registry = {}
@@ -230,12 +232,34 @@ local function publish_facets(ws, counter)
   for _, facet in ipairs(ws.sidebar.facets) do
     ws.fields_seen[facet.name] = true
   end
+  ws.published.names = #counter.names
+end
+
+---While a load or apply runs: show the fields counted so far once new ones appear, at most every
+---`timing.publish_ns`. A sidebar with unsaved FILTERS/GROUP BY edits keeps them.
+---@param ws JLogWorkspace
+---@param counter JLogFacetCounter
+---@param progress string
+local function publish_partial(ws, counter, progress)
+  local now = vim.uv.hrtime()
+
+  -- a counter only gains names, so a count above the published one means new fields
+  if #counter.names <= ws.published.names or now - ws.published.at < M.timing.publish_ns then
+    return
+  end
+  if not window_in_tab(ws, ws.sidebar.bufnr) or vim.bo[ws.sidebar.bufnr].modified then
+    return
+  end
+  ws.published.at = now
+  publish_facets(ws, counter)
+  ws.sidebar:render(progress)
 end
 
 ---Filter, count facets (when the sidebar is shown), group, then render view, sidebar and winbar.
 ---More than 20000 entries are scanned in chunks across event-loop ticks; a newer apply supersedes this one.
 ---@param on_done fun()|nil called once the view has rendered
-Workspace.apply = function(self, on_done)
+---@param counted JLogFacetCounter|nil facets of every entry, counted while loading; used when no filter applies
+Workspace.apply = function(self, on_done, counted)
   local generation = self.generation + 1
   local entries, opts, state = self.entries, self.opts, self.state
   local count = #entries
@@ -248,9 +272,9 @@ Workspace.apply = function(self, on_done)
   local pred, errors, invalid
   local entry, decoded, decoded_done
   local next_index = 1
+  local prefilled, collected
 
   self.generation = generation
-  self.counter = counter
   for _, name in ipairs(group.SUMMARY_FIELDS) do
     summary_values[name] = {}
   end
@@ -261,6 +285,15 @@ Workspace.apply = function(self, on_done)
   pred, errors = filter.compile(lines)
   state.filters, invalid = split_invalid(lines, errors)
   self.sidebar:set_errors(invalid)
+  -- every entry matches, so the load's counts are this apply's counts
+  prefilled = counter and counted and #state.filters == 0
+  if prefilled then
+    counter = counted
+  elseif counter then
+    -- a fresh counter: its first fields are new to the sidebar
+    self.published.names = 0
+  end
+  self.counter = counter
 
   -- each entry is decoded at most once per apply, and only when a filter, group or facet needs it
   local function current_decoded()
@@ -283,7 +316,7 @@ Workspace.apply = function(self, on_done)
       ctx.raw = entry_model.key(entry)
       if pred(ctx) then
         matched[index] = true
-        if counter then
+        if counter and not prefilled then
           facets.add(counter, entry_model.flatten(entry, current_decoded()))
         end
       end
@@ -328,7 +361,7 @@ Workspace.apply = function(self, on_done)
   end
 
   local function step()
-    local deadline = vim.uv.hrtime() + TICK_NS
+    local deadline = vim.uv.hrtime() + M.timing.tick_ns
     local last
 
     if self.generation ~= generation or self.closed then
@@ -339,7 +372,15 @@ Workspace.apply = function(self, on_done)
       scan(next_index, last)
       next_index = last + 1
     until next_index > count or vim.uv.hrtime() >= deadline
-    if next_index > count then
+    -- the collector's pending work would otherwise land on finish's allocations (group.build, the render) in one
+    -- long tick: let it finish its cycle in time-boxed steps first
+    if next_index > count and not collected then
+      repeat
+        -- selene: allow(incorrect_standard_library_use)
+        collected = collectgarbage("step", 0)
+      until collected or vim.uv.hrtime() >= deadline
+    end
+    if next_index > count and collected then
       -- grouping and the first render get a tick of their own
       vim.defer_fn(function()
         if self.generation == generation and not self.closed then
@@ -350,6 +391,9 @@ Workspace.apply = function(self, on_done)
       return
     end
     self.view:set_winbar("jlog · applying " .. math.floor(last * 100 / count) .. "%")
+    if counter and not prefilled then
+      publish_partial(self, counter, "applying " .. math.floor(last * 100 / count) .. "%")
+    end
     -- a timer, not vim.schedule: chained scheduled callbacks run back to back without handling input or redraw
     vim.defer_fn(step, 0)
   end
@@ -581,22 +625,32 @@ end
 ---@param pos integer byte position of the next unparsed line
 ---@param lnum integer source line number of that line
 ---@param on_done fun(entries: JLogEntry[])
-local function load_rest(ws, entries, text, pos, lnum, on_done)
-  local deadline = vim.uv.hrtime() + TICK_NS
-  local lines
+---@param counter JLogFacetCounter|nil counts the facets of the loaded JSON entries, from the load's own decode
+local function load_rest(ws, entries, text, pos, lnum, on_done, counter)
+  local deadline = vim.uv.hrtime() + M.timing.tick_ns
+  local lines, progress
+  local count_facets = counter
+    and function(entry, decoded)
+      facets.add(counter, entry_model.flatten(entry, decoded))
+    end
 
   if ws.closed then
     return
   end
   repeat
     lines, pos = take_lines(text, pos, M.load_sizes.chunk)
-    source.append_lines(entries, lines, lnum)
+    source.append_lines(entries, lines, lnum, count_facets)
     lnum = lnum + #lines
   until pos > #text or vim.uv.hrtime() >= deadline
   if pos <= #text then
-    ws.view:set_winbar("jlog · loading " .. math.floor(pos * 100 / #text) .. "%")
+    progress = "loading " .. math.floor(pos * 100 / #text) .. "%"
+    ws.view:set_winbar("jlog · " .. progress)
+    -- with a filter set, the sidebar shows the filtered counts of the last apply instead
+    if counter and #ws.state.filters == 0 then
+      publish_partial(ws, counter, progress)
+    end
     vim.defer_fn(function()
-      load_rest(ws, entries, text, pos, lnum, on_done)
+      load_rest(ws, entries, text, pos, lnum, on_done, counter)
     end, 0)
 
     return
@@ -853,6 +907,7 @@ M.open = function(target)
   local existing = registry[key]
   local text, format, entries, err, ws
   local pos, lnum, lines
+  local counter
 
   if existing and vim.api.nvim_tabpage_is_valid(existing.tab) then
     vim.api.nvim_set_current_tabpage(existing.tab)
@@ -895,6 +950,7 @@ M.open = function(target)
     rendered = 0,
     timer = vim.uv.new_timer(),
     fields_seen = {},
+    published = { names = 0, at = 0 },
     state = {
       filters = {},
       group = nil,
@@ -936,11 +992,13 @@ M.open = function(target)
   end
   ws:apply()
   if pos and pos <= #text then
+    -- the first slice's apply matched every entry, so its counts go on with the rest of the load
+    counter = ws.counter
     ws.loading = true
     vim.defer_fn(function()
       load_rest(ws, ws.entries, text, pos, lnum, function()
-        ws:apply()
-      end)
+        ws:apply(nil, counter)
+      end, counter)
     end, 0)
   end
 

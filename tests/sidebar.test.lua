@@ -159,6 +159,24 @@ describe("sidebar", function()
     assert.are.equal("level=ERROR", vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 1, 2, false)[1])
   end)
 
+  it("should keep the cursor on the same field when new fields are rendered above it", function()
+    local buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { '{"msg":"a","path":"/x"}', '{"msg":"b","path":"/y"}' })
+    ws = assert(require("jlog.workspace").open({ bufnr = buf }))
+    assert.is_truthy(vim.wait(2000, function()
+      return ws.rendered == ws.generation
+    end, 10))
+    ws.sidebar:expand_field("path")
+    ws.sidebar:cursor_to_value("path", "/y")
+    table.insert(
+      ws.sidebar.facets,
+      1,
+      { name = "aaa", distinct = 1, capped = false, top = { { value = "1", count = 2 } } }
+    )
+    ws.sidebar:render("loading 50%")
+    assert.are.same({ name = "path", value = "/y" }, ws.sidebar:row_at_cursor())
+  end)
+
   it("should set the group from a field name", function()
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/loki.json", ":p") })
     ws.sidebar:cursor_to_value("request_id")

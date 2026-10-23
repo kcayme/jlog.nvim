@@ -156,13 +156,38 @@ Sidebar.row_at_cursor = function(self)
   return self.rows[vim.api.nvim_win_get_cursor(0)[1]]
 end
 
----Rewrite the buffer from the workspace state and the last facets. Edits inside FIELDS are discarded.
-Sidebar.render = function(self)
+---The FIELDS row showing `anchor`'s value, else its field line.
+---@param rows table<integer, JLogSidebarRow>
+---@param anchor JLogSidebarRow
+---@return integer|nil
+local function find_row(rows, anchor)
+  local field_row
+
+  for row, target in pairs(rows) do
+    if target.name == anchor.name and target.value == anchor.value then
+      return row
+    end
+    if target.name == anchor.name and not target.value then
+      field_row = row
+    end
+  end
+
+  return field_row
+end
+
+---Rewrite the buffer from the workspace state and the last facets. Edits inside FIELDS are discarded; a cursor
+---in FIELDS stays on its field or value.
+---@param progress string|nil shown after the FIELDS header while the counts are partial
+Sidebar.render = function(self, progress)
   local state = self.ws.state
   local lines = { HEADERS.filters }
   local highlights = {}
   local diagnostics = {}
   local width = text_width(self)
+  local winid = vim.fn.bufwinid(self.bufnr)
+  local cursor = winid ~= -1 and vim.api.nvim_win_get_cursor(winid)
+  local anchor = cursor and self.rows[cursor[1]]
+  local fields_row, anchor_row
 
   self.width = width
   self.rows = {}
@@ -177,11 +202,16 @@ Sidebar.render = function(self)
     lines[#lines + 1] = state.group
   end
   vim.list_extend(lines, { "", HEADERS.fields })
+  fields_row = #lines
   add_fields(self, lines, highlights, width)
 
   vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, lines)
   vim.bo[self.bufnr].modified = false
   vim.diagnostic.set(ns, self.bufnr, diagnostics)
+  anchor_row = anchor and find_row(self.rows, anchor)
+  if anchor_row then
+    vim.api.nvim_win_set_cursor(winid, { anchor_row, cursor[2] })
+  end
 
   vim.api.nvim_buf_clear_namespace(self.bufnr, hl_ns, 0, -1)
   for row, line in ipairs(lines) do
@@ -193,6 +223,11 @@ Sidebar.render = function(self)
     vim.api.nvim_buf_set_extmark(self.bufnr, hl_ns, hl[1], hl[2], {
       end_col = hl[3] == -1 and #lines[hl[1] + 1] or hl[3],
       hl_group = hl[4],
+    })
+  end
+  if progress then
+    vim.api.nvim_buf_set_extmark(self.bufnr, hl_ns, fields_row - 1, 0, {
+      virt_text = { { "  " .. progress, "JLogFieldCount" } },
     })
   end
 end

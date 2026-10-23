@@ -35,7 +35,7 @@ Open a log file and run `:JLog` in its buffer, or run `:JLog {path}`. jlog never
 
 The view reloads automatically when the file changes: appended lines are streamed in, and atomic saves (write to a
 temp file, then rename) are followed. Large JSONL files show the first screen immediately and finish loading in the
-background.
+background; meanwhile FIELDS adds newly found fields as they appear, marked `loading N%` until the counts are final.
 
 ### Commands
 

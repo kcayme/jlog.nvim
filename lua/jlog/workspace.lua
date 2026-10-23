@@ -35,6 +35,14 @@ local view_mod = require("jlog.ui.view")
 ---@field generation integer bumped per apply; stale chunked applies stop
 ---@field fields_seen table<string, boolean>
 ---@field closed boolean|nil
+---@field size integer bytes of the file read so far (path sources)
+---@field complete boolean the bytes read so far end on a newline
+---@field check string last bytes read, to detect a rewritten file
+---@field next_lnum integer source line number of the next appended line
+---@field counter JLogFacetCounter|nil facet counts of the last apply
+---@field rendered integer generation of the last apply that finished rendering
+---@field watcher uv.uv_fs_event_t|nil
+---@field timer uv.uv_timer_t|nil debounces reloads
 local Workspace = {}
 Workspace.__index = Workspace
 
@@ -43,6 +51,8 @@ local M = {}
 local HEAD_LIMIT = 65536
 local SYNC_LIMIT = 20000
 local CHUNK_SIZE = 5000
+local DEBOUNCE_MS = 200
+local TAIL_CHECK = 256
 
 ---@type table<string, JLogWorkspace>
 local registry = {}
@@ -203,6 +213,15 @@ local function winbar_text(ws, shown)
   return table.concat(parts, " · ")
 end
 
+---@param ws JLogWorkspace
+---@param counter JLogFacetCounter
+local function publish_facets(ws, counter)
+  ws.sidebar.facets = facets.result(counter, ws.opts.facets.top_values)
+  for _, facet in ipairs(ws.sidebar.facets) do
+    ws.fields_seen[facet.name] = true
+  end
+end
+
 ---Filter, count facets (when the sidebar is shown), group, then render view, sidebar and winbar.
 ---More than 20000 entries are scanned in chunks across event-loop ticks; a newer apply supersedes this one.
 ---@param on_done fun()|nil called once the view has rendered
@@ -220,6 +239,7 @@ Workspace.apply = function(self, on_done)
   local next_index = 1
 
   self.generation = generation
+  self.counter = counter
   -- lines that failed before stay pending until edited, so re-validate them with the rest
   for _, err in ipairs(self.sidebar.errors) do
     lines[#lines + 1] = err.text
@@ -279,14 +299,12 @@ Workspace.apply = function(self, on_done)
     })
 
     if counter then
-      self.sidebar.facets = facets.result(counter, opts.facets.top_values)
-      for _, facet in ipairs(self.sidebar.facets) do
-        self.fields_seen[facet.name] = true
-      end
+      publish_facets(self, counter)
     end
     self.view:set_winbar(winbar_text(self, shown))
     self.sidebar:render()
     self.view:render(items, function()
+      self.rendered = generation
       if cursor_entry then
         self.view:goto_entry(cursor_entry)
       end
@@ -369,6 +387,238 @@ Workspace.toggle_sidebar = function(self)
   pcall(vim.api.nvim_win_close, winid, false)
 end
 
+---@param ws JLogWorkspace
+---@param text string
+local function snapshot(ws, text)
+  local newlines, pos = 0, 0
+
+  ws.size = #text
+  ws.complete = text == "" or text:sub(-1) == "\n"
+  ws.check = text:sub(-TAIL_CHECK)
+  while true do
+    pos = text:find("\n", pos + 1, true)
+    if not pos then
+      break
+    end
+    newlines = newlines + 1
+  end
+  ws.next_lnum = newlines + 1
+end
+
+---The complete new lines of a jsonl file that only grew, or nil when it must be rebuilt. A partial last line
+---stays unread until it is completed.
+---@param ws JLogWorkspace
+---@return string|nil
+local function read_appended(ws)
+  local fd = vim.uv.fs_open(ws.path, "r", 438)
+  local stat, check_len, tail, last_newline
+
+  if not fd then
+    return nil
+  end
+  stat = vim.uv.fs_fstat(fd)
+  if stat and stat.size > ws.size and ws.complete then
+    check_len = math.min(TAIL_CHECK, ws.size)
+    if vim.uv.fs_read(fd, check_len, ws.size - check_len) == ws.check then
+      tail = vim.uv.fs_read(fd, stat.size - ws.size, ws.size)
+    end
+  end
+  vim.uv.fs_close(fd)
+  if not tail then
+    return nil
+  end
+  last_newline = tail:match(".*()\n")
+
+  return last_newline and tail:sub(1, last_newline) or ""
+end
+
+---Show the new entries `from..` in a flat view without a full apply. Returns false when an apply is needed.
+---@param ws JLogWorkspace
+---@param old_count integer entry count before the append
+---@param old_key string|nil key of the last old entry before the append
+---@return boolean
+local function extend_view(ws, old_count, old_key)
+  local entries, view, counter = ws.entries, ws.view, ws.counter
+  local pred = filter.compile(ws.state.filters)
+  local changed = old_key ~= nil and entry_model.key(entries[old_count]) ~= old_key
+  local indexes = {}
+  local refresh, entry, decoded, shown, matches
+  local ctx = {
+    get = function(path)
+      return entry_model.get(entry, decoded, path, ws.opts)
+    end,
+  }
+
+  for index = changed and old_count or old_count + 1, #entries do
+    entry = entries[index]
+    decoded = entry_model.decode(entry)
+    ctx.raw = entry_model.key(entry)
+    matches = pred(ctx)
+    shown = view.entry_item[index] ~= nil
+    if shown and not matches then
+      return false
+    end
+    if shown then
+      refresh = index
+    elseif matches then
+      indexes[#indexes + 1] = index
+    end
+    if matches and counter and index > old_count then
+      facets.add(counter, entry_model.flatten(entry, decoded))
+    end
+  end
+
+  view:append(indexes, refresh)
+  view:set_winbar(winbar_text(ws, #view.items))
+  if counter then
+    publish_facets(ws, counter)
+    ws.sidebar:render()
+  end
+
+  return true
+end
+
+---@param view JLogView
+---@param index integer entry index to land on, or the nearest one that is shown
+local function goto_nearest(view, index)
+  for distance = 0, #view.ws.entries do
+    for _, candidate in ipairs({ index - distance, index + distance }) do
+      if view.entry_item[candidate] then
+        view:goto_entry(candidate)
+
+        return
+      end
+    end
+  end
+end
+
+---Swap in rebuilt entries, keeping state: expanded entries and the cursor entry are found again by key.
+---@param ws JLogWorkspace
+---@param entries JLogEntry[]
+local function replace_entries(ws, entries)
+  local old, state = ws.entries, ws.state
+  local cursor = ws.view:entry_at_cursor()
+  local cursor_key = cursor and entry_model.key(old[cursor])
+  local new_index, expanded = {}, {}
+  local entry_key, target
+
+  if cursor_key or next(state.expanded) then
+    for index, entry in ipairs(entries) do
+      entry_key = entry_model.key(entry)
+      new_index[entry_key] = new_index[entry_key] or index
+    end
+  end
+  for index in pairs(state.expanded) do
+    target = new_index[entry_model.key(old[index])]
+    if target then
+      expanded[target] = true
+    end
+  end
+  state.expanded = expanded
+  ws.entries = entries
+  cursor = cursor_key and new_index[cursor_key] or cursor
+  ws:apply(function()
+    if cursor then
+      goto_nearest(ws.view, cursor)
+    end
+  end)
+end
+
+---Pick up changes to the source: a grown jsonl file only parses its new lines; anything else is rebuilt.
+Workspace.reload = function(self)
+  local tail, old_count, old_key, text, entries, err
+
+  if self.closed then
+    return
+  end
+  tail = self.path and self.format == "jsonl" and read_appended(self) or nil
+  if tail then
+    old_count = #self.entries
+    old_key = old_count > 0 and entry_model.key(self.entries[old_count]) or nil
+    source.append_lines(self.entries, vim.split(tail:sub(1, -2), "\n", { plain = true }), self.next_lnum)
+    self.size = self.size + #tail
+    self.check = (self.check .. tail):sub(-TAIL_CHECK)
+    self.next_lnum = self.next_lnum + select(2, tail:gsub("\n", ""))
+    if tail == "" then
+      return
+    end
+    if
+      self.state.group
+      or self.state.reverse
+      or self.rendered ~= self.generation
+      or not extend_view(self, old_count, old_key)
+    then
+      self:apply()
+    end
+
+    return
+  end
+
+  text, err = read_source(self.path, self.bufnr)
+  if err then
+    return
+  end
+  entries, err = source.build(text, self.format)
+  if err then
+    return
+  end
+  if self.path then
+    snapshot(self, text)
+  end
+  replace_entries(self, entries)
+end
+
+---@param ws JLogWorkspace
+local function debounce(ws)
+  ws.timer:stop()
+  ws.timer:start(
+    DEBOUNCE_MS,
+    0,
+    vim.schedule_wrap(function()
+      ws:reload()
+    end)
+  )
+end
+
+---@param ws JLogWorkspace
+local function watch_file(ws)
+  local function on_event(_, _, events)
+    if ws.closed then
+      return
+    end
+    -- an atomic save replaces the file: the handle still watches the old one
+    if events and events.rename then
+      ws.watcher:stop()
+      if vim.uv.fs_stat(ws.path) then
+        ws.watcher:start(ws.path, {}, vim.schedule_wrap(on_event))
+      end
+    end
+    debounce(ws)
+  end
+
+  ws.watcher = vim.uv.new_fs_event()
+  ws.watcher:start(ws.path, {}, vim.schedule_wrap(on_event))
+end
+
+---@param ws JLogWorkspace
+local function watch_buffer(ws)
+  vim.api.nvim_buf_attach(ws.bufnr, false, {
+    on_lines = function()
+      if ws.closed then
+        return true
+      end
+      debounce(ws)
+    end,
+  })
+  vim.api.nvim_create_autocmd("BufWritePost", {
+    group = ws.augroup,
+    buffer = ws.bufnr,
+    callback = function()
+      debounce(ws)
+    end,
+  })
+end
+
 ---Close the workspace tab, wipe its buffers and forget it. Also runs when its tab is closed some other way.
 Workspace.close = function(self)
   if self.closed then
@@ -377,6 +627,10 @@ Workspace.close = function(self)
   self.closed = true
   registry[self.key] = nil
   pcall(vim.api.nvim_del_augroup_by_id, self.augroup)
+  for _, handle in ipairs({ self.timer, self.watcher }) do
+    handle:stop()
+    handle:close()
+  end
 
   if vim.api.nvim_buf_is_valid(self.sidebar.bufnr) then
     vim.bo[self.sidebar.bufnr].modified = false
@@ -488,6 +742,8 @@ M.open = function(target)
     entries = entries,
     opts = opts,
     generation = 0,
+    rendered = 0,
+    timer = vim.uv.new_timer(),
     fields_seen = {},
     state = {
       filters = {},
@@ -512,6 +768,12 @@ M.open = function(target)
       end
     end,
   })
+  if path then
+    snapshot(ws, text)
+    watch_file(ws)
+  else
+    watch_buffer(ws)
+  end
   ws:apply()
 
   return ws

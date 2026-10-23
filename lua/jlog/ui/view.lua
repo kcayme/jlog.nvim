@@ -259,6 +259,33 @@ View.render = function(self, items, on_done)
   vim.schedule(step)
 end
 
+---Extend a flat (ungrouped, unreversed) view in place with entries `indexes`; `refresh` is an already shown
+---last entry whose lines changed.
+---@param indexes integer[]
+---@param refresh integer|nil
+View.append = function(self, indexes, refresh)
+  local items, line_item = self.items, self.line_item
+  local first = #items + 1
+  local item_index, first_line, lines
+
+  if refresh then
+    item_index = self.entry_item[refresh]
+    first_line = self.item_line[item_index]
+    lines = item_lines(self, items[item_index], true)
+    write_lines(self, first_line - 1, -1, lines)
+    for line = first_line, math.max(#line_item, first_line + #lines - 1) do
+      line_item[line] = line <= first_line + #lines - 1 and item_index or nil
+    end
+  end
+  for _, index in ipairs(indexes) do
+    items[#items + 1] = { kind = "entry", idx = index }
+  end
+  if #items >= first then
+    -- an empty view still holds one blank line
+    append_items(self, first, #items, #line_item == 0)
+  end
+end
+
 ---@return integer|nil entry index under the cursor
 View.entry_at_cursor = function(self)
   local item_index = item_at_cursor(self)

@@ -7,6 +7,8 @@ local config = require("jlog.config")
 
 local RUNS = 5
 local DATA_DIR = "bench/data"
+-- every input kind runs at the same sizes as tests/perf.test.lua
+local SIZES = { 10000, 100000, 500000 }
 local opts = config.options
 local has_jq = vim.fn.executable("jq") == 1
 local rows = {}
@@ -183,13 +185,15 @@ local function bench_loki(size)
 end
 
 vim.fn.mkdir(DATA_DIR, "p")
-require("jlog").setup({ auto_open = { enable = false } })
+require("jlog").setup()
 opts = config.options
 
-for _, size in ipairs({ 10000, 100000, 500000 }) do
+for _, size in ipairs(SIZES) do
   bench_jsonl(size)
 end
-bench_loki(5000)
+for _, size in ipairs(SIZES) do
+  bench_loki(size)
+end
 
 local out = {
   "# jlog benchmark",
@@ -206,7 +210,15 @@ local out = {
 }
 
 for _, row in ipairs(rows) do
-  out[#out + 1] = "| " .. table.concat(row, " | ") .. " |"
+  -- a `|` inside a cell (the jq loki filter) would split the Markdown table
+  out[#out + 1] = "| "
+    .. table.concat(
+      vim.tbl_map(function(cell)
+        return (tostring(cell):gsub("|", "\\|"))
+      end, row),
+      " | "
+    )
+    .. " |"
 end
 out[#out + 1] = ""
 out[#out + 1] = "jq does not build jlog's entry model or continuation lines."

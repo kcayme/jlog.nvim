@@ -2,17 +2,18 @@ local M = {}
 
 ---@class JLogHighlightGroup
 ---@field name string highlight group name
----@field link string group it links to by default
+---@field link string group it links to by default; a badge takes its color from it instead
+---@field badge boolean|nil drawn reversed: the link's color as the background
 
 ---Highlight groups and their default links (spec §6.3), in definition order.
 ---@type JLogHighlightGroup[]
 M.GROUPS = {
   { name = "JLogTime", link = "Comment" },
-  { name = "JLogLevelError", link = "DiagnosticError" },
-  { name = "JLogLevelWarn", link = "DiagnosticWarn" },
-  { name = "JLogLevelInfo", link = "DiagnosticInfo" },
-  { name = "JLogLevelDebug", link = "DiagnosticHint" },
-  { name = "JLogLevelTrace", link = "Comment" },
+  { name = "JLogLevelError", badge = true, link = "DiagnosticError" },
+  { name = "JLogLevelWarn", badge = true, link = "DiagnosticWarn" },
+  { name = "JLogLevelInfo", badge = true, link = "DiagnosticInfo" },
+  { name = "JLogLevelDebug", badge = true, link = "DiagnosticHint" },
+  { name = "JLogLevelTrace", badge = true, link = "Comment" },
   { name = "JLogMessage", link = "Normal" },
   { name = "JLogKey", link = "Identifier" },
   { name = "JLogValue", link = "String" },
@@ -29,10 +30,23 @@ M.GROUPS = {
   { name = "JLogWinbar", link = "WinBar" },
 }
 
----Define every `JLog*` group as a default link, so user and colorscheme definitions win.
+---The badge style of `group`, or nil when its link has no color to reverse.
+---@param group JLogHighlightGroup
+---@return vim.api.keyset.highlight|nil
+local function badge(group)
+  local colors = vim.api.nvim_get_hl(0, { name = group.link, link = false })
+
+  if not colors.fg and not colors.ctermfg then
+    return nil
+  end
+
+  return { fg = colors.fg, ctermfg = colors.ctermfg, reverse = true, bold = true, default = true }
+end
+
+---Define every `JLog*` group by default only, so user and colorscheme definitions win.
 M.setup = function()
   for _, group in ipairs(M.GROUPS) do
-    vim.api.nvim_set_hl(0, group.name, { link = group.link, default = true })
+    vim.api.nvim_set_hl(0, group.name, group.badge and badge(group) or { link = group.link, default = true })
   end
 end
 

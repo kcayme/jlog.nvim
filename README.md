@@ -137,17 +137,18 @@ See [docs/options.md](docs/options.md) for every option.
 
 ## Highlight groups
 
-All groups are defined with `default = true` and re-applied on `ColorScheme`; override them with
+All groups are defined with `default = true` and re-applied on `ColorScheme`. Level groups are badges: the
+linked group's color, reversed and bold, so the level reads as a colored label in compact lines. Override them with
 `vim.api.nvim_set_hl(0, "JLogLevelError", { ... })` or `:hi`.
 
 | Group | Used for | Default link |
 |-------|----------|--------------|
 | `JLogTime` | timestamp in compact lines | `Comment` |
-| `JLogLevelError` | ERROR / FATAL / PANIC | `DiagnosticError` |
-| `JLogLevelWarn` | WARN / WARNING | `DiagnosticWarn` |
-| `JLogLevelInfo` | INFO | `DiagnosticInfo` |
-| `JLogLevelDebug` | DEBUG | `DiagnosticHint` |
-| `JLogLevelTrace` | TRACE and unknown levels | `Comment` |
+| `JLogLevelError` | ERROR / FATAL / PANIC | badge: `DiagnosticError` color as background |
+| `JLogLevelWarn` | WARN / WARNING | badge: `DiagnosticWarn` color as background |
+| `JLogLevelInfo` | INFO | badge: `DiagnosticInfo` color as background |
+| `JLogLevelDebug` | DEBUG | badge: `DiagnosticHint` color as background |
+| `JLogLevelTrace` | TRACE and unknown levels | badge: `Comment` color as background |
 | `JLogMessage` | message text | `Normal` |
 | `JLogKey` | `key=` in compact, object keys in expanded | `Identifier` |
 | `JLogValue` | compact values | `String` |

@@ -62,6 +62,8 @@ local field_groups = {}
 local field_count = 0
 ---@type table<string, string> color group -> its badge group, cleared by setup so a colorscheme change rebuilds them
 local badge_groups = {}
+---@type table<string, string> badge group -> its cap group, cleared by setup like `badge_groups`
+local cap_groups = {}
 
 ---The badge style of the color group `name`, or nil when it has no color to reverse.
 ---@param name string
@@ -88,6 +90,30 @@ M.badge_of = function(color_group)
   name = "JLogBadge" .. color_group
   vim.api.nvim_set_hl(0, name, badge(color_group) or { reverse = true, bold = true, default = true })
   badge_groups[color_group] = name
+
+  return name
+end
+
+---The fg-only group drawing a pill's caps in the color `group` shows as its background, defined on first use.
+---@param group string
+---@return string
+M.cap_of = function(group)
+  local name = cap_groups[group]
+  local colors, fg, ctermfg
+
+  if name then
+    return name
+  end
+  name = "JLogCap" .. group
+  colors = vim.api.nvim_get_hl(0, { name = group, link = false })
+  fg = colors.reverse and colors.fg or colors.bg
+  ctermfg = colors.reverse and colors.ctermfg or colors.ctermbg
+  if fg or ctermfg then
+    vim.api.nvim_set_hl(0, name, { fg = fg, ctermfg = ctermfg })
+  else
+    vim.api.nvim_set_hl(0, name, { link = M.link_of(group) or group })
+  end
+  cap_groups[group] = name
 
   return name
 end
@@ -153,7 +179,7 @@ end
 M.setup = function()
   local links
 
-  badge_groups = {}
+  badge_groups, cap_groups = {}, {}
   for _, group in ipairs(M.GROUPS) do
     vim.api.nvim_set_hl(0, group.name, group.badge and badge(group.link) or { link = group.link, default = true })
   end

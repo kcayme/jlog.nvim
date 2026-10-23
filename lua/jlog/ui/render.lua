@@ -323,7 +323,12 @@ local function push_styled(line, key, role, value, role_group)
 
     return
   end
-  body = (not text and role == "level") and role_group or highlights.badge_of(color)
+  if role == "level" and type(format_group) ~= "string" then
+    add_span(line, start_col, line.col, role_group, style == "pill" and highlights.cap_of(role_group) or nil)
+
+    return
+  end
+  body = highlights.badge_of(color)
   add_span(line, start_col, line.col, body, style == "pill" and color or nil)
 end
 
@@ -470,6 +475,15 @@ local function push_ordered(line, entry, node, time_slot, level_index, message_i
   local slots, ranked = scratch_slots, scratch_ranked
   local rank, index, status_index, role
 
+  -- an error escaping a previous line can leave them dirty
+  if next(slots) or next(ranked) then
+    for slot in pairs(slots) do
+      slots[slot] = nil
+    end
+    for slot in pairs(ranked) do
+      ranked[slot] = nil
+    end
+  end
   for key_index = 1, #keys do
     rank = rank_of[keys[key_index]]
     if rank and not slots[rank] then

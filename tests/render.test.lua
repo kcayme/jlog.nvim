@@ -303,7 +303,36 @@ describe("compact styles", function()
     assert.are.equal("INFO  m", lines[1])
     assert.are.equal(0, spans[1][1][1])
     assert.are.equal(4, spans[1][1][2])
-    assert.are.equal("DiagnosticInfo", spans[1][1][4])
+    assert.are.equal("JLogLevelInfo", spans[1][1][3])
+    assert.are.equal(highlights.cap_of("JLogLevelInfo"), spans[1][1][4])
+  end)
+
+  it("should draw a level pill's caps in the user's level color", function()
+    local _, spans
+
+    vim.api.nvim_set_hl(0, "JLogLevelError", { fg = "#123456", reverse = true })
+    highlights.setup()
+    _, spans = render.compact(one('{"level":"error","msg":"m"}'), styled({ fields = { level = { style = "pill" } } }))
+    vim.api.nvim_set_hl(0, "JLogLevelError", {})
+    highlights.setup()
+
+    assert.are.equal("JLogLevelError", spans[1][1][3])
+    assert.are.equal(0x123456, vim.api.nvim_get_hl(0, { name = spans[1][1][4], link = false }).fg)
+  end)
+
+  it("should color a plain field by its key when a format returns an invalid group", function()
+    local notify = vim.notify
+    local format = function(ctx)
+      return ctx.value, "Bad Group"
+    end
+    local ok, _, spans
+
+    vim.notify = function() end
+    ok, _, spans = pcall(render.compact, one('{"a":1}'), styled({ fields = { a = { format = format } } }))
+    vim.notify = notify
+
+    assert.is_true(ok)
+    assert.are.same({ { 0, 1, highlights.field_group("a") } }, spans[1])
   end)
 
   it("should fall back to JLogKey's color when field colors are off", function()
@@ -345,6 +374,23 @@ describe("compact order", function()
     local lines = render.compact(one(entry_text), opts)
 
     assert.are.equal("12:50:24.970 ERROR 500 failed  path=/a id=r1", lines[1])
+  end)
+
+  it("should keep the next line's order when a format returns an invalid group", function()
+    local notify = vim.notify
+    local format = function(ctx)
+      return ctx.value, "Bad Group"
+    end
+    local opts = ordered({ order = { "b", "a" }, fields = { b = { style = "pill", format = format } } })
+    local ok, lines
+
+    vim.notify = function() end
+    ok = pcall(render.compact, one('{"a":1,"b":2,"c":3}'), opts)
+    vim.notify = notify
+    lines = render.compact(one('{"x":1,"y":2,"a":5}'), opts, true)
+
+    assert.is_true(ok)
+    assert.are.equal("a=5 x=1 y=2", lines[1])
   end)
 
   it("should ignore dotted names and missing fields, placing duplicates once", function()

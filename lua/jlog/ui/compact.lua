@@ -109,6 +109,10 @@ M.format = function(resolved, key, role, value, entry)
 
     return nil
   end
+  if type(highlight) == "string" and not (highlight:match("^[%w_.@-]+$") and #highlight <= 200) then
+    warn_once(resolved, key, "invalid highlight group " .. highlight)
+    highlight = nil
+  end
 
   return text, highlight
 end

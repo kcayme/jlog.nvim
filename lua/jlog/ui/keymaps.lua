@@ -3,6 +3,104 @@ local M = {}
 ---@alias JLogKeymapScope "view"|"sidebar"|"raw"
 ---@alias JLogKeymapHandler fun(ws: table, bufnr: integer)
 
+---Rows of the key guide: the actions whose keys are shown (or a fixed key) and what they do.
+---@type {title: string, rows: {actions: string[]|nil, key: string|nil, text: string}[]}[]
+local HELP = {
+  {
+    title = "Log view",
+    rows = {
+      { actions = { "toggle_entry" }, text = "expand/collapse the entry" },
+      { actions = { "toggle_mode" }, text = "compact/expanded view" },
+      { actions = { "raw" }, text = "raw text; in it, jump to the source line" },
+      { actions = { "reverse" }, text = "reverse the order" },
+      { actions = { "next_entry", "prev_entry" }, text = "next/previous entry" },
+      { actions = { "next_error", "prev_error" }, text = "next/previous error" },
+      { actions = { "next_page", "prev_page" }, text = "next/previous page" },
+      { actions = { "focus_sidebar" }, text = "focus the sidebar" },
+      { actions = { "toggle_sidebar" }, text = "show/hide the sidebar" },
+      { actions = { "close" }, text = "close" },
+    },
+  },
+  {
+    title = "Sidebar",
+    rows = {
+      { key = ":w", text = "apply FILTERS and GROUP BY" },
+      { actions = { "add_filter" }, text = "on a value: add it as a filter" },
+      { actions = { "group_by" }, text = "on a field: group by it" },
+      { actions = { "help" }, text = "this guide" },
+      { actions = { "close" }, text = "close" },
+    },
+  },
+}
+
+---The guide's lines, with the keys as configured; rows whose keys are all disabled are left out.
+---@param keys JLogKeymapsOptions
+---@return string[]
+local function help_lines(keys)
+  local lines = {}
+  local key
+
+  for index, section in ipairs(HELP) do
+    if index > 1 then
+      lines[#lines + 1] = ""
+    end
+    lines[#lines + 1] = section.title
+    for _, row in ipairs(section.rows) do
+      key = row.key
+        or table.concat(
+          vim.tbl_filter(
+            function(lhs)
+              return lhs ~= false
+            end,
+            vim.tbl_map(function(action)
+              return keys[action]
+            end, row.actions)
+          ),
+          " "
+        )
+      if key ~= "" then
+        lines[#lines + 1] = string.format("  %-8s %s", key, row.text)
+      end
+    end
+  end
+
+  return lines
+end
+
+---Open the key guide in a centered float; `q`, `<Esc>` or the help key closes it.
+---@param ws table workspace
+local function show_help(ws)
+  local lines = help_lines(ws.opts.keymaps)
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  local width = 1
+  local winid
+
+  for _, line in ipairs(lines) do
+    width = math.max(width, vim.fn.strdisplaywidth(line))
+  end
+  width = math.min(width + 2, vim.o.columns - 4)
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  vim.bo[bufnr].bufhidden = "wipe"
+  vim.bo[bufnr].modifiable = false
+  winid = vim.api.nvim_open_win(bufnr, true, {
+    relative = "editor",
+    width = width,
+    height = math.min(#lines, vim.o.lines - 4),
+    row = math.floor((vim.o.lines - #lines) / 2) - 1,
+    col = math.floor((vim.o.columns - width) / 2),
+    style = "minimal",
+    border = "rounded",
+    title = " jlog keys ",
+  })
+  for _, lhs in ipairs({ "q", "<Esc>", ws.opts.keymaps.help }) do
+    if lhs then
+      vim.keymap.set("n", lhs, function()
+        pcall(vim.api.nvim_win_close, winid, true)
+      end, { buffer = bufnr, nowait = true, silent = true })
+    end
+  end
+end
+
 ---Off a facet row, the sidebar keys keep their built-in meaning (`<CR>` moves down, `g` starts `gg`).
 ---@param ws table workspace
 ---@param action string
@@ -72,6 +170,9 @@ local SCOPES = {
       if not ws.sidebar:group_at_cursor() then
         feed_default(ws, "group_by")
       end
+    end,
+    help = function(ws)
+      show_help(ws)
     end,
   },
   raw = {

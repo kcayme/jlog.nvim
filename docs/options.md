@@ -31,3 +31,4 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `keymaps.close` | `string\|false` | `"q"` | Close the workspace (in the sidebar and log view). |
 | `keymaps.add_filter` | `string\|false` | `"<CR>"` | Sidebar: add the field value under the cursor as a filter. |
 | `keymaps.group_by` | `string\|false` | `"g"` | Sidebar: group by the field under the cursor. |
+| `keymaps.help` | `string\|false` | `"?"` | Sidebar: open a guide to the keys; shown in the sidebar's winbar. |

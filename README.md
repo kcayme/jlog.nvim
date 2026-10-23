@@ -90,6 +90,7 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
 | `q` | log view, sidebar | Close the workspace (closes the float in the raw popup) |
 | `<CR>` | sidebar | On a field value, add it as a filter |
 | `g` | sidebar | On a field, group by it |
+| `?` | sidebar | Open a guide to these keys (`(?) Help` in the sidebar's winbar) |
 
 ### Filter syntax
 
@@ -155,6 +156,7 @@ require("jlog").setup({
     close = "q",
     add_filter = "<CR>",
     group_by = "g",
+    help = "?",
   },
 })
 ```

@@ -44,6 +44,7 @@
 ---@field close string|false
 ---@field add_filter string|false
 ---@field group_by string|false
+---@field help string|false
 
 ---@class JLogOptions
 ---@field fields JLogFieldsOptions
@@ -84,6 +85,7 @@ M.defaults = {
     close = "q",
     add_filter = "<CR>",
     group_by = "g",
+    help = "?",
   },
 }
 

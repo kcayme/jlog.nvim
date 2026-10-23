@@ -31,6 +31,10 @@ M.GROUPS = {
   { name = "JLogHint", link = "Comment" },
   { name = "JLogWinbar", link = "WinBar" },
   { name = "JLogOverlap", link = "Comment" },
+  { name = "JLogStatus2xx", link = "DiagnosticOk" },
+  { name = "JLogStatus3xx", link = "DiagnosticInfo" },
+  { name = "JLogStatus4xx", link = "DiagnosticWarn" },
+  { name = "JLogStatus5xx", link = "DiagnosticError" },
 }
 
 M.FIELD_COLORS = 8
@@ -56,18 +60,47 @@ local VALUE_GROUPS = { "JLogValue", "JLogString", "JLogNumber", "JLogBoolean", "
 ---@type table<string, string> field path -> its `JLogField*` group, for the whole session
 local field_groups = {}
 local field_count = 0
+---@type table<string, string> color group -> its badge group, cleared by setup so a colorscheme change rebuilds them
+local badge_groups = {}
 
----The badge style of `group`, or nil when its link has no color to reverse.
----@param group JLogHighlightGroup
+---The badge style of the color group `name`, or nil when it has no color to reverse.
+---@param name string
 ---@return vim.api.keyset.highlight|nil
-local function badge(group)
-  local colors = vim.api.nvim_get_hl(0, { name = group.link, link = false })
+local function badge(name)
+  local colors = vim.api.nvim_get_hl(0, { name = name, link = false })
 
   if not colors.fg and not colors.ctermfg then
     return nil
   end
 
   return { fg = colors.fg, ctermfg = colors.ctermfg, reverse = true, bold = true, default = true }
+end
+
+---The group drawing `color_group`'s color reversed and bold, defined on first use.
+---@param color_group string
+---@return string
+M.badge_of = function(color_group)
+  local name = badge_groups[color_group]
+
+  if name then
+    return name
+  end
+  name = "JLogBadge" .. color_group
+  vim.api.nvim_set_hl(0, name, badge(color_group) or { reverse = true, bold = true, default = true })
+  badge_groups[color_group] = name
+
+  return name
+end
+
+---The default link of the group `name` in `M.GROUPS`.
+---@param name string
+---@return string|nil
+M.link_of = function(name)
+  for _, group in ipairs(M.GROUPS) do
+    if group.name == name then
+      return group.link
+    end
+  end
 end
 
 ---The color group of field `name`: the next `JLogField*` group the first time it is seen, cycling after the last.
@@ -120,8 +153,9 @@ end
 M.setup = function()
   local links
 
+  badge_groups = {}
   for _, group in ipairs(M.GROUPS) do
-    vim.api.nvim_set_hl(0, group.name, group.badge and badge(group) or { link = group.link, default = true })
+    vim.api.nvim_set_hl(0, group.name, group.badge and badge(group.link) or { link = group.link, default = true })
   end
   -- picked after the value groups exist, so their colors are known
   links = field_links()

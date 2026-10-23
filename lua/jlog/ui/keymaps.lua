@@ -1,3 +1,5 @@
+local utils = require("jlog.utils")
+
 local M = {}
 
 ---@alias JLogKeymapScope "view"|"sidebar"|"raw"
@@ -70,28 +72,8 @@ end
 ---Open the key guide in a centered float; `q`, `<Esc>` or the help key closes it.
 ---@param ws table workspace
 local function show_help(ws)
-  local lines = help_lines(ws.opts.keymaps)
-  local bufnr = vim.api.nvim_create_buf(false, true)
-  local width = 1
-  local winid
+  local bufnr, winid = utils.open_float(help_lines(ws.opts.keymaps), "jlog keys")
 
-  for _, line in ipairs(lines) do
-    width = math.max(width, vim.fn.strdisplaywidth(line))
-  end
-  width = math.min(width + 2, vim.o.columns - 4)
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
-  vim.bo[bufnr].bufhidden = "wipe"
-  vim.bo[bufnr].modifiable = false
-  winid = vim.api.nvim_open_win(bufnr, true, {
-    relative = "editor",
-    width = width,
-    height = math.min(#lines, vim.o.lines - 4),
-    row = math.floor((vim.o.lines - #lines) / 2) - 1,
-    col = math.floor((vim.o.columns - width) / 2),
-    style = "minimal",
-    border = "rounded",
-    title = " jlog keys ",
-  })
   for _, lhs in ipairs({ "q", "<Esc>", ws.opts.keymaps.help }) do
     if lhs then
       vim.keymap.set("n", lhs, function()

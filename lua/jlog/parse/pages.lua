@@ -1,4 +1,5 @@
 local json = require("jlog.parse.json")
+local utils = require("jlog.utils")
 
 ---@class JLogPageRange
 ---@field first integer first byte of the page's text, overlap included
@@ -45,12 +46,7 @@ local SNAP_CHECK_EVERY = 64
 
 local find, byte, sub = string.find, string.byte, string.sub
 
----@param text string
----@param pos integer
----@return integer
-local function skip_space(text, pos)
-  return (find(text, "[^ \t\r\n]", pos)) or #text + 1
-end
+local skip_space = utils.skip_space
 
 ---@param text string
 ---@param pos integer

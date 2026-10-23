@@ -1,6 +1,7 @@
 local entry_model = require("jlog.parse.entry")
 local keymaps = require("jlog.ui.keymaps")
 local render = require("jlog.ui.render")
+local utils = require("jlog.utils")
 
 ---@class JLogView
 ---@field bufnr integer
@@ -652,7 +653,7 @@ end
 View.show_raw = function(self)
   local idx = self:entry_at_cursor()
   local entry = idx and self.ws.entries[idx]
-  local lines, width, height, bufnr
+  local lines, bufnr
 
   if not entry then
     return
@@ -660,32 +661,12 @@ View.show_raw = function(self)
 
   lines = vim.split(entry.raw, "\n", { plain = true })
   vim.list_extend(lines, entry.cont or {})
-  width = 1
-  for _, line in ipairs(lines) do
-    width = math.max(width, vim.fn.strdisplaywidth(line))
-  end
-  width = math.min(width, vim.o.columns - 4)
-  height = math.min(#lines, vim.o.lines - 4)
-
-  bufnr = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
-  vim.bo[bufnr].bufhidden = "wipe"
-  vim.bo[bufnr].modifiable = false
+  bufnr = utils.open_float(lines, "raw")
   vim.b[bufnr].jlog_src = entry.src
   if entry.json_at then
     vim.bo[bufnr].filetype = "json"
   end
   keymaps.attach(bufnr, "raw", self.ws)
-  vim.api.nvim_open_win(bufnr, true, {
-    relative = "editor",
-    width = width,
-    height = height,
-    row = math.floor((vim.o.lines - height) / 2) - 1,
-    col = math.floor((vim.o.columns - width) / 2),
-    style = "minimal",
-    border = "rounded",
-    title = " raw ",
-  })
 end
 
 ---@param text string

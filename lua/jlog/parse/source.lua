@@ -1,5 +1,6 @@
 local json = require("jlog.parse.json")
 local pages = require("jlog.parse.pages")
+local utils = require("jlog.utils")
 
 ---@class JLogEntry
 ---@field src integer source line (jsonl) or 1-based element index (loki/array)
@@ -176,12 +177,7 @@ local function element_entry(node, text, index, format)
   return { src = index, raw = raw, body = raw, json_at = node.t == "object" and 1 or nil }
 end
 
----@param text string
----@param pos integer
----@return integer pos first non-whitespace byte at or after `pos`
-local function skip_space(text, pos)
-  return (text:find("[^ \t\r\n]", pos)) or #text + 1
-end
+local skip_space = utils.skip_space
 
 ---@param text string
 ---@param pos integer at the array's closing `]`

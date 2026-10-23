@@ -52,7 +52,7 @@ local function summary(facet)
   return table.concat(parts, "  ")
 end
 
----`field=value`, quoting the value when the filter parser needs it.
+---`field=value`, quoting the value when the filter parser needs it; a newline is written as `\n`.
 ---@param name string
 ---@param value string
 ---@return string
@@ -61,7 +61,7 @@ local function clause(name, value)
     return name .. "=" .. value
   end
 
-  return name .. '="' .. value:gsub('[\\"]', "\\%0") .. '"'
+  return name .. '="' .. value:gsub('[\\"]', "\\%0"):gsub("\n", "\\n") .. '"'
 end
 
 ---@param sidebar JLogSidebar

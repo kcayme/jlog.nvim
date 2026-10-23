@@ -52,6 +52,11 @@ describe("filter", function()
     assert.is_true(match("timeout", row, "upstream timeout after 3s"))
   end)
 
+  it("should read \\n inside a quoted value as a newline", function()
+    assert.is_true(match('msg="a\\nb"', { msg = "a\nb" }))
+    assert.is_false(match('msg="a\\nb"', { msg = "a\\nb" }))
+  end)
+
   it("should report and skip invalid lines", function()
     local pred, errors = filter.compile({ "status>=500", 'msg="unterminated', "path~\\(" })
     assert.are.equal(2, #errors)

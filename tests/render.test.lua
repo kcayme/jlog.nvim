@@ -54,6 +54,11 @@ describe("render.compact", function()
     assert.are.equal("m  body.code=500 body.ok=false", lines[1])
   end)
 
+  it("should escape newlines in keys", function()
+    local lines = render.compact(one('{"msg":"m","a\\nb":1}'), opts)
+    assert.are.equal("m  a\\nb=1", lines[1])
+  end)
+
   it("should show arrays verbatim", function()
     local lines = render.compact(one('{"msg":"m","tags":["a", 1]}'), opts)
     assert.are.equal('m  tags=["a", 1]', lines[1])
@@ -138,6 +143,11 @@ describe("render.header", function()
   it("should summarise a group", function()
     local line = render.header({ label = "3c76a3a2e9", idxs = { 1, 2 }, status = 500, method = "POST", path = "/x" })
     assert.are.equal("▾ 3c76a3a2…  2 entries · 500 · POST /x", line)
+  end)
+
+  it("should escape newlines in the label and the summary parts", function()
+    local line = render.header({ label = "a\nb", idxs = { 1 }, status = "5\n0", method = "GE\nT", path = "/x\ny" })
+    assert.are.equal("▾ a\\nb  1 entry · 5\\n0 · GE\\nT /x\\ny", line)
   end)
 
   it("should omit missing parts and use the singular", function()

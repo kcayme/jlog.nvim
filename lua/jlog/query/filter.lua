@@ -44,7 +44,8 @@ local function split_token(text)
   return neg, field, op, text:sub(op_start + #op)
 end
 
--- Reads one whitespace-delimited term starting at `pos`; a double-quoted value may contain spaces, \" and \\.
+-- Reads one whitespace-delimited term starting at `pos`; a double-quoted value may contain spaces, \", \\ and
+-- \n (a newline).
 -- Returns term, is_or, next_pos or nil, err.
 local function read_term(line, pos)
   local stop = line:find('[%s"]', pos) or #line + 1
@@ -76,6 +77,9 @@ local function read_term(line, pos)
     char = line:sub(idx, idx)
     if char == "\\" and (line:sub(idx + 1, idx + 1) == '"' or line:sub(idx + 1, idx + 1) == "\\") then
       chars[#chars + 1] = line:sub(idx + 1, idx + 1)
+      idx = idx + 2
+    elseif char == "\\" and line:sub(idx + 1, idx + 1) == "n" then
+      chars[#chars + 1] = "\n"
       idx = idx + 2
     elseif char == '"' then
       return { neg = neg, field = field, op = op, value = table.concat(chars) }, false, idx + 1

@@ -92,8 +92,9 @@ One clause per `:JLog filter` call or sidebar `FILTERS` line:
   aliases (e.g. `message`, `severity`). `level` compares case-insensitively.
 - A missing field never matches, so `-term` matches it.
 - Multiple sidebar lines are ANDed.
-- Inside quotes only `\"` and `\\` are escapes; `\\` is one backslash. A quoted `~` regex that needs a literal
-  backslash must therefore write `\\\\`, e.g. `msg~"a\\\\b"` matches `a\b`.
+- Inside quotes only `\"`, `\\` and `\n` are escapes; `\\` is one backslash and `\n` is a newline (a facet value
+  with a newline becomes `field="a\nb"`). A quoted `~` regex that needs a literal backslash must therefore write
+  `\\\\`, e.g. `msg~"a\\\\b"` matches `a\b`.
 - Filtering while grouped keeps whole groups: a group is shown if any of its entries matches.
 
 ## Configuration

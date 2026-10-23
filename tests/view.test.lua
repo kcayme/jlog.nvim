@@ -34,6 +34,22 @@ describe("view", function()
     assert.are.same({ [3] = 1, [2] = 2, [1] = 3 }, v.entry_item)
   end)
 
+  it("should re-render the newest entry in place when it gains continuation lines, then prepend", function()
+    local v = view.new(make_ws('{"msg":"m1"}\n{"msg":"m2"}\n{"msg":"m3"}'))
+    local entries = v.ws.entries
+    local third = table.remove(entries)
+
+    v.ws.state.reverse = true
+    v:render(all({ 2, 1 }))
+    entries[2].cont = { "trace" }
+    entries[3] = third
+    v:prepend({ 3 }, 2)
+    assert.are.same({ "m3", "m2", "trace", "m1" }, vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+    assert.are.same({ 1, 2, 2, 3 }, v.line_item)
+    assert.are.same({ 1, 2, 4 }, v.item_line)
+    assert.are.same({ [3] = 1, [2] = 2, [1] = 3 }, v.entry_item)
+  end)
+
   describe("chunked re-render", function()
     local tick_ns, trim_slice, read_slice = view.tick_ns, view.trim_slice, view.read_slice
     local function lines_of(count)

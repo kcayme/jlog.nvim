@@ -13,6 +13,19 @@ local render = require("jlog.ui.render")
 ---@field generation integer bumped per render; stale chunked renders stop
 ---@field winbar_text string
 ---@field redraw_spans table<integer, JLogSpan[][]> item index -> spans, valid for one redraw only
+---@field rendered_entries JLogEntry[]|nil the entries list the buffer's lines were rendered from
+---@field stream JLogReuseStream|nil while a render reuses the old lines it replaces
+
+---Old lines below a render's new ones, read and deleted from the front; on the view so no closure keeps them alive.
+---@class JLogReuseStream
+---@field line_item integer[] its buffer line -> item index
+---@field item_line integer[] its item index -> first line
+---@field entry_item table<integer, integer> its entry index -> item index
+---@field total integer its line count
+---@field read_to integer old lines read (and deleted) so far
+---@field used_to integer last old line handed out: entries above it can no longer be reused
+---@field window string[] old lines read but not yet handed out
+---@field window_first integer old line number of `window[1]`
 local View = {}
 View.__index = View
 
@@ -24,6 +37,8 @@ M.fold_expr_limit = 50000
 M.tick_ns = 12e6
 -- old lines deleted per call during a render (~4ms per 50k; replacing 500k lines at once costs ~50ms)
 M.trim_slice = 50000
+-- old lines read back at a time while a render reuses them (~2ms per 5k)
+M.read_slice = 5000
 
 -- items built between checks of the tick's time budget (expanded entries are slower, but 64 stay well within it)
 local BATCH = 64
@@ -123,6 +138,63 @@ local function apply_window_options(view, winid)
   end)
 end
 
+---Old lines of `item` at buffer row `row` onward, or nil if it is expanded now, new, or already passed (reordered).
+---@param view JLogView
+---@param item JLogItem
+---@param row integer 0-based buffer row where the old lines start
+---@return string[]|nil
+local function take_old(view, item, row)
+  local stream = view.stream
+  local old_item, first, last, gap, count, kept, lines
+
+  if item.kind ~= "entry" or is_expanded(view, item) then
+    return nil
+  end
+  old_item = stream.entry_item[item.idx]
+  first = old_item and stream.item_line[old_item]
+  if not first or first <= stream.used_to then
+    return nil
+  end
+  -- old lines up to this entry are never needed again: drop them unread, unless too many for one call
+  gap = first - 1 - stream.read_to
+  if gap > M.trim_slice then
+    return nil
+  end
+  if gap > 0 then
+    write_lines(view, row, row + gap, {})
+    stream.read_to, stream.window, stream.window_first = first - 1, {}, first
+  end
+  last = first
+  while stream.line_item[last + 1] == old_item do
+    last = last + 1
+  end
+  -- the window holds old lines window_first..read_to; keep only this entry's onward before reading more
+  if stream.read_to < first then
+    stream.window, stream.window_first = {}, stream.read_to + 1
+  elseif stream.read_to < last and first > stream.window_first then
+    kept = {}
+    for line = first, stream.read_to do
+      kept[#kept + 1] = stream.window[line - stream.window_first + 1]
+    end
+    stream.window, stream.window_first = kept, first
+  end
+  while stream.read_to < last do
+    count = math.min(M.read_slice, stream.total - stream.read_to)
+    for _, text in ipairs(vim.api.nvim_buf_get_lines(view.bufnr, row, row + count, false)) do
+      stream.window[#stream.window + 1] = text
+    end
+    write_lines(view, row, row + count, {})
+    stream.read_to = stream.read_to + count
+  end
+  lines = {}
+  for line = first, last do
+    lines[#lines + 1] = stream.window[line - stream.window_first + 1]
+  end
+  stream.used_to = last
+
+  return lines
+end
+
 ---Build lines for items `first..last` and append them to the buffer, stopping early once `deadline` passes.
 ---@param view JLogView
 ---@param first integer
@@ -136,13 +208,16 @@ local function append_items(view, first, last, replace, deadline, keep_tail)
   local buffer_lines = {}
   local line_count = #line_item
   local done = last
-  local lines, start
+  local start = replace and 0 or #line_item
+  local lines
 
   for item_index = first, last do
-    if deadline and (item_index - first) % BATCH == BATCH - 1 and vim.uv.hrtime() >= deadline then
+    -- a reusing render checks every item: dropping old lines can take a few ms
+    if deadline and (view.stream or (item_index - first) % BATCH == BATCH - 1) and vim.uv.hrtime() >= deadline then
       done = item_index
     end
-    lines = item_lines(view, items[item_index], true)
+    -- the old lines start at `start` until this batch is inserted there
+    lines = view.stream and take_old(view, items[item_index], start) or item_lines(view, items[item_index], true)
     item_line[item_index] = line_count + 1
     if items[item_index].kind == "entry" then
       entry_item[items[item_index].idx] = item_index
@@ -158,7 +233,6 @@ local function append_items(view, first, last, replace, deadline, keep_tail)
       break
     end
   end
-  start = replace and 0 or #line_item - #buffer_lines
   write_lines(view, start, keep_tail and start or -1, buffer_lines)
 
   return done
@@ -279,9 +353,25 @@ View.render = function(self, items, on_done)
   local next_item
 
   self.generation = generation
+  -- reuse the old lines' text when they come from the same entries (a reload that rebuilds them makes a new list)
+  self.stream = self.rendered_entries == self.ws.entries
+      and #self.line_item > 0
+      and {
+        line_item = self.line_item,
+        item_line = self.item_line,
+        entry_item = self.entry_item,
+        total = #self.line_item,
+        read_to = 0,
+        used_to = 0,
+        window = {},
+        window_first = 1,
+      }
+    or nil
+  self.rendered_entries = self.ws.entries
   self.items, self.line_item, self.item_line, self.entry_item, self.first_header = items, {}, {}, {}, nil
 
   local function finish()
+    self.stream = nil
     apply_winbar(self, self.winbar_text)
     for _, winid in ipairs(vim.fn.win_findbuf(self.bufnr)) do
       apply_window_options(self, winid)
@@ -298,13 +388,17 @@ View.render = function(self, items, on_done)
     local deadline = vim.uv.hrtime() + M.tick_ns
     local trimmed
 
-    if not first_tick then
+    -- while reusing, the old lines are read and deleted from the front as entries take them
+    if not first_tick and not self.stream then
       trimmed = trim_stale(self, deadline)
     end
     if next_item <= total then
       next_item = append_items(self, next_item, total, next_item == 1, deadline, true) + 1
     end
-    if first_tick or not trimmed then
+    if next_item > total then
+      self.stream = nil
+    end
+    if not self.stream and (first_tick or not trimmed) then
       trimmed = trim_stale(self, deadline)
     end
 

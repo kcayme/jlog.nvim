@@ -23,7 +23,7 @@ describe("view", function()
   end)
 
   describe("chunked re-render", function()
-    local tick_ns, trim_slice = view.tick_ns, view.trim_slice
+    local tick_ns, trim_slice, read_slice = view.tick_ns, view.trim_slice, view.read_slice
     local function lines_of(count)
       local out = {}
       for i = 1, count do
@@ -42,11 +42,11 @@ describe("view", function()
     end
 
     before_each(function()
-      -- every batch ends its tick, and stale lines go 7 at a time, so both span many ticks
-      view.tick_ns, view.trim_slice = 0, 7
+      -- every batch ends its tick, and old lines are read and trimmed 7 at a time, so all of it spans many ticks
+      view.tick_ns, view.trim_slice, view.read_slice = 0, 7, 7
     end)
     after_each(function()
-      view.tick_ns, view.trim_slice = tick_ns, trim_slice
+      view.tick_ns, view.trim_slice, view.read_slice = tick_ns, trim_slice, read_slice
     end)
 
     it("should drop the old lines when re-rendering fewer items", function()
@@ -64,6 +64,101 @@ describe("view", function()
 
       render_and_wait(v, {})
       assert.are.same({ "" }, vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+    end)
+
+    it("should reuse the text of entries already in the view instead of rendering them again", function()
+      local render = require("jlog.ui.render")
+      local compact = render.compact
+      local calls = 0
+      local ws = make_ws(lines_of(300) .. "\n  at frame")
+      local v = view.new(ws)
+      local ids = {}
+      for i = 1, 300 do
+        ids[i] = i
+      end
+      render_and_wait(v, all(ids))
+      render.compact = function(...)
+        calls = calls + 1
+        return compact(...)
+      end
+
+      -- old order (a narrowing filter) with a header and a continuation line; gaps up to trim_slice are skipped
+      view.trim_slice = 1000
+      render_and_wait(
+        v,
+        { { kind = "header", group = { label = "g", idxs = { 2, 300 } } }, unpack(all({ 2, 150, 300 })) }
+      )
+      render.compact = compact
+      assert.are.equal(0, calls)
+      assert.are.same(
+        { "m2", "m150", "m300", "  at frame" },
+        vim.list_slice(vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false), 2)
+      )
+      assert.are.same({ 1, 2, 3, 4, 4 }, v.line_item)
+    end)
+
+    it("should render entries again when the new order passes them (grouped or reversed)", function()
+      local render = require("jlog.ui.render")
+      local compact = render.compact
+      local calls = 0
+      local v = view.new(make_ws(lines_of(300)))
+      local ids = {}
+      for i = 1, 300 do
+        ids[i] = i
+      end
+      render_and_wait(v, all(ids))
+      render.compact = function(...)
+        calls = calls + 1
+        return compact(...)
+      end
+
+      render_and_wait(v, all({ 300, 2, 1 }))
+      render.compact = compact
+      assert.are.equal(2, calls)
+      assert.are.same({ "m300", "m2", "m1" }, vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+      assert.are.equal(#v.line_item, vim.api.nvim_buf_line_count(v.bufnr))
+    end)
+
+    it("should render normally entries too far below the reused ones", function()
+      local v = view.new(make_ws(lines_of(300)))
+      local ids = {}
+      for i = 1, 300 do
+        ids[i] = i
+      end
+      render_and_wait(v, all(ids))
+
+      render_and_wait(v, all({ 1, 200, 201 }))
+
+      assert.are.same({ "m1", "m200", "m201" }, vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+      assert.are.equal(#v.line_item, vim.api.nvim_buf_line_count(v.bufnr))
+    end)
+
+    it("should render again entries that are expanded now or whose entries were replaced", function()
+      local render = require("jlog.ui.render")
+      local compact = render.compact
+      local calls = 0
+      local ws = make_ws(lines_of(20))
+      local v = view.new(ws)
+      local ids = {}
+      for i = 1, 20 do
+        ids[i] = i
+      end
+      render_and_wait(v, all(ids))
+      ws.state.expanded[3] = true
+      render_and_wait(v, all({ 3, 4 }))
+      assert.are.same("{", vim.api.nvim_buf_get_lines(v.bufnr, 0, 1, false)[1])
+      assert.are.equal("m4", vim.api.nvim_buf_get_lines(v.bufnr, -2, -1, false)[1])
+
+      ws.state.expanded = {}
+      ws.entries = source.build((lines_of(20):gsub('"m(%d)', '"n%1')), "jsonl")
+      render.compact = function(...)
+        calls = calls + 1
+        return compact(...)
+      end
+      render_and_wait(v, all({ 1, 2 }))
+      render.compact = compact
+      assert.are.equal(2, calls)
+      assert.are.same({ "n1", "n2" }, vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
     end)
 
     it("should keep lines and maps consistent when a newer render supersedes a chunked one", function()

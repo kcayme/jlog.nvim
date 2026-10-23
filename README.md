@@ -8,6 +8,7 @@ double-encoded; jlog makes them readable, filterable and groupable without leavi
 - Parses Grafana/Loki "Explore" exports, JSONL/NDJSON and JSON arrays of log objects.
 - Unwraps double-encoded JSON recursively, including JSON after a text prefix inside a string.
 - Compact one-line-per-entry view by default, toggle to expanded (indented JSON) per entry or for the whole view.
+- Each field keeps one color in the log view and the sidebar's FIELDS list, so FIELDS doubles as a legend.
 - Field filtering with a small query language, including `OR`.
 - Group by any field (request id, status, route, ...).
 - Native `/` search, `n`, `N` and `:g` work on the rendered text.
@@ -135,7 +136,7 @@ require("jlog").setup({
     level = { "level", "lvl", "severity" },
     message = { "msg", "message" },
   },
-  view = { mode = "compact", sort = "desc" }, -- "desc" shows the newest entries first
+  view = { mode = "compact", sort = "desc", field_colors = true }, -- "desc" shows the newest entries first
   unwrap = { enable = true, max_depth = 4 },
   sidebar = { width = 40, position = "right" },
   facets = { top_values = 10 },
@@ -178,7 +179,8 @@ linked group's color, reversed and bold, so the level reads as a colored label i
 | `JLogLevelDebug` | DEBUG | badge: `DiagnosticHint` color as background |
 | `JLogLevelTrace` | TRACE and unknown levels | badge: `Comment` color as background |
 | `JLogMessage` | message text | `Normal` |
-| `JLogKey` | `key=` in compact, object keys in expanded | `Identifier` |
+| `JLogKey` | `key=` in compact, object keys in expanded, when `view.field_colors = false` | `Identifier` |
+| `JLogField1` … `JLogField8` | keys and FIELDS names, one color per field in first-seen order, cycling | the first distinctly colored of `Identifier`, `Function`, `Type`, `Constant`, `Special`, `Statement`, `PreProc`, `Character`, `Label`, `Keyword`, `Tag`, `Directory`, skipping any colored like a value (`JLogValue`, `JLogString`, `JLogNumber`, `JLogBoolean`, `JLogNull`) |
 | `JLogValue` | compact values | `String` |
 | `JLogString` | expanded string values | `String` |
 | `JLogNumber` | expanded number values | `Number` |
@@ -188,7 +190,7 @@ linked group's color, reversed and bold, so the level reads as a colored label i
 | `JLogPlain` | non-JSON entries and continuation lines | `Comment` |
 | `JLogGroupHeader` | group header lines | `Title` |
 | `JLogSectionHeader` | sidebar `FILTERS` / `GROUP BY` / `FIELDS` | `Title` |
-| `JLogFieldName` | field names in the FIELDS section | `Identifier` |
+| `JLogFieldName` | field names in the FIELDS section, when `view.field_colors = false` | `Identifier` |
 | `JLogFieldCount` | counts in the FIELDS section | `Comment` |
 | `JLogFieldStale` | FIELDS counts kept from the last apply while new ones are counted | `NonText` |
 | `JLogHint` | sidebar examples on empty FILTERS / GROUP BY lines and `:w to apply` | `Comment` |

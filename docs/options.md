@@ -9,6 +9,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `fields.message` | `string[]` | `{ "msg", "message" }` | Keys tried in order for the `msg` field. |
 | `view.mode` | `JLogViewMode` | `"compact"` | Initial view: `"compact"` (one line per entry) or `"expanded"` (indented JSON). |
 | `view.sort` | `JLogSort` | `"desc"` | Initial order: `"asc"` (oldest first) or `"desc"` (newest first). |
+| `view.field_colors` | `boolean` | `true` | Color each field's keys in the log view and its FIELDS name alike, cycling through `JLogField1`…`JLogField8` in first-seen order. A key never takes a value's color, and the cycle uses only distinct colors from the colorscheme. `false` uses `JLogKey` and `JLogFieldName`. |
 | `unwrap.enable` | `boolean` | `true` | Unwrap double-encoded JSON inside string values. |
 | `unwrap.max_depth` | `integer` | `4` | Maximum levels of nested unwrapping. |
 | `sidebar.width` | `integer` | `40` | Sidebar width in columns. |

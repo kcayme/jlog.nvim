@@ -1,4 +1,5 @@
 local entry_model = require("jlog.parse.entry")
+local highlights = require("jlog.ui.highlights")
 
 ---0-based start col, exclusive end col, highlight group.
 ---@alias JLogSpan {[1]: integer, [2]: integer, [3]: string}
@@ -40,6 +41,7 @@ local COLLAPSED = { object = "{…}", array = "[…]" }
 ---@field span_count integer
 ---@field with_spans boolean
 ---@field sep string|nil separator owed before the next compact item
+---@field field_colors boolean|nil compact keys take their field's color
 
 -- scratch buffers shared by all builders, reused per line so tables are not regrown (the main GC cost of a render)
 local scratch_parts, scratch_spans = {}, {}
@@ -264,7 +266,7 @@ local function push_field(line, key, value)
   col = line.col
   push(line, escape_newlines(key))
   push(line, "=")
-  add_span(line, col, line.col, "JLogKey")
+  add_span(line, col, line.col, line.field_colors and highlights.field_group(key) or "JLogKey")
   push(line, value, "JLogValue")
   line.sep = " "
 end
@@ -319,6 +321,8 @@ local function compact_json(entry, node, prefix, opts, lines, spans)
   local text, base = entry.body, entry.json_at - 1
   local level
 
+  -- colors are assigned as keys are first highlighted, not when lines are rendered without highlights
+  line.field_colors = spans ~= nil and opts.view.field_colors
   prefix = str_match(prefix, "^(.-)%s*$")
   if prefix ~= "" then
     push_item(line, escape_newlines(prefix), "JLogPrefix")
@@ -355,14 +359,16 @@ local push_expanded
 
 ---@param keys string[]|nil nil for arrays
 ---@param vals JLogNode[]
+---@param path string|nil dotted path of the container ("" at the top), nil when keys are not colored by field
 ---@param indent string
 ---@param open_line JLogLineBuilder already holds the indent/key/prefix
 ---@param close string
 ---@param comma string
 ---@param lines string[]
 ---@param spans JLogSpan[][]
-local function push_container(keys, vals, indent, open_line, close, comma, lines, spans)
+local function push_container(keys, vals, path, indent, open_line, close, comma, lines, spans)
   local child_indent = indent .. "  "
+  local child_path
 
   if #vals == 0 then
     push(open_line, (keys and "{" or "[") .. close .. comma)
@@ -374,25 +380,28 @@ local function push_container(keys, vals, indent, open_line, close, comma, lines
   push(open_line, keys and "{" or "[")
   finish(open_line, lines, spans)
   for index, value in ipairs(vals) do
-    push_expanded(keys and keys[index], value, child_indent, index < #vals and "," or "", lines, spans)
+    -- array elements keep the array's path, as FIELDS does not index them
+    child_path = path and keys and (path == "" and keys[index] or path .. "." .. keys[index]) or path
+    push_expanded(keys and keys[index], child_path, value, child_indent, index < #vals and "," or "", lines, spans)
   end
   lines[#lines + 1] = indent .. close .. comma
   spans[#spans + 1] = {}
 end
 
 ---@param key string|nil
+---@param path string|nil the key's dotted path, nil when keys are not colored by field
 ---@param node JLogNode
 ---@param indent string
 ---@param comma string
 ---@param lines string[]
 ---@param spans JLogSpan[][]
-push_expanded = function(key, node, indent, comma, lines, spans)
+push_expanded = function(key, path, node, indent, comma, lines, spans)
   local line = new_line(true)
   local target = node.inner or node
 
   push(line, indent)
   if key then
-    push(line, quote(key), "JLogKey")
+    push(line, quote(key), path and highlights.field_group(path) or "JLogKey")
     push(line, ": ")
   end
   if node.inner and node.prefix ~= "" then
@@ -401,9 +410,9 @@ push_expanded = function(key, node, indent, comma, lines, spans)
   end
 
   if target.t == "object" then
-    push_container(target.keys, target.vals, indent, line, "}", comma, lines, spans)
+    push_container(target.keys, target.vals, path, indent, line, "}", comma, lines, spans)
   elseif target.t == "array" then
-    push_container(nil, target.vals, indent, line, "]", comma, lines, spans)
+    push_container(nil, target.vals, path, indent, line, "]", comma, lines, spans)
   else
     push(line, escape_newlines(target.lit), VALUE_GROUPS[target.t])
     push(line, comma)
@@ -480,7 +489,7 @@ M.expanded = function(entry, opts)
     push(open_line, escape_newlines(prefix), "JLogPrefix")
     push(open_line, " ")
   end
-  push_container(keys, vals, "", open_line, "}", "", lines, spans)
+  push_container(keys, vals, opts.view.field_colors and "" or nil, "", open_line, "}", "", lines, spans)
   push_continuations(entry, lines, spans)
 
   return lines, spans

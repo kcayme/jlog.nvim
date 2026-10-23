@@ -1,4 +1,5 @@
 local filter = require("jlog.query.filter")
+local highlight_groups = require("jlog.ui.highlights")
 local keymaps = require("jlog.ui.keymaps")
 
 ---@class JLogFilterError
@@ -133,6 +134,7 @@ end
 ---@param width integer text cells of the sidebar window
 local function add_fields(sidebar, lines, highlights, width)
   local count_group = sidebar.stale and "JLogFieldStale" or "JLogFieldCount"
+  local colors = sidebar.ws.opts.view.field_colors
   local name
   local head
 
@@ -141,7 +143,12 @@ local function add_fields(sidebar, lines, highlights, width)
     head = (sidebar.expanded[facet.name] and "▾ " or "▸ ") .. string.format("%-" .. NAME_WIDTH .. "s", name) .. "  "
     lines[#lines + 1] = truncate(head .. summary(facet, width - vim.fn.strdisplaywidth(head)), width)
     sidebar.rows[#lines] = { name = facet.name }
-    highlights[#highlights + 1] = { #lines - 1, 4, math.min(4 + #name, #lines[#lines]), "JLogFieldName" }
+    highlights[#highlights + 1] = {
+      #lines - 1,
+      4,
+      math.min(4 + #name, #lines[#lines]),
+      colors and highlight_groups.field_group(facet.name) or "JLogFieldName",
+    }
     if sidebar.stale then
       highlights[#highlights + 1] = { #lines - 1, math.min(#head, #lines[#lines]), -1, count_group }
     end

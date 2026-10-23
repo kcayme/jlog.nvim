@@ -276,4 +276,35 @@ describe("sidebar", function()
     assert.is_false(vim.api.nvim_win_is_valid(float))
     require("jlog.config").setup()
   end)
+
+  it("should color field names like their keys in the log view, or use one color when off", function()
+    local highlights = require("jlog.ui.highlights")
+    local function name_groups()
+      local groups = {}
+      local ns = vim.api.nvim_get_namespaces()["jlog.sidebar"]
+      for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, ns, 0, -1, { details = true })) do
+        if mark[3] == 4 then
+          groups[vim.trim(vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, mark[2], mark[2] + 1, false)[1]:sub(5, 18))] =
+            mark[4].hl_group
+        end
+      end
+
+      return groups
+    end
+
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    assert.is_true(vim.wait(2000, function()
+      return name_groups().request_id ~= nil
+    end))
+    assert.are.equal(highlights.field_group("request_id"), name_groups().request_id)
+    ws:close()
+
+    require("jlog.config").setup({ view = { field_colors = false } })
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    assert.is_true(vim.wait(2000, function()
+      return name_groups().request_id ~= nil
+    end))
+    assert.are.equal("JLogFieldName", name_groups().request_id)
+    require("jlog.config").setup()
+  end)
 end)

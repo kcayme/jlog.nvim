@@ -26,6 +26,41 @@ describe("highlights", function()
     assert.are.equal("Title", vim.api.nvim_get_hl(0, { name = "JLogGroupHeader" }).link)
     assert.are.equal("NonText", vim.api.nvim_get_hl(0, { name = "JLogFieldStale" }).link)
     assert.are.equal("Comment", vim.api.nvim_get_hl(0, { name = "JLogHint" }).link)
+    assert.are.equal("Identifier", vim.api.nvim_get_hl(0, { name = "JLogField1" }).link)
+  end)
+
+  it("should never give a field key the color of a value", function()
+    local value_colors = {}
+
+    vim.cmd("hi clear")
+    vim.api.nvim_set_hl(0, "String", { fg = "#00aa00" })
+    vim.api.nvim_set_hl(0, "Number", { fg = "#aa0000" })
+    vim.api.nvim_set_hl(0, "Identifier", { fg = "#00aa00" })
+    vim.api.nvim_set_hl(0, "Constant", { fg = "#aa0000" })
+    vim.api.nvim_set_hl(0, "Function", { fg = "#0000aa" })
+    highlights.setup()
+    for _, name in ipairs({ "JLogValue", "JLogString", "JLogNumber", "JLogBoolean", "JLogNull" }) do
+      value_colors[vim.api.nvim_get_hl(0, { name = name, link = false }).fg or false] = true
+    end
+    for index = 1, highlights.FIELD_COLORS do
+      assert.is_nil(value_colors[vim.api.nvim_get_hl(0, { name = "JLogField" .. index, link = false }).fg])
+    end
+    assert.are.equal("Function", vim.api.nvim_get_hl(0, { name = "JLogField1" }).link)
+    vim.cmd("hi clear")
+    highlights.setup()
+  end)
+
+  it("should give fields colors in first-seen order and cycle after the last", function()
+    local seen = {}
+    local first = highlights.field_group("cycle_0")
+
+    seen[first] = true
+    for index = 1, highlights.FIELD_COLORS - 1 do
+      seen[highlights.field_group("cycle_" .. index)] = true
+    end
+    assert.are.equal(highlights.FIELD_COLORS, vim.tbl_count(seen))
+    assert.are.equal(first, highlights.field_group("cycle_" .. highlights.FIELD_COLORS))
+    assert.are.equal(first, highlights.field_group("cycle_0"))
   end)
 
   it("should draw levels as badges in the level's color", function()

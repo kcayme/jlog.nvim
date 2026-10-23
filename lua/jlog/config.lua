@@ -9,6 +9,7 @@
 ---@class JLogViewOptions
 ---@field mode JLogViewMode
 ---@field sort JLogSort
+---@field field_colors boolean color each field's key by field, cycling through `JLogField1`..`JLogField8`; false uses `JLogKey`
 
 ---@class JLogUnwrapOptions
 ---@field enable boolean
@@ -64,9 +65,9 @@ M.defaults = {
     level = { "level", "lvl", "severity" },
     message = { "msg", "message" },
   },
-  view = { mode = "compact", sort = "desc" },
+  view = { mode = "compact", sort = "desc", field_colors = true },
   unwrap = { enable = true, max_depth = 4 },
-  sidebar = { width = 40, position = "right" },
+  sidebar = { width = 45, position = "right" },
   facets = { top_values = 10 },
   paging = { size = 100000, overlap = 2000 },
   keymaps = {

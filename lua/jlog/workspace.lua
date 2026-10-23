@@ -53,13 +53,16 @@ local M = {}
 
 local HEAD_LIMIT = 65536
 local SYNC_LIMIT = 20000
-local CHUNK_SIZE = 5000
+-- entries scanned between checks of the tick's time budget
+local SCAN_BATCH = 500
+-- a chunked loop yields to the event loop after this much work, keeping every tick within ~16ms
+local TICK_NS = 12e6
 local DEBOUNCE_MS = 200
 local TAIL_CHECK = 256
 local POLL_MS = 500
 
--- jsonl lines parsed before the first screen, and per later chunk (a chunk stays within ~16ms)
-M.load_sizes = { first = 2000, chunk = 4000 }
+-- jsonl lines parsed before the first screen, and later between checks of the tick's time budget
+M.load_sizes = { first = 2000, chunk = 500 }
 
 ---@type table<string, JLogWorkspace>
 local registry = {}
@@ -240,6 +243,7 @@ Workspace.apply = function(self, on_done)
   local counter = window_in_tab(self, self.sidebar.bufnr) and facets.counter() or nil
   local matched = {}
   local group_values = {}
+  local summary_values = {}
   local lines = vim.deepcopy(state.filters)
   local pred, errors, invalid
   local entry, decoded, decoded_done
@@ -247,6 +251,9 @@ Workspace.apply = function(self, on_done)
 
   self.generation = generation
   self.counter = counter
+  for _, name in ipairs(group.SUMMARY_FIELDS) do
+    summary_values[name] = {}
+  end
   -- lines that failed before stay pending until edited, so re-validate them with the rest
   for _, err in ipairs(self.sidebar.errors) do
     lines[#lines + 1] = err.text
@@ -282,6 +289,10 @@ Workspace.apply = function(self, on_done)
       end
       if field then
         group_values[index] = entry_model.get(entry, current_decoded(), field, opts)
+        -- read now, in the time-boxed scan: decoding again while building groups is one long tick
+        for name, values in pairs(summary_values) do
+          values[index] = entry_model.get(entry, current_decoded(), name, opts)
+        end
       end
     end
     entry, decoded = nil, nil
@@ -296,12 +307,7 @@ Workspace.apply = function(self, on_done)
       field = field,
       reverse = state.reverse,
       get = function(index, path)
-        if path == field then
-          return group_values[index]
-        end
-
-        -- shortcut: group summary fields (status/method/path) decode again; cache them if grouping gets slow
-        return entry_model.get(entries[index], entry_model.decode(entries[index]), path, opts)
+        return (path == field and group_values or summary_values[path])[index]
       end,
     })
 
@@ -322,20 +328,30 @@ Workspace.apply = function(self, on_done)
   end
 
   local function step()
-    local last = math.min(next_index + CHUNK_SIZE - 1, count)
+    local deadline = vim.uv.hrtime() + TICK_NS
+    local last
 
     if self.generation ~= generation or self.closed then
       return
     end
-    scan(next_index, last)
-    next_index = last + 1
+    repeat
+      last = math.min(next_index + SCAN_BATCH - 1, count)
+      scan(next_index, last)
+      next_index = last + 1
+    until next_index > count or vim.uv.hrtime() >= deadline
     if next_index > count then
-      finish()
+      -- grouping and the first render get a tick of their own
+      vim.defer_fn(function()
+        if self.generation == generation and not self.closed then
+          finish()
+        end
+      end, 0)
 
       return
     end
     self.view:set_winbar("jlog · applying " .. math.floor(last * 100 / count) .. "%")
-    vim.schedule(step)
+    -- a timer, not vim.schedule: chained scheduled callbacks run back to back without handling input or redraw
+    vim.defer_fn(step, 0)
   end
 
   if count <= SYNC_LIMIT then
@@ -793,19 +809,22 @@ end
 ---@param pos integer byte position of the next unparsed line
 ---@param lnum integer source line number of that line
 local function load_rest(ws, text, pos, lnum)
+  local deadline = vim.uv.hrtime() + TICK_NS
   local lines
 
   if ws.closed then
     return
   end
-  lines, pos = take_lines(text, pos, M.load_sizes.chunk)
-  source.append_lines(ws.entries, lines, lnum)
-  lnum = lnum + #lines
+  repeat
+    lines, pos = take_lines(text, pos, M.load_sizes.chunk)
+    source.append_lines(ws.entries, lines, lnum)
+    lnum = lnum + #lines
+  until pos > #text or vim.uv.hrtime() >= deadline
   if pos <= #text then
     ws.view:set_winbar("jlog · loading " .. math.floor(pos * 100 / #text) .. "%")
-    vim.schedule(function()
+    vim.defer_fn(function()
       load_rest(ws, text, pos, lnum)
-    end)
+    end, 0)
 
     return
   end
@@ -913,9 +932,9 @@ M.open = function(target)
   ws:apply()
   if pos and pos <= #text then
     ws.loading = true
-    vim.schedule(function()
+    vim.defer_fn(function()
       load_rest(ws, text, pos, lnum)
-    end)
+    end, 0)
   end
 
   return ws

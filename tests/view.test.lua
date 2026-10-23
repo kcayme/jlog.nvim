@@ -48,6 +48,30 @@ describe("view", function()
     assert.are.equal("1", view.foldexpr(2))
   end)
 
+  it("should fold group headers by hand in large views", function()
+    local ws = make_ws('{"msg":"a"}\n{"msg":"b"}\n{"msg":"c"}')
+    local v = view.new(ws)
+    local limit = view.fold_expr_limit
+
+    view.fold_expr_limit = 0
+    vim.api.nvim_win_set_buf(0, v.bufnr)
+    v:render({
+      { kind = "entry", idx = 3 },
+      { kind = "header", group = { label = "g", idxs = { 1 } } },
+      { kind = "entry", idx = 1 },
+      { kind = "header", group = { label = "h", idxs = { 2 } } },
+      { kind = "entry", idx = 2 },
+    })
+    view.fold_expr_limit = limit
+    assert.are.equal("manual", vim.wo.foldmethod)
+    assert.are.same({ 0, 1, 1, 1, 1 }, vim.tbl_map(vim.fn.foldlevel, { 1, 2, 3, 4, 5 }))
+    assert.are.equal(-1, vim.fn.foldclosed(2))
+    vim.cmd("2foldclose")
+    assert.are.same({ 2, 3 }, { vim.fn.foldclosed(3), vim.fn.foldclosedend(2) })
+    v:render({ { kind = "entry", idx = 1 } })
+    assert.are.equal(0, vim.fn.foldlevel(1))
+  end)
+
   it("should map configured keys with descriptions and skip disabled ones", function()
     local ws = make_ws('{"msg":"a"}')
     ws.opts = require("jlog.config").setup({ keymaps = { reverse = false } })

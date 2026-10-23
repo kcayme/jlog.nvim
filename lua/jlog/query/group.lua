@@ -15,6 +15,9 @@ local M = {}
 
 local SUMMARY_FIELDS = { "status", "method", "path" }
 
+-- fields a group header summarizes, read through `args.get`
+M.SUMMARY_FIELDS = SUMMARY_FIELDS
+
 local function key_of(value)
   if type(value) == "table" then
     return vim.json.encode(value)

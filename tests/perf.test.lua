@@ -120,6 +120,49 @@ describe("perf (100k lines)", function()
     assert.is_true(elapsed < 300)
   end)
 
+  it("should keep every main-loop tick short while a filter or group applies", function()
+    local monitor = vim.uv.new_timer()
+    local worst, last
+
+    ---Run `action`, wait for its apply to render, and return the longest gap between ticks meanwhile.
+    local function worst_tick(action)
+      worst, last = 0, vim.uv.hrtime()
+      monitor:start(0, 1, function()
+        local now = vim.uv.hrtime()
+
+        worst = math.max(worst, (now - last) / 1e6)
+        last = now
+      end)
+      action()
+      assert.is_true(vim.wait(60000, function()
+        return ws.rendered == ws.generation
+      end, 1))
+      -- work queued by the render (cursor restore, folds) runs after it is marked done
+      vim.wait(200)
+      monitor:stop()
+
+      return worst
+    end
+
+    path = vim.fn.tempname() .. ".jsonl"
+    vim.fn.writefile(gen.jsonl_lines(COUNT), path)
+    ws = workspace.open({ path = path })
+    assert.is_true(vim.wait(30000, function()
+      return not ws.loading and ws.rendered == ws.generation
+    end, 50))
+
+    local filter_tick = worst_tick(function()
+      ws:add_filter("status>=200")
+    end)
+    local group_tick = worst_tick(function()
+      ws:set_group("path")
+    end)
+    monitor:close()
+    print(string.format("worst tick: filter apply %.0fms, group apply %.0fms (budget 50)", filter_tick, group_tick))
+    assert.is_true(filter_tick < 50)
+    assert.is_true(group_tick < 50)
+  end)
+
   it("should show appended lines quickly in an ungrouped workspace", function()
     local start, elapsed, extra, before
 

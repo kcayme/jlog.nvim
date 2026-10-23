@@ -18,10 +18,15 @@ View.__index = View
 
 local M = {}
 
+-- buffer lines above which group folds are created once, by hand: a foldexpr is re-evaluated per line on
+-- every fold update (opening the view, moving the cursor), costing seconds on 100k+ lines
+M.fold_expr_limit = 50000
+
 local SYNC_LIMIT = 5000
-local CHUNK_SIZE = 2000
--- expanded entries build spans and many lines each: smaller chunks keep a tick within ~16ms
-local EXPANDED_CHUNK_SIZE = 500
+-- items built between checks of the tick's time budget (expanded entries are slower, but 64 stay well within it)
+local BATCH = 64
+-- a chunked render yields to the event loop after this much work, keeping every tick within ~16ms
+local TICK_NS = 12e6
 local ERROR_LEVELS = { error = true, fatal = true, panic = true }
 
 local ns = vim.api.nvim_create_namespace("jlog.view")
@@ -78,30 +83,64 @@ local function apply_winbar(view, text)
   end
 end
 
+---One open manual fold per group, from its header line to the line before the next header.
+---@param view JLogView
+local function create_manual_folds(view)
+  local items, item_line = view.items, view.item_line
+  local start
+
+  for item_index = view.first_header, #items do
+    if items[item_index].kind == "header" then
+      if start then
+        vim.cmd(start .. "," .. (item_line[item_index] - 1) .. "fold")
+      end
+      start = item_line[item_index]
+    end
+  end
+  vim.cmd(start .. "," .. #view.line_item .. "fold")
+  vim.cmd("silent! %foldopen!")
+end
+
 ---@param view JLogView
 ---@param winid integer
 local function apply_window_options(view, winid)
   local wo = vim.wo[winid][0]
+  local manual = view.first_header ~= nil and #view.line_item > M.fold_expr_limit
 
   wo.wrap = false
   wo.foldexpr = "v:lua.require'jlog.ui.view'.foldexpr(v:lnum)"
   wo.foldlevel = 99
-  -- evaluating a foldexpr per line costs seconds on 500k lines: only pay it when there are groups
-  wo.foldmethod = view.first_header and "expr" or "manual"
+  -- evaluating a foldexpr per line costs seconds on 500k lines: only pay it for groups in smaller views
+  wo.foldmethod = (view.first_header and not manual) and "expr" or "manual"
+  vim.api.nvim_win_call(winid, function()
+    -- switching to manual keeps the folds of the previous render
+    if wo.foldmethod == "manual" then
+      vim.cmd("normal! zE")
+    end
+    if manual then
+      create_manual_folds(view)
+    end
+  end)
 end
 
----Build lines for items `first..last` and append them after line `at` (0-based).
+---Build lines for items `first..last` and append them to the buffer, stopping early once `deadline` passes.
 ---@param view JLogView
 ---@param first integer
 ---@param last integer
 ---@param replace boolean replace the whole buffer instead of appending
-local function append_items(view, first, last, replace)
+---@param deadline number|nil `vim.uv.hrtime()` to stop at
+---@return integer last item index appended
+local function append_items(view, first, last, replace, deadline)
   local items, line_item, item_line, entry_item = view.items, view.line_item, view.item_line, view.entry_item
   local buffer_lines = {}
   local line_count = #line_item
+  local done = last
   local lines
 
   for item_index = first, last do
+    if deadline and (item_index - first) % BATCH == BATCH - 1 and vim.uv.hrtime() >= deadline then
+      done = item_index
+    end
     lines = item_lines(view, items[item_index], true)
     item_line[item_index] = line_count + 1
     if items[item_index].kind == "entry" then
@@ -114,8 +153,13 @@ local function append_items(view, first, last, replace)
       line_item[line_count] = item_index
       buffer_lines[#buffer_lines + 1] = line
     end
+    if done < last then
+      break
+    end
   end
   write_lines(view, replace and 0 or #line_item - #buffer_lines, -1, buffer_lines)
+
+  return done
 end
 
 ---@param view JLogView
@@ -205,7 +249,6 @@ vim.api.nvim_set_decoration_provider(ns, { on_win = on_win, on_line = on_line })
 View.render = function(self, items, on_done)
   local generation = self.generation + 1
   local total = #items
-  local chunk_size = self.ws.state.mode == "expanded" and EXPANDED_CHUNK_SIZE or CHUNK_SIZE
   local next_item
 
   self.generation = generation
@@ -235,16 +278,15 @@ View.render = function(self, items, on_done)
   end
 
   -- the first chunk is synchronous so the first screen shows at once
-  append_items(self, 1, chunk_size, true)
-  next_item = chunk_size + 1
+  next_item = append_items(self, 1, total, true, vim.uv.hrtime() + TICK_NS) + 1
 
   local function step()
-    local last = math.min(next_item + chunk_size - 1, total)
+    local last
 
     if self.generation ~= generation or not vim.api.nvim_buf_is_valid(self.bufnr) then
       return
     end
-    append_items(self, next_item, last, false)
+    last = append_items(self, next_item, total, false, vim.uv.hrtime() + TICK_NS)
     next_item = last + 1
     if next_item > total then
       finish()
@@ -252,11 +294,12 @@ View.render = function(self, items, on_done)
       return
     end
     apply_winbar(self, "jlog · rendering " .. math.floor(last * 100 / total) .. "%")
-    vim.schedule(step)
+    vim.defer_fn(step, 0)
   end
 
-  apply_winbar(self, "jlog · rendering " .. math.floor(chunk_size * 100 / total) .. "%")
-  vim.schedule(step)
+  apply_winbar(self, "jlog · rendering " .. math.floor((next_item - 1) * 100 / total) .. "%")
+  -- a timer, not vim.schedule: chained scheduled callbacks run back to back without handling input or redraw
+  vim.defer_fn(step, 0)
 end
 
 ---Extend a flat (ungrouped, unreversed) view in place with entries `indexes`; `refresh` is an already shown

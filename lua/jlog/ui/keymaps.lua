@@ -39,13 +39,14 @@ local SCOPES = {
       ws.view:move("error", -1)
     end,
     next_page = function(ws)
-      if ws.page then
-        ws:goto_page(ws.page + 1)
+      -- step from a page still loading, so a second press goes one further
+      if ws.target_page or ws.page then
+        ws:goto_page((ws.target_page or ws.page) + 1)
       end
     end,
     prev_page = function(ws)
-      if ws.page then
-        ws:goto_page(ws.page - 1)
+      if ws.target_page or ws.page then
+        ws:goto_page((ws.target_page or ws.page) - 1)
       end
     end,
     focus_sidebar = function(ws)

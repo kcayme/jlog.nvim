@@ -206,12 +206,47 @@ describe("paging", function()
     wait(settled)
     assert.are.equal("loki", ws.format)
     assert.are.same({ 1, 12 }, { ws.entries[1].src, #ws.entries })
+    vim.notify = function() end
+    assert.is_false(ws:goto_page(1.5))
     ws:goto_page(4)
     wait(function()
       return settled() and ws.page == 4
     end)
     assert.are.same({ 29, 35, 7 }, { ws.entries[1].src, ws.entries[#ws.entries].src, #ws.entries })
     assert.are.same({ 31, 35 }, ws.core)
+  end)
+
+  it("should refuse a page that is not a whole number", function()
+    local message
+
+    ws = workspace.open({ path = path })
+    wait(settled)
+    vim.notify = function(msg)
+      message = msg
+    end
+    assert.is_false(ws:goto_page(1.5))
+    assert.are.equal("jlog: no page 1.5", message)
+    assert.are.equal(1, ws.page)
+  end)
+
+  it("should step from the page still loading when ]p is pressed twice", function()
+    require("jlog").setup({ paging = { size = 3000, overlap = 2 } })
+    vim.fn.writefile(log_lines(12000), path)
+    ws = workspace.open({ path = path })
+    wait(function()
+      return settled() and ws.pages:count() == 4
+    end)
+    workspace.load_sizes.chunk = 10
+    vim.api.nvim_set_current_win(vim.fn.bufwinid(ws.view.bufnr))
+    vim.api.nvim_feedkeys("]p", "mx", false)
+    assert.is_true(ws.loading)
+    vim.api.nvim_feedkeys("]p", "mx", false)
+    workspace.load_sizes.chunk = load_sizes.chunk
+    wait(function()
+      return settled() and ws.page == 3
+    end)
+    vim.wait(200)
+    assert.are.equal(3, ws.page)
   end)
 
   it("should not page a file of exactly paging.size entries", function()

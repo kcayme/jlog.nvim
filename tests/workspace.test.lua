@@ -533,6 +533,37 @@ describe("workspace", function()
       vim.fn.delete(path)
     end)
 
+    for _, case in ipairs({ { order = "unordered", step = 37 }, { order = "ordered", step = 0 } }) do
+      it("should load a small " .. case.order .. " export read whole by the first slice and reload it", function()
+        local elements = {}
+        local path, ws
+
+        for index = 1, 50 do
+          elements[index] = {
+            line = '{"msg":"m' .. index .. '"}',
+            timestamp = tostring(1000 + (case.step > 0 and index * case.step % 50 or index)),
+          }
+        end
+        path = write_loki(elements)
+        ws = assert(workspace.open({ path = path }))
+        assert.is_true(vim.wait(2000, function()
+          return not ws.loading and ws.rendered == ws.generation
+        end))
+        assert.are.equal(50, #ws.entries)
+        for index = 2, #ws.entries do
+          assert.is_true(ws.entries[index - 1].ts < ws.entries[index].ts)
+        end
+        elements[51] = { line = '{"msg":"new"}', timestamp = "1051" }
+        vim.fn.writefile({ vim.json.encode(elements) }, path)
+        ws:reload()
+        assert.is_true(vim.wait(2000, function()
+          return not ws.loading and #ws.entries == 51
+        end))
+        ws:close()
+        vim.fn.delete(path)
+      end)
+    end
+
     it("should sort a large unordered export across ticks", function()
       local timing = vim.deepcopy(workspace.timing)
       local elements = {}

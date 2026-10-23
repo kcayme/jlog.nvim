@@ -56,6 +56,7 @@ local view_mod = require("jlog.ui.view")
 ---@field indexing JLogPageIndex|nil an index still being scanned in ticks
 ---@field appended string[]|nil lines appended since the index was built, until it is built again
 ---@field load_token table|nil the page or first load running; a newer one stops it
+---@field target_page integer|nil the page last asked for, which `ws.page` becomes once it has loaded
 ---@field shown integer entries shown by the last apply, for the winbar
 local Workspace = {}
 Workspace.__index = Workspace
@@ -918,6 +919,10 @@ local function sorting_reader(read)
   return function(entries, on_json, count)
     local fraction
 
+    -- read again after the end, as a load started after a first read that finished everything does
+    if sorter and coroutine.status(sorter) == "dead" then
+      return nil
+    end
     if not sorter then
       fraction = read(entries, on_json, count)
       if fraction then
@@ -1124,7 +1129,7 @@ local function load_page(ws, page, keep)
   local counter = facets.counter()
   local token = {}
 
-  ws.loading, ws.load_token = true, token
+  ws.loading, ws.load_token, ws.target_page = true, token, page
   vim.defer_fn(function()
     load_rest(ws, {}, read, function(loaded)
       local winid
@@ -1168,7 +1173,7 @@ end
 ---@param page integer
 ---@return boolean
 Workspace.goto_page = function(self, page)
-  local range = self.pages and self.pages:range(page)
+  local range = self.pages and page % 1 == 0 and self.pages:range(page)
 
   if not range then
     vim.notify("jlog: " .. (self.indexing and "still indexing pages" or ("no page " .. page)), vim.log.levels.WARN)
@@ -1232,7 +1237,7 @@ local function rebuild(ws)
 
       return
     end
-    ws.pages, ws.page, ws.core = nil, nil, nil
+    ws.pages, ws.page, ws.core, ws.target_page = nil, nil, nil, nil
     vim.defer_fn(function()
       load_rest(ws, {}, source_reader(text, ws.format, order), function(loaded)
         replace_entries(ws, loaded)
@@ -1557,7 +1562,7 @@ M.open = function(target)
     path = path,
     bufnr = target.bufnr,
     format = format,
-    entries = early and entries or {},
+    entries = (early or not more) and entries or {},
     stored_newest_first = order == "desc",
     opts = opts,
     generation = 0,
@@ -1631,7 +1636,7 @@ M.open = function(target)
     ws.view:set_winbar("jlog · indexing…")
   elseif tail and range.core_last_line - range.first_src + 1 > M.load_sizes.first then
     load_page(ws, 1)
-  elseif not tail and (not early or more) then
+  elseif not tail and more then
     load_first(ws, entries, read, early, counter)
   end
 

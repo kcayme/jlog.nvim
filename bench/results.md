@@ -4,57 +4,57 @@ Median of 5 runs after 1 warm-up; NVIM v0.12.6; jq-1.8.2.
 
 | input | contender | median ms | entries/s | Lua MB after parse |
 |---|---|---:|---:|---:|
-| jsonl 10k | jlog parse only | 65 | 154314 | 0 |
-| jsonl 10k | jlog parse + compact render | 83 | 120418 | - |
-| jsonl 10k | jlog parse + expanded render | 176 | 56860 | - |
-| jsonl 10k | workspace open -> first screen | 20 | - | - |
-| jsonl 10k | workspace search licence (page) | 6 | 1655665 | - |
-| jsonl 10k | workspace group by request_id (page) | 35 | 287220 | - |
-| jsonl 10k | vim.json.decode per line (pure lines) | 12 | 868614 | - |
-| jsonl 10k | jq -c . (pure lines) | 53 | 188052 | - |
-| jsonl 10k | jq . (pure lines) | 57 | 175149 | - |
-| jsonl 100k | jlog parse only | 1101 | 90841 | 4 |
-| jsonl 100k | jlog parse + compact render | 1445 | 69191 | - |
-| jsonl 100k | jlog parse + expanded render | 3014 | 33182 | - |
+| jsonl 10k | jlog parse only | 70 | 142472 | 0 |
+| jsonl 10k | jlog parse + compact render | 91 | 110456 | - |
+| jsonl 10k | jlog parse + expanded render | 206 | 48602 | - |
+| jsonl 10k | workspace open -> first screen | 21 | - | - |
+| jsonl 10k | workspace search licence (page) | 7 | 1527268 | - |
+| jsonl 10k | workspace group by request_id (page) | 36 | 278951 | - |
+| jsonl 10k | vim.json.decode per line (pure lines) | 12 | 855292 | - |
+| jsonl 10k | jq -c . (pure lines) | 54 | 185370 | - |
+| jsonl 10k | jq . (pure lines) | 58 | 172759 | - |
+| jsonl 100k | jlog parse only | 1157 | 86414 | 4 |
+| jsonl 100k | jlog parse + compact render | 1511 | 66201 | - |
+| jsonl 100k | jlog parse + expanded render | 3181 | 31440 | - |
 | jsonl 100k | workspace open -> first screen | 47 | - | - |
-| jsonl 100k | workspace search licence (page) | 125 | 784590 | - |
-| jsonl 100k | workspace group by request_id (page) | 366 | 268183 | - |
-| jsonl 100k | vim.json.decode per line (pure lines) | 140 | 714877 | - |
-| jsonl 100k | jq -c . (pure lines) | 498 | 200889 | - |
-| jsonl 100k | jq . (pure lines) | 533 | 187686 | - |
-| jsonl 500k | jlog parse only | 5498 | 90937 | 40 |
-| jsonl 500k | jlog parse + compact render | 7371 | 67831 | - |
-| jsonl 500k | jlog parse + expanded render | 15536 | 32183 | - |
-| jsonl 500k | workspace open -> first screen | 102 | - | - |
-| jsonl 500k | workspace search licence (page) | 268 | 365588 | - |
-| jsonl 500k | workspace group by request_id (page) | 487 | 201341 | - |
-| jsonl 500k | vim.json.decode per line (pure lines) | 721 | 693720 | - |
-| jsonl 500k | jq -c . (pure lines) | 2465 | 202846 | - |
-| jsonl 500k | jq . (pure lines) | 2671 | 187187 | - |
-| loki 10k | jlog parse only | 113 | 88397 | 5 |
-| loki 10k | jlog parse + compact render | 128 | 78236 | - |
-| loki 10k | jlog parse + expanded render | 303 | 32983 | - |
-| loki 10k | workspace open -> first screen | 47 | - | - |
-| loki 10k | workspace search licence (page) | 7 | 1463904 | - |
-| loki 10k | workspace group by request_id (page) | 107 | 93667 | - |
-| loki 10k | vim.json.decode array + line | 25 | 406293 | - |
-| loki 10k | jq -c '.[] \| .line \| fromjson? // .' | 84 | 118350 | - |
-| loki 100k | jlog parse only | 2080 | 48082 | 53 |
-| loki 100k | jlog parse + compact render | 2550 | 39214 | - |
-| loki 100k | jlog parse + expanded render | 4849 | 20621 | - |
-| loki 100k | workspace open -> first screen | 63 | - | - |
-| loki 100k | workspace search licence (page) | 165 | 604366 | - |
-| loki 100k | workspace group by request_id (page) | 1126 | 88815 | - |
-| loki 100k | vim.json.decode array + line | 265 | 377725 | - |
-| loki 100k | jq -c '.[] \| .line \| fromjson? // .' | 827 | 120971 | - |
-| loki 500k | jlog parse only | 10758 | 46479 | 277 |
-| loki 500k | jlog parse + compact render | 12369 | 40423 | - |
-| loki 500k | jlog parse + expanded render | 26377 | 18956 | - |
-| loki 500k | workspace open -> first screen | 119 | - | - |
-| loki 500k | workspace search licence (page) | 178 | 573372 | - |
-| loki 500k | workspace group by request_id (page) | 1176 | 86721 | - |
-| loki 500k | vim.json.decode array + line | 1877 | 266327 | - |
-| loki 500k | jq -c '.[] \| .line \| fromjson? // .' | 4073 | 122752 | - |
+| jsonl 100k | workspace search licence (page) | 131 | 748719 | - |
+| jsonl 100k | workspace group by request_id (page) | 373 | 263291 | - |
+| jsonl 100k | vim.json.decode per line (pure lines) | 140 | 713966 | - |
+| jsonl 100k | jq -c . (pure lines) | 498 | 200769 | - |
+| jsonl 100k | jq . (pure lines) | 534 | 187432 | - |
+| jsonl 500k | jlog parse only | 5450 | 91737 | 40 |
+| jsonl 500k | jlog parse + compact render | 7061 | 70811 | - |
+| jsonl 500k | jlog parse + expanded render | 14904 | 33549 | - |
+| jsonl 500k | workspace open -> first screen | 99 | - | - |
+| jsonl 500k | workspace search licence (page) | 248 | 394852 | - |
+| jsonl 500k | workspace group by request_id (page) | 465 | 211132 | - |
+| jsonl 500k | vim.json.decode per line (pure lines) | 695 | 719282 | - |
+| jsonl 500k | jq -c . (pure lines) | 2487 | 201071 | - |
+| jsonl 500k | jq . (pure lines) | 2666 | 187532 | - |
+| loki 10k | jlog parse only | 103 | 97170 | 5 |
+| loki 10k | jlog parse + compact render | 124 | 80724 | - |
+| loki 10k | jlog parse + expanded render | 296 | 33794 | - |
+| loki 10k | workspace open -> first screen | 42 | - | - |
+| loki 10k | workspace search licence (page) | 7 | 1523710 | - |
+| loki 10k | workspace group by request_id (page) | 36 | 277325 | - |
+| loki 10k | vim.json.decode array + line | 23 | 427736 | - |
+| loki 10k | jq -c '.[] \| .line \| fromjson? // .' | 84 | 119510 | - |
+| loki 100k | jlog parse only | 2051 | 48751 | 55 |
+| loki 100k | jlog parse + compact render | 2309 | 43308 | - |
+| loki 100k | jlog parse + expanded render | 4771 | 20960 | - |
+| loki 100k | workspace open -> first screen | 61 | - | - |
+| loki 100k | workspace search licence (page) | 179 | 559782 | - |
+| loki 100k | workspace group by request_id (page) | 393 | 254755 | - |
+| loki 100k | vim.json.decode array + line | 277 | 361183 | - |
+| loki 100k | jq -c '.[] \| .line \| fromjson? // .' | 814 | 122853 | - |
+| loki 500k | jlog parse only | 10774 | 46410 | 281 |
+| loki 500k | jlog parse + compact render | 12628 | 39595 | - |
+| loki 500k | jlog parse + expanded render | 25720 | 19440 | - |
+| loki 500k | workspace open -> first screen | 117 | - | - |
+| loki 500k | workspace search licence (page) | 168 | 608543 | - |
+| loki 500k | workspace group by request_id (page) | 398 | 256528 | - |
+| loki 500k | vim.json.decode array + line | 1899 | 263275 | - |
+| loki 500k | jq -c '.[] \| .line \| fromjson? // .' | 4068 | 122903 | - |
 
 jq does not build jlog's entry model or continuation lines.
 Workspace rows run on the page a file opens on (page 1, the newest; at most paging.size plus overlap).

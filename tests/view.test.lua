@@ -22,6 +22,18 @@ describe("view", function()
     assert.are.equal(-1, vim.bo[v.bufnr].undolevels)
   end)
 
+  it("should prepend entries and keep the maps consistent", function()
+    local v = view.new(make_ws('{"msg":"m1"}\n{"msg":"m2"}\n{"msg":"m3"}'))
+    v.ws.state.reverse = true
+    v:render(all({ 2, 1 }))
+    v:prepend({ 3 })
+    assert.are.same({ "m3", "m2", "m1" }, vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+    assert.are.same({ 1, 2, 3 }, v.line_item)
+    assert.are.equal(3, v.items[1].idx)
+    assert.are.same({ 1, 2, 3 }, v.item_line)
+    assert.are.same({ [3] = 1, [2] = 2, [1] = 3 }, v.entry_item)
+  end)
+
   describe("chunked re-render", function()
     local tick_ns, trim_slice, read_slice = view.tick_ns, view.trim_slice, view.read_slice
     local function lines_of(count)

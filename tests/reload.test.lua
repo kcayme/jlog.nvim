@@ -35,6 +35,24 @@ describe("reload", function()
     assert.are.equal(2, #vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false))
   end)
 
+  it("should insert appended lines at the top of a newest-first workspace without a full apply", function()
+    local generation
+
+    ws = workspace.open({ path = path })
+    wait(function()
+      return ws.rendered == ws.generation
+    end)
+    generation = ws.generation
+    vim.fn.writefile({ '{"msg":"c","level":"INFO"}' }, path, "a")
+    wait(function()
+      return #ws.entries == 3
+    end)
+    wait(function()
+      return vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, 1, false)[1]:find("c", 1, true) ~= nil
+    end)
+    assert.are.equal(generation, ws.generation)
+  end)
+
   it("should rebuild after an atomic rename save and keep the cursor entry", function()
     local tmp = path .. ".tmp"
 

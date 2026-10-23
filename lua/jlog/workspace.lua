@@ -594,7 +594,11 @@ local function extend_view(ws, old_count, old_key)
     end
   end
 
-  view:append(indexes, refresh)
+  if ws.state.reverse then
+    view:prepend(vim.fn.reverse(indexes), refresh)
+  else
+    view:append(indexes, refresh)
+  end
   view:set_winbar(winbar_text(ws, #view.items))
   if counter then
     publish_facets(ws, counter)
@@ -746,12 +750,7 @@ Workspace.reload = function(self)
     if tail == "" then
       return
     end
-    if
-      self.state.group
-      or self.state.reverse
-      or self.rendered ~= self.generation
-      or not extend_view(self, old_count, old_key)
-    then
+    if self.state.group or self.rendered ~= self.generation or not extend_view(self, old_count, old_key) then
       self:apply()
     end
 

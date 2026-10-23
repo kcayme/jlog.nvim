@@ -461,6 +461,65 @@ View.append = function(self, indexes, refresh)
   end
 end
 
+---Copy list[first..last] to start at `dest`, safe for overlapping ranges that move up.
+---@param list any[]
+---@param first integer
+---@param last integer
+---@param dest integer
+local function move_up(list, first, last, dest)
+  for offset = last - first, 0, -1 do
+    list[dest + offset] = list[first + offset]
+  end
+end
+
+---Extend a reversed flat view in place: `indexes` (newest first) go above the first line; `refresh` is the shown
+---first entry whose lines changed.
+---@param indexes integer[]
+---@param refresh integer|nil
+View.prepend = function(self, indexes, refresh)
+  local items, line_item, item_line, entry_item = self.items, self.line_item, self.item_line, self.entry_item
+  local count, old_items, old_lines = #indexes, #items, #line_item
+  local old_span = 0
+  local new_lines, new_line_item, new_item_line = {}, {}, {}
+  local lines, delta
+
+  if refresh then
+    old_span = (item_line[2] or old_lines + 1) - item_line[1]
+  end
+  move_up(items, 1, old_items, count + 1)
+  for position, index in ipairs(indexes) do
+    items[position] = { kind = "entry", idx = index }
+  end
+  for position = 1, count + (refresh and 1 or 0) do
+    lines = item_lines(self, items[position], true)
+    new_item_line[position] = #new_lines + 1
+    for _, line in ipairs(lines) do
+      new_lines[#new_lines + 1] = line
+      new_line_item[#new_lines] = position
+    end
+  end
+  delta = #new_lines - old_span
+  -- an empty view still holds one blank line
+  write_lines(self, 0, old_lines == 0 and -1 or old_span, new_lines)
+
+  move_up(line_item, old_span + 1, old_lines, #new_lines + 1)
+  for line = #new_lines + 1, old_lines + delta do
+    line_item[line] = line_item[line] + count
+  end
+  for line = 1, #new_lines do
+    line_item[line] = new_line_item[line]
+  end
+  for position = old_items, 1, -1 do
+    item_line[position + count] = item_line[position] + delta
+  end
+  for position, line in ipairs(new_item_line) do
+    item_line[position] = line
+  end
+  for position = 1, old_items + count do
+    entry_item[items[position].idx] = position
+  end
+end
+
 ---@return integer|nil entry index under the cursor
 View.entry_at_cursor = function(self)
   local item_index = item_at_cursor(self)

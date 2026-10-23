@@ -8,7 +8,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `fields.level` | `string[]` | `{ "level", "lvl", "severity" }` | Keys tried in order for the `level` field. |
 | `fields.message` | `string[]` | `{ "msg", "message" }` | Keys tried in order for the `msg` field. |
 | `view.mode` | `JLogViewMode` | `"compact"` | Initial view: `"compact"` (one line per entry) or `"expanded"` (indented JSON). |
-| `view.sort` | `JLogSort` | `"asc"` | Initial order: `"asc"` or `"desc"`. |
+| `view.sort` | `JLogSort` | `"desc"` | Initial order: `"asc"` or `"desc"`. |
 | `unwrap.enable` | `boolean` | `true` | Unwrap double-encoded JSON inside string values. |
 | `unwrap.max_depth` | `integer` | `4` | Maximum levels of nested unwrapping. |
 | `sidebar.width` | `integer` | `40` | Sidebar width in columns. |

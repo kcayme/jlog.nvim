@@ -56,7 +56,7 @@ M.defaults = {
     level = { "level", "lvl", "severity" },
     message = { "msg", "message" },
   },
-  view = { mode = "compact", sort = "asc" },
+  view = { mode = "compact", sort = "desc" },
   unwrap = { enable = true, max_depth = 4 },
   sidebar = { width = 40, position = "right" },
   facets = { top_values = 10 },

@@ -61,6 +61,7 @@ describe("workspace", function()
   end)
 
   it("should group, count and filter large numbers exactly", function()
+    config.setup({ view = { sort = "asc" } })
     local buf = vim.api.nvim_create_buf(true, false)
     local ws, lines, values
 
@@ -173,6 +174,7 @@ describe("workspace", function()
   end)
 
   it("should apply in chunks and let a newer apply supersede an in-flight one", function()
+    config.setup({ view = { sort = "asc" } })
     local lines = {}
     for i = 1, 25000 do
       lines[i] = string.format('{"msg":"m%d","status":%d}', i, i % 2 == 0 and 500 or 200)
@@ -208,6 +210,7 @@ describe("workspace", function()
     end)
 
     it("should load every entry in order, with continuation lines across chunk boundaries", function()
+      config.setup({ view = { sort = "asc" } })
       local lines = {}
       local buf, ws, view_lines
 

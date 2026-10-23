@@ -45,9 +45,12 @@ local COLLAPSED = { object = "{…}", array = "[…]" }
 ---@field field_colors boolean|nil compact keys take their field's color
 ---@field resolved JLogCompactResolved|nil set only when compact styles are active
 ---@field entry JLogEntry|nil the entry handed to format functions
+---@field after_role boolean|nil the last ordered item was a time, level or message field
 
 -- scratch buffers shared by all builders, reused per line so tables are not regrown (the main GC cost of a render)
 local scratch_parts, scratch_spans = {}, {}
+-- rank -> field index and field index -> placed by `order`, reused per line and cleared after it
+local scratch_slots, scratch_ranked = {}, {}
 
 ---@param with_spans boolean
 ---@return JLogLineBuilder
@@ -397,6 +400,133 @@ push_fields = function(line, key_prefix, node, text, base)
   end
 end
 
+---Append the time, level or message field at `index`; index 0 is the Loki timestamp.
+---@param line JLogLineBuilder
+---@param entry JLogEntry
+---@param node JLogNode
+---@param index integer
+---@param role "time"|"level"|"message"
+local function push_role_at(line, entry, node, index, role)
+  local key, value = node.keys[index], node.vals[index]
+  local level
+
+  if index == 0 then
+    push_role(line, loki_time(entry.ts), "JLogTime", "time", "time")
+  elseif role == "time" then
+    push_role(line, short_time(scalar_text(value)), "JLogTime", key, "time")
+  elseif role == "level" then
+    level = scalar_text(value)
+    push_role(line, str_upper(level), level_group(level), key, "level")
+    line.sep = str_rep(" ", math.max(1, 6 - #level))
+  else
+    push_role(line, escape_newlines(scalar_text(value)), "JLogMessage", key, "message")
+  end
+end
+
+---Append the field at `index`; a non-role field right after a role gets at least two spaces before it.
+---@param line JLogLineBuilder
+---@param entry JLogEntry
+---@param node JLogNode
+---@param index integer
+---@param role "time"|"level"|"message"|nil
+---@param text string
+---@param base integer
+local function push_at(line, entry, node, index, role, text, base)
+  if role then
+    push_role_at(line, entry, node, index, role)
+  else
+    if line.after_role then
+      line.sep = #line.sep >= 2 and line.sep or "  "
+    end
+    push_value(line, node.keys[index], node.vals[index], text, base)
+  end
+  line.after_role = role ~= nil
+end
+
+---@param slots table<integer, integer>
+---@param rank integer|nil
+---@param index integer|nil
+local function place_role(slots, rank, index)
+  if rank and index then
+    slots[rank] = index
+  end
+end
+
+---Append fields with `order` applied: unlisted roles, then listed fields by rank, then the rest in source order.
+---@param line JLogLineBuilder
+---@param entry JLogEntry
+---@param node JLogNode
+---@param time_slot integer|nil 0 for the Loki timestamp
+---@param level_index integer|nil
+---@param message_index integer|nil
+---@param text string
+---@param base integer
+local function push_ordered(line, entry, node, time_slot, level_index, message_index, text, base)
+  local resolved = line.resolved --[[@as JLogCompactResolved]]
+  local rank_of, status, order = resolved.rank_of, resolved.status, resolved.order
+  local keys = node.keys
+  local slots, ranked = scratch_slots, scratch_ranked
+  local rank, index, status_index, role
+
+  for key_index = 1, #keys do
+    rank = rank_of[keys[key_index]]
+    if rank and not slots[rank] then
+      slots[rank] = key_index
+    end
+    if not status_index and status[keys[key_index]] then
+      status_index = key_index
+    end
+  end
+  place_role(slots, rank_of.time, time_slot)
+  place_role(slots, rank_of.level, level_index)
+  place_role(slots, rank_of.message, message_index)
+  place_role(slots, rank_of.status, status_index)
+  for rank_index = 1, #order do
+    if slots[rank_index] then
+      ranked[slots[rank_index]] = true
+    end
+  end
+
+  line.after_role = line.sep ~= nil
+  if time_slot and not ranked[time_slot] then
+    push_at(line, entry, node, time_slot, "time", text, base)
+  end
+  if level_index and not ranked[level_index] then
+    push_at(line, entry, node, level_index, "level", text, base)
+  end
+  if message_index and not ranked[message_index] then
+    push_at(line, entry, node, message_index, "message", text, base)
+  end
+  for rank_index = 1, #order do
+    index = slots[rank_index]
+    if index and ranked[index] then
+      -- false marks it emitted, so a field listed twice (by key and by role) shows once
+      ranked[index] = false
+      role = (index == time_slot and "time") or (index == level_index and "level") or nil
+      role = role or (index == message_index and "message") or nil
+      push_at(line, entry, node, index, role, text, base)
+      -- a moved level keeps its alignment padding before whatever follows
+      line.after_role = line.after_role and role ~= "level"
+    end
+  end
+  for key_index = 1, #keys do
+    if
+      ranked[key_index] == nil
+      and key_index ~= time_slot
+      and key_index ~= level_index
+      and key_index ~= message_index
+    then
+      push_at(line, entry, node, key_index, nil, text, base)
+    end
+  end
+  for rank_index = 1, #order do
+    if slots[rank_index] then
+      ranked[slots[rank_index]] = nil
+      slots[rank_index] = nil
+    end
+  end
+end
+
 ---@param entry JLogEntry
 ---@param node JLogNode
 ---@param prefix string
@@ -410,7 +540,7 @@ local function compact_json(entry, node, prefix, opts, lines, spans)
   local keys, vals = node.keys, node.vals
   local text, base = entry.body, entry.json_at - 1
   local resolved = compact.resolve(opts)
-  local level
+  local time_slot = time_index or (entry.ts and entry.ts ~= "" and 0) or nil
 
   -- colors are assigned as keys are first highlighted, not when lines are rendered without highlights
   line.field_colors = spans ~= nil and opts.view.field_colors
@@ -421,27 +551,24 @@ local function compact_json(entry, node, prefix, opts, lines, spans)
   if prefix ~= "" then
     push_item(line, escape_newlines(prefix), "JLogPrefix")
   end
-  if time_index then
-    shown = shown + 1
-    push_role(line, short_time(scalar_text(node.vals[time_index])), "JLogTime", keys[time_index], "time")
-  elseif entry.ts and entry.ts ~= "" then
-    push_role(line, loki_time(entry.ts), "JLogTime", "time", "time")
+  if #resolved.order > 0 then
+    push_ordered(line, entry, node, time_slot, level_index, message_index, text, base)
+    finish(line, lines, spans)
+
+    return
+  end
+
+  if time_slot then
+    shown = shown + (time_index and 1 or 0)
+    push_role_at(line, entry, node, time_slot, "time")
   end
   if level_index then
     shown = shown + 1
-    level = scalar_text(node.vals[level_index])
-    push_role(line, str_upper(level), level_group(level), keys[level_index], "level")
-    line.sep = str_rep(" ", math.max(1, 6 - #level))
+    push_role_at(line, entry, node, level_index, "level")
   end
   if message_index then
     shown = shown + 1
-    push_role(
-      line,
-      escape_newlines(scalar_text(node.vals[message_index])),
-      "JLogMessage",
-      keys[message_index],
-      "message"
-    )
+    push_role_at(line, entry, node, message_index, "message")
   end
 
   if line.sep and #node.keys > shown then

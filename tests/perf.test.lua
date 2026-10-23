@@ -114,8 +114,21 @@ for _, count in ipairs(SIZES) do
     end)
 
     it("should parse, render, filter and stay within memory budgets", function()
-      local start, elapsed, budget, pred, entry, decoded, matched, items, ctx
+      local start, elapsed, budget, pred, entry, decoded, matched, items, ctx, ordered_opts
+      local function key_format(format_ctx)
+        return format_ctx.key .. " " .. format_ctx.value
+      end
 
+      ordered_opts = vim.tbl_deep_extend("force", vim.deepcopy(opts), {
+        compact = {
+          order = { "status", "path", "request_id" },
+          fields = {
+            status = { format = key_format },
+            path = { format = key_format },
+            method = { format = key_format },
+          },
+        },
+      })
       start = now_ms()
       entries = source.build(text, "jsonl")
       elapsed = now_ms() - start
@@ -130,6 +143,14 @@ for _, count in ipairs(SIZES) do
       elapsed = now_ms() - start
       budget = count * US_PER_LINE.compact / 1000
       print(string.format("render.compact x%d: %.0fms (budget %.0f)", #entries, elapsed, budget))
+      assert.is_true(elapsed < budget)
+
+      start = now_ms()
+      for _, item in ipairs(entries) do
+        render.compact(item, ordered_opts, true)
+      end
+      elapsed = now_ms() - start
+      print(string.format("render.compact with order + 3 formats x%d: %.0fms (budget %.0f)", #entries, elapsed, budget))
       assert.is_true(elapsed < budget)
 
       -- the workspace drops the source text after parsing, so only the entries are counted

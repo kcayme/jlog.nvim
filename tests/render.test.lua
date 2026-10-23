@@ -320,3 +320,36 @@ describe("compact styles", function()
     assert.are.same({}, with_cap(spans[1]))
   end)
 end)
+
+describe("compact order", function()
+  local config = require("jlog.config")
+  local entry_text =
+    '{"time":"2026-10-16T12:50:24.970Z","level":"ERROR","msg":"failed","path":"/a","status":500,"id":"r1"}'
+
+  local function ordered(compact)
+    return config.setup({ compact = compact })
+  end
+
+  after_each(function()
+    config.setup()
+  end)
+
+  it("should show listed fields first, then the rest in source order", function()
+    local lines = render.compact(one(entry_text), ordered({ order = { "status", "id" } }))
+
+    assert.are.equal("12:50:24.970 ERROR failed  status=500 id=r1 path=/a", lines[1])
+  end)
+
+  it("should move role fields only when listed", function()
+    local opts = ordered({ order = { "time", "level", "status", "msg" }, fields = { status = { style = "pill" } } })
+    local lines = render.compact(one(entry_text), opts)
+
+    assert.are.equal("12:50:24.970 ERROR 500 failed  path=/a id=r1", lines[1])
+  end)
+
+  it("should ignore dotted names and missing fields, placing duplicates once", function()
+    local lines = render.compact(one('{"a":1,"b":{"c":2},"a":3}'), ordered({ order = { "b.c", "zz", "a" } }))
+
+    assert.are.equal("a=1 b.c=2 a=3", lines[1])
+  end)
+end)

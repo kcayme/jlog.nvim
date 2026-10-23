@@ -18,6 +18,8 @@ describe("view", function()
     v:render(all({ 1, 2 }))
     assert.are.same({ "a", "trace", "b" }, vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
     assert.are.same({ 1, 1, 2 }, v.line_item)
+    -- re-renders replace the whole buffer; undo must not keep copies of it
+    assert.are.equal(-1, vim.bo[v.bufnr].undolevels)
   end)
 
   it("should expand and collapse the entry under the cursor in place", function()

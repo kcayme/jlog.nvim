@@ -22,7 +22,6 @@ local M = {}
 -- every fold update (opening the view, moving the cursor), costing seconds on 100k+ lines
 M.fold_expr_limit = 50000
 
-local SYNC_LIMIT = 5000
 -- items built between checks of the tick's time budget (expanded entries are slower, but 64 stay well within it)
 local BATCH = 64
 -- a chunked render yields to the event loop after this much work, keeping every tick within ~16ms
@@ -243,7 +242,7 @@ end
 
 vim.api.nvim_set_decoration_provider(ns, { on_win = on_win, on_line = on_line })
 
----Render `items`, replacing the buffer. More than 5000 items render in chunks across event-loop ticks.
+---Render `items`, replacing the buffer. What does not fit in the first ~12ms tick renders in later ticks.
 ---@param items JLogItem[]
 ---@param on_done fun()|nil
 View.render = function(self, items, on_done)
@@ -270,15 +269,13 @@ View.render = function(self, items, on_done)
 
     return
   end
-  if total <= SYNC_LIMIT then
-    append_items(self, 1, total, true)
+  -- the first chunk is synchronous so the first screen shows at once; a view that fits in it is done
+  next_item = append_items(self, 1, total, true, vim.uv.hrtime() + TICK_NS) + 1
+  if next_item > total then
     finish()
 
     return
   end
-
-  -- the first chunk is synchronous so the first screen shows at once
-  next_item = append_items(self, 1, total, true, vim.uv.hrtime() + TICK_NS) + 1
 
   local function step()
     local last
@@ -498,6 +495,9 @@ M.new = function(ws)
   vim.bo[bufnr].bufhidden = "wipe"
   vim.bo[bufnr].swapfile = false
   vim.bo[bufnr].modifiable = false
+  -- every render replaces the whole buffer: undo would copy all old lines each time (~70ms and growing memory
+  -- at 500k lines) for a buffer nobody can edit
+  vim.bo[bufnr].undolevels = -1
   if not pcall(vim.api.nvim_buf_set_name, bufnr, name) then
     vim.api.nvim_buf_set_name(bufnr, name .. " (" .. bufnr .. ")")
   end

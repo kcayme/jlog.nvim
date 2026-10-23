@@ -53,7 +53,6 @@ Workspace.__index = Workspace
 local M = {}
 
 local HEAD_LIMIT = 65536
-local SYNC_LIMIT = 20000
 -- entries scanned between checks of the tick's time budget
 local SCAN_BATCH = 500
 local DEBOUNCE_MS = 200
@@ -256,7 +255,7 @@ local function publish_partial(ws, counter, progress)
 end
 
 ---Filter, count facets (when the sidebar is shown), group, then render view, sidebar and winbar.
----More than 20000 entries are scanned in chunks across event-loop ticks; a newer apply supersedes this one.
+---Work that does not fit in the first ~12ms tick continues in later ticks; a newer apply supersedes this one.
 ---@param on_done fun()|nil called once the view has rendered
 ---@param counted JLogFacetCounter|nil facets of every entry, counted while loading; used when no filter applies
 Workspace.apply = function(self, on_done, counted)
@@ -360,7 +359,8 @@ Workspace.apply = function(self, on_done, counted)
     end)
   end
 
-  local function step()
+  ---@param sync boolean|nil the first tick, run by apply itself: work that fits in it finishes at once
+  local function step(sync)
     local deadline = vim.uv.hrtime() + M.timing.tick_ns
     local last
 
@@ -372,6 +372,11 @@ Workspace.apply = function(self, on_done, counted)
       scan(next_index, last)
       next_index = last + 1
     until next_index > count or vim.uv.hrtime() >= deadline
+    if next_index > count and sync then
+      finish()
+
+      return
+    end
     -- the collector's pending work would otherwise land on finish's allocations (group.build, the render) in one
     -- long tick: let it finish its cycle in time-boxed steps first
     if next_index > count and not collected then
@@ -398,13 +403,7 @@ Workspace.apply = function(self, on_done, counted)
     vim.defer_fn(step, 0)
   end
 
-  if count <= SYNC_LIMIT then
-    scan(1, count)
-    finish()
-
-    return
-  end
-  step()
+  step(true)
 end
 
 ---@param clause string

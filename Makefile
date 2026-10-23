@@ -34,7 +34,7 @@ test-file:
 
 .PHONY: bench
 bench:
-	nvim --headless -u NONE -c "set rtp+=." -c "luafile bench/run.lua" -c q
+	@nvim --headless -u NONE -c "set rtp+=." -c "luafile bench/run.lua" -c q
 
 .PHONY: hooks
 hooks:

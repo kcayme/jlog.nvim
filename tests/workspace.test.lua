@@ -355,4 +355,131 @@ describe("workspace", function()
       assert.is_true(#ws.entries < 50)
     end)
   end)
+  describe("chunked element loading", function()
+    local sizes = vim.deepcopy(workspace.load_sizes)
+
+    after_each(function()
+      workspace.load_sizes = sizes
+    end)
+
+    local function write_loki(elements)
+      local path = vim.fn.tempname() .. ".json"
+
+      vim.fn.writefile({ vim.json.encode(elements) }, path)
+
+      return path
+    end
+
+    it("should show a newest-first loki export before it is fully loaded", function()
+      local gen = dofile("bench/gen.lua")
+      -- the generator writes oldest first
+      local elements = vim.fn.reverse(vim.json.decode(gen.loki_text(3000)))
+      local path = write_loki(elements)
+      local ws
+
+      workspace.load_sizes = { first = 50, chunk = 50 }
+      ws = assert(workspace.open({ path = path }))
+
+      assert.is_true(ws.loading)
+      assert.is_true(ws.stored_newest_first)
+      assert.is_false(ws.state.reverse)
+      assert.are.equal(elements[1].timestamp, ws.entries[1].ts)
+      assert.are.equal(1, ws.view.items[1].idx)
+      assert.is_true(vim.wait(5000, function()
+        return not ws.loading and ws.rendered == ws.generation
+      end))
+      assert.are.equal(3000, #ws.entries)
+      assert.are.equal(1, ws.view.items[1].idx)
+      assert.are.equal(elements[3000].timestamp, ws.entries[3000].ts)
+      vim.fn.delete(path)
+    end)
+
+    it("should keep file order for equal timestamps and sort an unordered export without blocking", function()
+      local elements = {}
+      local stamps = { "30", "10", "20", "10", "30", "5", "20", "10" }
+      local path, ws, previous
+
+      config.setup({ view = { sort = "asc" } })
+      for index, stamp in ipairs(stamps) do
+        elements[index] = { line = '{"msg":"m' .. index .. '"}', timestamp = stamp, fields = { app = "a" } }
+      end
+      path = write_loki(elements)
+      workspace.load_sizes = { first = 2, chunk = 2 }
+      ws = assert(workspace.open({ path = path }))
+
+      assert.is_true(ws.loading)
+      assert.is_true(vim.wait(2000, function()
+        return not ws.loading and ws.rendered == ws.generation
+      end))
+      assert.are.equal(#stamps, #ws.entries)
+      assert.is_false(ws.stored_newest_first)
+      for _, entry in ipairs(ws.entries) do
+        if previous then
+          assert.is_true(
+            tonumber(previous.ts) < tonumber(entry.ts) or (previous.ts == entry.ts and previous.src < entry.src)
+          )
+        end
+        previous = entry
+      end
+      assert.are.equal(1, ws.view.items[1].idx)
+      vim.fn.delete(path)
+    end)
+
+    it("should sort a large unordered export across ticks", function()
+      local timing = vim.deepcopy(workspace.timing)
+      local elements = {}
+      local path, ws, ok
+
+      for index = 1, 9000 do
+        -- 7919 is prime, so this visits every timestamp once, out of order
+        elements[index] = { line = "plain " .. index, timestamp = tostring(1000000 + index * 7919 % 9000) }
+      end
+      path = write_loki(elements)
+      workspace.timing = { tick_ns = 0, publish_ns = 0 }
+      ws = assert(workspace.open({ path = path }))
+      ok = vim.wait(10000, function()
+        return not ws.loading and ws.rendered == ws.generation
+      end)
+      workspace.timing = timing
+
+      assert.is_true(ok)
+      assert.are.equal(9000, #ws.entries)
+      for index = 2, #ws.entries do
+        assert.is_true(ws.entries[index - 1].ts < ws.entries[index].ts)
+      end
+      vim.fn.delete(path)
+    end)
+
+    it("should load a plain json array in file order and rebuild it in chunks on reload", function()
+      local lines = {}
+      local path = vim.fn.tempname() .. ".json"
+      local ws
+
+      for index = 1, 9 do
+        lines[index] = '{"msg":"m' .. index .. '"}'
+      end
+      vim.fn.writefile({ "[" .. table.concat(lines, ",") .. "]" }, path)
+      workspace.load_sizes = { first = 2, chunk = 2 }
+      ws = assert(workspace.open({ path = path }))
+
+      assert.is_true(ws.loading)
+      assert.is_false(ws.stored_newest_first)
+      assert.is_true(ws.state.reverse)
+      assert.is_true(vim.wait(2000, function()
+        return not ws.loading and ws.rendered == ws.generation
+      end))
+      assert.are.equal(9, #ws.entries)
+      assert.are.equal(9, ws.view.items[1].idx)
+
+      table.insert(lines, '{"msg":"m10"}')
+      vim.fn.writefile({ "[" .. table.concat(lines, ",") .. "]" }, path)
+      ws:reload()
+      assert.is_true(ws.loading)
+      assert.is_true(vim.wait(2000, function()
+        return not ws.loading and #ws.entries == 10 and ws.rendered == ws.generation
+      end))
+      assert.are.equal(10, ws.view.items[1].idx)
+      vim.fn.delete(path)
+    end)
+  end)
 end)

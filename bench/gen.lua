@@ -64,7 +64,8 @@ M.loki_text = function(count)
   for index = 1, count do
     items[index] = {
       line = index % 10 == 0 and "redis: connection pool: unhealthy\n" or json_line(index),
-      timestamp = tostring(1792157405000000000 + index * 1000000),
+      -- a string: past 2^53 a Lua number would lose the nanoseconds
+      timestamp = "1792157405" .. string.format("%09d", index * 1000),
       fields = { app = "user-api", env = "uat", pod = "user-api-" .. index % 5 },
     }
   end

@@ -45,3 +45,72 @@ describe("source.build", function()
     assert.are.same({}, source.build("", "jsonl"))
   end)
 end)
+
+describe("source.read_elements", function()
+  local function read_all(text, format, count)
+    local entries, pos, chunk, err = {}, 1, nil, nil
+
+    while pos do
+      chunk, pos, err = source.read_elements(text, pos, count, format, #entries + 1)
+      assert.is_nil(err)
+      vim.list_extend(entries, chunk)
+    end
+
+    return entries
+  end
+
+  local function element_text(raws)
+    return "[" .. table.concat(raws, ",") .. "]"
+  end
+
+  it("should read loki elements in chunks with the same entries as a full build", function()
+    local text = read("loki.json")
+    local built = source.build(text, "loki")
+    local chunked = read_all(text, "loki", 2)
+
+    table.sort(chunked, function(left, right)
+      if #left.ts ~= #right.ts then
+        return #left.ts < #right.ts
+      end
+      if left.ts ~= right.ts then
+        return left.ts < right.ts
+      end
+
+      return left.src < right.src
+    end)
+    assert.are.equal(#built, #chunked)
+    for index, entry in ipairs(built) do
+      for _, field in ipairs({ "src", "raw", "body", "ts", "labels", "json_at" }) do
+        assert.are.same(entry[field], chunked[index][field])
+      end
+    end
+  end)
+
+  it("should read array elements and report a broken array", function()
+    local entries = read_all(read("array.json"), "array", 1)
+    local _, _, err
+
+    assert.are.equal(2, #entries)
+    assert.are.equal(2, entries[2].src)
+    assert.are.equal(1, entries[1].json_at)
+    _, _, err = source.read_elements('{"a":1}', 1, 10, "array", 1)
+    assert.is_truthy(err)
+    _, _, err = source.read_elements('[{"a":1},{"a', 1, 10, "array", 1)
+    assert.is_truthy(err)
+    assert.are.same({}, (source.read_elements(" [ ] ", 1, 10, "array", 1)))
+  end)
+
+  it("should detect element order", function()
+    local raws = vim.tbl_map(function(entry)
+      return entry.raw
+    end, read_all(read("loki.json"), "loki", 100))
+    local half = math.floor(#raws / 2)
+    local reversed = vim.fn.reverse(vim.deepcopy(raws))
+    local shuffled = vim.list_extend(vim.fn.reverse(vim.list_slice(raws, 1, half)), vim.list_slice(raws, half + 1))
+
+    assert.are.equal("desc", source.element_order(read("loki.json"), "loki"))
+    assert.are.equal("asc", source.element_order(element_text(reversed), "loki"))
+    assert.are.equal("none", source.element_order(element_text(shuffled), "loki"))
+    assert.are.equal("none", source.element_order(read("array.json"), "array"))
+  end)
+end)

@@ -45,7 +45,8 @@ local view_mod = require("jlog.ui.view")
 ---@field watcher uv.uv_fs_event_t|nil
 ---@field timer uv.uv_timer_t|nil debounces reloads
 ---@field poll uv.uv_timer_t|nil polls for the file to come back after it was deleted or rotated
----@field loading boolean|nil the rest of a jsonl file is still being parsed in chunks
+---@field loading boolean|nil the rest of the source is still being parsed in chunks
+---@field stored_newest_first boolean entries are kept in file order, and this file lists the newest first
 ---@field reload_pending boolean|nil a reload arrived while loading
 local Workspace = {}
 Workspace.__index = Workspace
@@ -61,7 +62,7 @@ local POLL_MS = 500
 -- the default (200) pays collection debt in one 50-80ms tick at 500k lines; 400 keeps ticks under ~35ms
 local GC_STEPMUL = 400
 
--- jsonl lines parsed before the first screen, and later between checks of the tick's time budget
+-- lines or array elements parsed before the first screen, and later between checks of the tick's time budget
 M.load_sizes = { first = 2000, chunk = 500 }
 -- tick_ns: work per tick before yielding (keeps ticks ~16ms); publish_ns: how often new fields reach the sidebar
 M.timing = { tick_ns = 12e6, publish_ns = 250e6 }
@@ -681,17 +682,63 @@ local function take_lines(text, pos, count)
   return lines, pos
 end
 
----Parse the rest of a jsonl file into `entries` in chunks across event-loop ticks, then call `on_done` once.
----@param ws JLogWorkspace
----@param entries JLogEntry[] mutated
+---Reads the next chunk into `entries`; returns the fraction of the text read, nil when done, or an error.
+---@alias JLogReader fun(entries: JLogEntry[], on_json: function|nil): number|nil, string|nil
+
 ---@param text string
 ---@param pos integer byte position of the next unparsed line
 ---@param lnum integer source line number of that line
+---@return JLogReader
+local function line_reader(text, pos, lnum)
+  return function(entries, on_json)
+    local lines
+
+    lines, pos = take_lines(text, pos, M.load_sizes.chunk)
+    source.append_lines(entries, lines, lnum, on_json)
+    lnum = lnum + #lines
+
+    return pos <= #text and pos / #text or nil
+  end
+end
+
+---@param text string
+---@param pos integer where `source.read_elements` goes on
+---@param format JLogFormat
+---@param keep_rest boolean on a parse error, keep the unparsed rest as plain lines instead of failing
+---@return JLogReader
+local function element_reader(text, pos, format, keep_rest)
+  return function(entries, on_json)
+    local chunk, next_pos, err
+
+    if not pos or (#entries == 0 and not text:find("%S")) then
+      return nil
+    end
+    chunk, next_pos, err = source.read_elements(text, pos, M.load_sizes.chunk, format, #entries + 1, on_json)
+    vim.list_extend(entries, chunk)
+    if err and not keep_rest then
+      return nil, err
+    end
+    if err then
+      vim.notify("jlog: " .. err .. "; the rest is shown as plain text", vim.log.levels.WARN)
+      source.append_lines(entries, vim.split(text:sub(next_pos), "\n", { plain = true }), #entries + 1, on_json)
+
+      return nil
+    end
+    pos = next_pos
+
+    return pos and pos / #text or nil
+  end
+end
+
+---Parse the rest of the source into `entries` in chunks across event-loop ticks, then call `on_done` once.
+---@param ws JLogWorkspace
+---@param entries JLogEntry[] mutated
+---@param read JLogReader
 ---@param on_done fun(entries: JLogEntry[])
 ---@param counter JLogFacetCounter|nil counts the facets of the loaded JSON entries, from the load's own decode
-local function load_rest(ws, entries, text, pos, lnum, on_done, counter)
+local function load_rest(ws, entries, read, on_done, counter)
   local deadline = vim.uv.hrtime() + M.timing.tick_ns
-  local lines, progress
+  local fraction, err, progress
   local count_facets = counter
     and function(entry, decoded)
       facets.add(counter, entry_model.flatten(entry, decoded))
@@ -701,35 +748,126 @@ local function load_rest(ws, entries, text, pos, lnum, on_done, counter)
     return
   end
   repeat
-    lines, pos = take_lines(text, pos, M.load_sizes.chunk)
-    source.append_lines(entries, lines, lnum, count_facets)
-    lnum = lnum + #lines
-  until pos > #text or vim.uv.hrtime() >= deadline
-  if pos <= #text then
-    progress = "loading " .. math.floor(pos * 100 / #text) .. "%"
+    fraction, err = read(entries, count_facets)
+  until not fraction or vim.uv.hrtime() >= deadline
+  if fraction then
+    progress = "loading " .. math.floor(fraction * 100) .. "%"
     ws.view:set_winbar("jlog · " .. progress)
     -- with a filter set, the sidebar shows the filtered counts of the last apply instead
     if counter and #ws.state.filters == 0 then
       publish_partial(ws, counter, progress)
     end
     vim.defer_fn(function()
-      load_rest(ws, entries, text, pos, lnum, on_done, counter)
+      load_rest(ws, entries, read, on_done, counter)
     end, 0)
 
     return
   end
 
   ws.loading = nil
-  on_done(entries)
+  if not err then
+    on_done(entries)
+  end
   if ws.reload_pending then
     ws.reload_pending = nil
     ws:reload()
   end
 end
 
+---Stable merge sort of `list` in place; `checkpoint` is called every few thousand moves and may yield.
+---@param list JLogEntry[]
+---@param less fun(left: JLogEntry, right: JLogEntry): boolean
+---@param checkpoint fun()
+local function merge_sort(list, less, checkpoint)
+  local count = #list
+  local from, to = list, {}
+  local width = 1
+  local middle, last, left, right
+
+  while width < count do
+    for start = 1, count, 2 * width do
+      middle = math.min(start + width, count + 1)
+      last = math.min(start + 2 * width, count + 1)
+      left, right = start, middle
+      for slot = start, last - 1 do
+        if left < middle and (right >= last or not less(from[right], from[left])) then
+          to[slot] = from[left]
+          left = left + 1
+        else
+          to[slot] = from[right]
+          right = right + 1
+        end
+        if slot % 4096 == 0 then
+          checkpoint()
+        end
+      end
+    end
+    from, to = to, from
+    width = width * 2
+  end
+  if from ~= list then
+    for slot = 1, count do
+      list[slot] = from[slot]
+    end
+  end
+end
+
+---Wrap a loki reader: once everything is read, sort by timestamp, a tick's budget at a time.
+---@param read JLogReader
+---@return JLogReader
+local function sorting_reader(read)
+  local sorter, deadline
+  local function checkpoint()
+    if vim.uv.hrtime() >= deadline then
+      coroutine.yield()
+    end
+  end
+
+  return function(entries, on_json)
+    local fraction, err
+
+    if not sorter then
+      fraction, err = read(entries, on_json)
+      if fraction or err then
+        return fraction, err
+      end
+      sorter = coroutine.create(function()
+        merge_sort(entries, source.older_first, checkpoint)
+      end)
+    end
+    deadline = vim.uv.hrtime() + M.timing.tick_ns
+    assert(coroutine.resume(sorter))
+
+    return coroutine.status(sorter) ~= "dead" and 1 or nil
+  end
+end
+
+---The reader for an array file; an unordered loki export is sorted once read, everything else keeps file order.
+---@param text string
+---@param pos integer|nil
+---@param format JLogFormat
+---@param order "asc"|"desc"|"none"
+---@param keep_rest boolean
+---@return JLogReader
+local function array_reader(text, pos, format, order, keep_rest)
+  local read = element_reader(text, pos, format, keep_rest)
+
+  return (format == "loki" and order == "none") and sorting_reader(read) or read
+end
+
+---Record whether the loaded file lists the newest first; a toggled sort stays toggled.
+---@param ws JLogWorkspace
+---@param order "asc"|"desc"|"none"
+local function set_stored_order(ws, order)
+  if (order == "desc") ~= ws.stored_newest_first then
+    ws.stored_newest_first = order == "desc"
+    ws.state.reverse = not ws.state.reverse
+  end
+end
+
 ---Pick up changes to the source: a grown jsonl file only parses its new lines; anything else is rebuilt.
 Workspace.reload = function(self)
-  local tail, old_count, old_key, text, entries, err
+  local tail, old_count, old_key, text, err, order, read
 
   if self.closed then
     return
@@ -769,22 +907,16 @@ Workspace.reload = function(self)
   if self.path then
     snapshot(self, text)
   end
-  if self.format == "jsonl" then
-    -- parsed in chunks like at open; the old entries stay shown until the new ones are complete
-    self.loading = true
-    vim.defer_fn(function()
-      load_rest(self, {}, text, 1, 1, function(loaded)
-        replace_entries(self, loaded)
-      end)
-    end, 0)
-
-    return
-  end
-  entries, err = source.build(text, self.format)
-  if err then
-    return
-  end
-  replace_entries(self, entries)
+  -- parsed in chunks like at open; the old entries stay shown until the new ones are complete
+  order = source.element_order(text, self.format)
+  read = self.format == "jsonl" and line_reader(text, 1, 1) or array_reader(text, 1, self.format, order, false)
+  self.loading = true
+  vim.defer_fn(function()
+    load_rest(self, {}, read, function(loaded)
+      set_stored_order(self, order)
+      replace_entries(self, loaded)
+    end)
+  end, 0)
 end
 
 ---@param ws JLogWorkspace
@@ -966,7 +1098,7 @@ M.open = function(target)
   local existing = registry[key]
   local text, format, entries, err, ws
   local pos, lnum, lines
-  local counter
+  local counter, order, read, early
 
   if existing and vim.api.nvim_tabpage_is_valid(existing.tab) then
     vim.api.nvim_set_current_tabpage(existing.tab)
@@ -983,12 +1115,17 @@ M.open = function(target)
     return nil, "not a recognized log format"
   end
   if format ~= "jsonl" then
-    entries, err = source.build(text, format)
-    if not entries and not target.force then
+    order = source.element_order(text, format)
+    -- the first elements show early only when they are the top of the view
+    early = order ~= "none" and (opts.view.sort == "desc") == (order == "desc")
+    entries, pos, err = source.read_elements(text, 1, M.load_sizes.first, format, 1)
+    if err and not target.force then
       return nil, err
     end
     -- a forced open of a broken array (e.g. a truncated download) still shows every line
-    format = entries and format or "jsonl"
+    format = err and "jsonl" or format
+    order = not err and order or nil
+    read = array_reader(text, pos, format, order, true)
   end
   if format == "jsonl" then
     -- only the first lines are parsed before the first screen; the rest follows in chunks
@@ -996,6 +1133,8 @@ M.open = function(target)
     lines, pos = take_lines(text, 1, M.load_sizes.first)
     source.append_lines(entries, lines, 1)
     lnum = #lines + 1
+    read = line_reader(text, pos, lnum)
+    early = true
   end
 
   ws = setmetatable({
@@ -1003,7 +1142,8 @@ M.open = function(target)
     path = path,
     bufnr = target.bufnr,
     format = format,
-    entries = entries,
+    entries = early and entries or {},
+    stored_newest_first = order == "desc",
     opts = opts,
     generation = 0,
     rendered = 0,
@@ -1014,7 +1154,7 @@ M.open = function(target)
       filters = {},
       group = nil,
       mode = opts.view.mode,
-      reverse = opts.view.sort == "desc",
+      reverse = (opts.view.sort == "desc") ~= (order == "desc"),
       expanded = {},
     },
   }, Workspace)
@@ -1051,14 +1191,23 @@ M.open = function(target)
     watch_buffer(ws)
   end
   ws:apply()
-  if pos and pos <= #text then
+  if early and pos and pos <= #text then
     -- the first slice's apply matched every entry, so its counts go on with the rest of the load
     counter = ws.counter
     ws.loading = true
     vim.defer_fn(function()
-      load_rest(ws, ws.entries, text, pos, lnum, function()
+      load_rest(ws, ws.entries, read, function()
         ws:apply(nil, counter)
       end, counter)
+    end, 0)
+  elseif not early then
+    -- shown once loaded and ordered, counted by that apply
+    ws.loading = true
+    vim.defer_fn(function()
+      load_rest(ws, entries, read, function(loaded)
+        ws.entries = loaded
+        ws:apply()
+      end)
     end, 0)
   end
 

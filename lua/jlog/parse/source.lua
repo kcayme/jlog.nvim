@@ -109,8 +109,7 @@ local function build_elements(text, format)
   return entries
 end
 
----Appends jsonl lines as entries: JSON lines (optionally after a text prefix) start an entry, plain lines
----continue the previous JSON entry or become plain entries, blank lines are skipped.
+---Append jsonl lines: JSON lines start entries, plain lines continue the last JSON entry, blank lines are skipped.
 ---@param entries JLogEntry[] mutated
 ---@param lines string[]
 ---@param first_lnum integer source line number of `lines[1]`

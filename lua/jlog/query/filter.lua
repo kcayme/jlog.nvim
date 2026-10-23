@@ -56,9 +56,7 @@ local function split_token(text)
   return neg, field, op, text:sub(op_start + #op)
 end
 
--- Reads one whitespace-delimited term starting at `pos`; a double-quoted value may contain spaces, \", \\ and
--- \n (a newline).
--- Returns term, is_or, next_pos or nil, err.
+-- Reads one term at `pos` (quoted values allow spaces, \", \\ and \n); returns term, is_or, next_pos or nil, err.
 local function read_term(line, pos)
   local stop = line:find('[%s"]', pos) or #line + 1
   local prefix = line:sub(pos, stop - 1)
@@ -109,7 +107,7 @@ local function finish_term(term)
   local re
 
   if term.op == "~" or not term.field then
-    -- intentionally honors the user's 'ignorecase' (spec §7: same flavor as `/`); no \C
+    -- honors the user's 'ignorecase', like `/` does; no \C
     ok, re = pcall(vim.regex, term.value)
     if not ok then
       return "invalid regex `" .. term.value .. "`"

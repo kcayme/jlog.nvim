@@ -58,14 +58,12 @@ local SCAN_BATCH = 500
 local DEBOUNCE_MS = 200
 local TAIL_CHECK = 256
 local POLL_MS = 500
--- the default (200) lets collection debt pile up during a 500k-line render and pays it in one 50-80ms tick;
--- 400 keeps every tick under ~35ms and the heap ~35% smaller, at the same total time
+-- the default (200) pays collection debt in one 50-80ms tick at 500k lines; 400 keeps ticks under ~35ms
 local GC_STEPMUL = 400
 
 -- jsonl lines parsed before the first screen, and later between checks of the tick's time budget
 M.load_sizes = { first = 2000, chunk = 500 }
--- tick_ns: a chunked loop yields to the event loop after this much work, keeping every tick within ~16ms;
--- publish_ns: the sidebar shows newly found fields at most this often while a load or apply runs
+-- tick_ns: work per tick before yielding (keeps ticks ~16ms); publish_ns: how often new fields reach the sidebar
 M.timing = { tick_ns = 12e6, publish_ns = 250e6 }
 
 ---@type table<string, JLogWorkspace>
@@ -139,8 +137,7 @@ local function is_placeholder(bufnr, path)
     and vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] == ""
 end
 
----Wipe empty, unmodified buffers named `path`: `:tabedit` would reuse such a buffer without reading the file,
----and a `:w` there would truncate it.
+---Wipe empty, unmodified buffers named `path`: `:tabedit` would reuse one unread and `:w` would truncate the file.
 ---@param path string
 local function wipe_placeholders(path)
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
@@ -198,8 +195,7 @@ local function create_layout(ws, path)
   if not reuse then
     vim.cmd("tabnew")
   end
-  -- the empty buffer goes away once the view replaces it: a kept placeholder named after the file would
-  -- later be reused by `:tabedit` without reading the file, and `:w` there would truncate it
+  -- wipe the empty buffer once the view replaces it: a kept one would let `:tabedit` then `:w` truncate the file
   vim.bo.bufhidden = "wipe"
   ws.tab = vim.api.nvim_get_current_tabpage()
   view_win = vim.api.nvim_get_current_win()
@@ -257,8 +253,7 @@ local function publish_facets(ws, counter)
   ws.published.names = #counter.names
 end
 
----While a load or apply runs: show the fields counted so far once new ones appear, at most every
----`timing.publish_ns`. A sidebar with unsaved FILTERS/GROUP BY edits keeps them.
+---Show newly found fields while a load or apply runs, at most every `timing.publish_ns`; unsaved edits are kept.
 ---@param ws JLogWorkspace
 ---@param counter JLogFacetCounter
 ---@param progress string
@@ -277,8 +272,7 @@ local function publish_partial(ws, counter, progress)
   ws.sidebar:render(progress)
 end
 
----Filter, count facets (when the sidebar is shown), group, then render view, sidebar and winbar.
----Work that does not fit in the first ~12ms tick continues in later ticks; a newer apply supersedes this one.
+---Filter, count facets, group and render; work past the first ~12ms tick continues later, a newer apply wins.
 ---@param on_done fun()|nil called once the view has rendered
 ---@param counted JLogFacetCounter|nil facets of every entry, counted while loading; used when no filter applies
 Workspace.apply = function(self, on_done, counted)
@@ -371,8 +365,7 @@ Workspace.apply = function(self, on_done, counted)
     end)
   end
 
-  -- group.build in a coroutine that yields at its checkpoints once the tick's time is up, so a 500k-entry build
-  -- spreads over ticks; results that took more than one tick are published in a tick of their own
+  -- group.build in a coroutine that yields when the tick is up; a build spanning ticks publishes in a tick of its own
   local function finish()
     local build_deadline
     local build = coroutine.create(function()
@@ -446,8 +439,7 @@ Workspace.apply = function(self, on_done, counted)
 
       return
     end
-    -- the collector's pending work would otherwise land on finish's allocations (group.build, the render) in one
-    -- long tick: let it finish its cycle in time-boxed steps first
+    -- let the collector finish its cycle in time-boxed steps, or its debt lands on finish in one long tick
     if next_index > count and not collected then
       repeat
         -- selene: allow(incorrect_standard_library_use)
@@ -540,8 +532,7 @@ local function snapshot(ws, text)
   ws.next_lnum = newlines + 1
 end
 
----The complete new lines of a jsonl file that only grew, or nil when it must be rebuilt. A partial last line
----stays unread until it is completed.
+---The new complete lines of a jsonl file that only grew, or nil when it must be rebuilt; a partial last line waits.
 ---@param ws JLogWorkspace
 ---@return string|nil
 local function read_appended(ws)

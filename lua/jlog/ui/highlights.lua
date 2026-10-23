@@ -5,7 +5,7 @@ local M = {}
 ---@field link string group it links to by default; a badge takes its color from it instead
 ---@field badge boolean|nil drawn reversed: the link's color as the background
 
----Highlight groups and their default links (spec §6.3), in definition order.
+---Highlight groups and their default links, in definition order.
 ---@type JLogHighlightGroup[]
 M.GROUPS = {
   { name = "JLogTime", link = "Comment" },

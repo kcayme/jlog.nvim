@@ -6,8 +6,7 @@ local render = require("jlog.ui.render")
 local entry_model = require("jlog.parse.entry")
 local workspace = require("jlog.workspace")
 
--- every check runs at each size; throughput budgets are per line (from the 100k figures), latency budgets are
--- the same at every size (spec 5.4: first screen regardless of size)
+-- throughput budgets scale per line from the 100k figures; latency budgets are the same at every size
 local SIZES = { 10000, 100000, 500000 }
 local US_PER_LINE = { build = 10, compact = 15, filter_group = 10 }
 
@@ -110,7 +109,7 @@ for _, count in ipairs(SIZES) do
         get = function() end,
       })
       elapsed = now_ms() - start
-      -- spec 5.4 budgets filter/group apply at 1000ms per 100k; the 300ms in the plan has too little headroom
+      -- filter/group apply gets 1000ms per 100k; 300ms had too little headroom to be stable
       budget = count * US_PER_LINE.filter_group / 1000
       print(string.format("filter.compile + group.build (%d shown): %.0fms (budget %.0f)", #items, elapsed, budget))
       assert.is_true(elapsed < budget)

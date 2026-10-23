@@ -41,8 +41,7 @@ local COLLAPSED = { object = "{…}", array = "[…]" }
 ---@field with_spans boolean
 ---@field sep string|nil separator owed before the next compact item
 
--- Scratch buffers shared by every builder: only one line is built at a time, and reusing them avoids
--- regrowing two tables per line (the dominant GC cost of a whole-file compact render).
+-- scratch buffers shared by all builders, reused per line so tables are not regrown (the main GC cost of a render)
 local scratch_parts, scratch_spans = {}, {}
 
 ---@param with_spans boolean

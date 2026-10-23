@@ -18,13 +18,11 @@ View.__index = View
 
 local M = {}
 
--- buffer lines above which group folds are created once, by hand: a foldexpr is re-evaluated per line on
--- every fold update (opening the view, moving the cursor), costing seconds on 100k+ lines
+-- above this many lines, group folds are made once by hand: a foldexpr re-runs per line, seconds at 100k+ lines
 M.fold_expr_limit = 50000
 -- a chunked render yields to the event loop after this much work, keeping every tick within ~16ms
 M.tick_ns = 12e6
--- old lines deleted per call while a render replaces them: deleting just below the new lines costs ~4ms per 50k,
--- where replacing a 500k-line buffer at once costs ~50ms
+-- old lines deleted per call during a render (~4ms per 50k; replacing 500k lines at once costs ~50ms)
 M.trim_slice = 50000
 
 -- items built between checks of the tick's time budget (expanded entries are slower, but 64 stay well within it)
@@ -343,8 +341,7 @@ View.render = function(self, items, on_done)
   vim.defer_fn(step, 0)
 end
 
----Extend a flat (ungrouped, unreversed) view in place with entries `indexes`; `refresh` is an already shown
----last entry whose lines changed.
+---Extend a flat view in place with entries `indexes`; `refresh` is a shown last entry whose lines changed.
 ---@param indexes integer[]
 ---@param refresh integer|nil
 View.append = function(self, indexes, refresh)
@@ -539,8 +536,7 @@ M.new = function(ws)
   vim.bo[bufnr].bufhidden = "wipe"
   vim.bo[bufnr].swapfile = false
   vim.bo[bufnr].modifiable = false
-  -- every render replaces the whole buffer: undo would copy all old lines each time (~70ms and growing memory
-  -- at 500k lines) for a buffer nobody can edit
+  -- renders replace the whole buffer: undo would copy every old line each time (~70ms at 500k lines)
   vim.bo[bufnr].undolevels = -1
   if not pcall(vim.api.nvim_buf_set_name, bufnr, name) then
     vim.api.nvim_buf_set_name(bufnr, name .. " (" .. bufnr .. ")")

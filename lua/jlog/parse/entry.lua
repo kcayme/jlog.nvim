@@ -161,8 +161,7 @@ local function lookup(entry, decoded, path, opts, unwrap)
   return current
 end
 
----Text of a decoded scalar. Numbers are exact: integers in full, others in the fewest digits that read back
----as the same double (`tostring` keeps only 14 digits).
+---Text of a decoded scalar: integers in full, other numbers in the fewest digits that read back the same.
 ---@param value any
 ---@return string
 M.text = function(value)

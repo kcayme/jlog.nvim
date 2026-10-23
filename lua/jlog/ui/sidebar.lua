@@ -175,8 +175,7 @@ local function find_row(rows, anchor)
   return field_row
 end
 
----Rewrite the buffer from the workspace state and the last facets. Edits inside FIELDS are discarded; a cursor
----in FIELDS stays on its field or value.
+---Rewrite the buffer from state and facets; FIELDS edits are discarded and a FIELDS cursor stays on its row.
 ---@param progress string|nil shown after the FIELDS header while the counts are partial
 Sidebar.render = function(self, progress)
   local state = self.ws.state
@@ -238,9 +237,7 @@ local function ends_sections(text)
   return text == HEADERS.fields or vim.startswith(text, "▸") or vim.startswith(text, "▾")
 end
 
----Filters (non-blank lines under FILTERS, or before any header) and the group field (first non-blank line under
----GROUP BY). Reading stops at FIELDS or the first facet line. Without a GROUP BY header there is no group, and
----the filters end at the first blank line, so a former group line never turns into a filter.
+---Filters and group typed in the sidebar; reading stops at FIELDS, and without GROUP BY a blank line ends filters.
 ---@return {filters: string[], group: string|nil}
 Sidebar.read = function(self)
   local spec = { filters = {} }

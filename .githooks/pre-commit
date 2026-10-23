@@ -84,4 +84,20 @@ if ! make test; then
   exit 1
 fi
 
+# --- vimdoc duplicate-heading check ---
+staged=$(git diff --cached --name-only)
+for f in README.md docs/options.md; do
+  [ -f "$f" ] || continue
+  echo "$staged" | grep -qF "$f" || continue
+  dupes=$(grep -i '^#' "$f" \
+    | sed 's/^#* *//' \
+    | tr '[:upper:]' '[:lower:]' \
+    | sort | uniq -d)
+  if [ -n "$dupes" ]; then
+    echo "ERROR: duplicate headings in $f (would create duplicate vimdoc tags):"
+    echo "$dupes"
+    exit 1
+  fi
+done
+
 exit 0

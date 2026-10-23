@@ -196,3 +196,103 @@ describe("field colors", function()
     assert.are.equal("JLogKey", expanded[2][1][3])
   end)
 end)
+
+describe("compact styles", function()
+  local config = require("jlog.config")
+  local detect = require("jlog.parse.detect")
+
+  local function styled(compact, view)
+    return config.setup({ compact = compact, view = view })
+  end
+
+  local function with_cap(spans)
+    return vim.tbl_filter(function(span)
+      return span[4] ~= nil
+    end, spans)
+  end
+
+  after_each(function()
+    config.setup()
+  end)
+
+  it("should render exactly as before when nothing is configured", function()
+    local defaults, plain = styled(nil), styled({ style = "plain" })
+
+    for _, name in ipairs(vim.fn.readdir("tests/fixtures")) do
+      local text = table.concat(vim.fn.readfile("tests/fixtures/" .. name), "\n")
+      local entries = source.build(text, detect.detect(text, defaults) or "jsonl")
+
+      for index = 1, math.min(5, #entries) do
+        local lines, spans = render.compact(entries[index], defaults)
+        local plain_lines, plain_spans = render.compact(entries[index], plain)
+
+        assert.are.same(lines, plain_lines)
+        assert.are.same(spans, plain_spans)
+      end
+    end
+  end)
+
+  it("should show a pill's value only, colored by status class", function()
+    local lines, spans = render.compact(
+      one('{"level":"ERROR","msg":"x","status":500}'),
+      styled({ fields = { status = { style = "pill" } } })
+    )
+
+    assert.are.equal("ERROR x  500", lines[1])
+    assert.are.same({ { 9, 12, highlights.badge_of("JLogStatus5xx"), "JLogStatus5xx" } }, with_cap(spans[1]))
+  end)
+
+  it("should keep literals and escape newlines inside badges", function()
+    local lines = render.compact(one('{"a":1.50,"b":"x\\ny"}'), styled({ style = "inverted" }))
+
+    assert.are.equal("1.50 x\\ny", lines[1])
+  end)
+
+  it("should use the format's text and group in every style", function()
+    local format = function(ctx)
+      return "HTTP " .. ctx.value, "DiagnosticHint"
+    end
+    local lines, spans =
+      render.compact(one('{"status":500}'), styled({ fields = { status = { style = "plain", format = format } } }))
+
+    assert.are.equal("HTTP 500", lines[1])
+    assert.are.same({ { 0, 8, "DiagnosticHint" } }, spans[1])
+    lines, spans =
+      render.compact(one('{"status":500}'), styled({ fields = { status = { style = "pill", format = format } } }))
+    assert.are.equal("HTTP 500", lines[1])
+    assert.are.same({ { 0, 8, highlights.badge_of("DiagnosticHint"), "DiagnosticHint" } }, spans[1])
+  end)
+
+  it("should style nested and collapsed values", function()
+    local lines = render.compact(
+      one('{"req":{"host":"h"},"list":[1,2]}'),
+      styled({ fields = { ["req.host"] = { style = "inverted" }, list = { style = "inverted" } } })
+    )
+
+    assert.are.equal("h [1,2]", lines[1])
+  end)
+
+  it("should keep the level badge and its alignment in any style", function()
+    local lines, spans =
+      render.compact(one('{"level":"info","msg":"m"}'), styled({ fields = { level = { style = "pill" } } }))
+
+    assert.are.equal("INFO  m", lines[1])
+    assert.are.equal(0, spans[1][1][1])
+    assert.are.equal(4, spans[1][1][2])
+    assert.are.equal("DiagnosticInfo", spans[1][1][4])
+  end)
+
+  it("should fall back to JLogKey's color when field colors are off", function()
+    local _, spans = render.compact(one('{"a":1}'), styled({ style = "inverted" }, { field_colors = false }))
+
+    assert.are.same({ { 0, 1, highlights.badge_of("JLogKey") } }, spans[1])
+  end)
+
+  it("should not run the global style on time and message", function()
+    local lines, spans =
+      render.compact(one('{"time":"2026-10-16T12:50:24.970Z","msg":"m"}'), styled({ style = "pill" }))
+
+    assert.are.equal("12:50:24.970 m", lines[1])
+    assert.are.same({}, with_cap(spans[1]))
+  end)
+end)

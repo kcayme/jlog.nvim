@@ -1,8 +1,9 @@
+local compact = require("jlog.ui.compact")
 local entry_model = require("jlog.parse.entry")
 local highlights = require("jlog.ui.highlights")
 
----0-based start col, exclusive end col, highlight group.
----@alias JLogSpan {[1]: integer, [2]: integer, [3]: string}
+---0-based start col, exclusive end col, highlight group, and a pill's cap color group.
+---@alias JLogSpan {[1]: integer, [2]: integer, [3]: string, [4]: string|nil}
 
 ---@class JLogGroup
 ---@field label string value as text, or `"(no <field>)"`
@@ -42,6 +43,8 @@ local COLLAPSED = { object = "{…}", array = "[…]" }
 ---@field with_spans boolean
 ---@field sep string|nil separator owed before the next compact item
 ---@field field_colors boolean|nil compact keys take their field's color
+---@field resolved JLogCompactResolved|nil set only when compact styles are active
+---@field entry JLogEntry|nil the entry handed to format functions
 
 -- scratch buffers shared by all builders, reused per line so tables are not regrown (the main GC cost of a render)
 local scratch_parts, scratch_spans = {}, {}
@@ -56,12 +59,13 @@ end
 ---@param start_col integer
 ---@param end_col integer
 ---@param group string
-local function add_span(line, start_col, end_col, group)
+---@param cap string|nil
+local function add_span(line, start_col, end_col, group, cap)
   if not line.with_spans then
     return
   end
   line.span_count = line.span_count + 1
-  line.spans[line.span_count] = { start_col, end_col, group }
+  line.spans[line.span_count] = { start_col, end_col, group, cap }
 end
 
 ---@param line JLogLineBuilder
@@ -256,10 +260,92 @@ end
 
 ---@param line JLogLineBuilder
 ---@param key string
+---@param role "time"|"level"|"message"|"status"|nil
+---@param value string
+---@param role_group string|nil `JLogTime`, `JLogMessage` or the level's `JLogLevel*`; nil for other fields
+---@return string
+local function color_of(line, key, role, value, role_group)
+  local status_group = role == "status" and compact.status_group(value)
+
+  if role == "level" then
+    return highlights.link_of(role_group) or role_group
+  end
+  if role_group then
+    return role_group
+  end
+  if status_group then
+    return status_group
+  end
+
+  return line.field_colors and highlights.field_group(key) or "JLogKey"
+end
+
+---Append one field in its compact style; `role_group` marks a time/level/message field.
+---@param line JLogLineBuilder
+---@param key string
+---@param role "time"|"level"|"message"|"status"|nil
+---@param value string text shown today, without the key
+---@param role_group string|nil
+local function push_styled(line, key, role, value, role_group)
+  local resolved = line.resolved --[[@as JLogCompactResolved]]
+  local style = compact.style_of(resolved, key, role)
+  local text, format_group = compact.format(resolved, key, role, value, line.entry)
+  local start_col, color, body
+
+  if line.sep then
+    push(line, line.sep)
+  end
+  line.sep = " "
+  start_col = line.col
+  if not text and style == "plain" and not role_group then
+    push(line, escape_newlines(key))
+    push(line, "=")
+    add_span(line, start_col, line.col, line.field_colors and highlights.field_group(key) or "JLogKey")
+    push(line, value, "JLogValue")
+
+    return
+  end
+  push(line, text or value)
+  if not line.with_spans or line.col == start_col then
+    return
+  end
+
+  color = type(format_group) == "string" and format_group or color_of(line, key, role, value, role_group)
+  if style == "plain" then
+    add_span(line, start_col, line.col, color)
+
+    return
+  end
+  body = (not text and role == "level") and role_group or highlights.badge_of(color)
+  add_span(line, start_col, line.col, body, style == "pill" and color or nil)
+end
+
+---Append a time/level/message field: styled when compact styles are active, else as today.
+---@param line JLogLineBuilder
+---@param value string
+---@param group string
+---@param key string
+---@param role "time"|"level"|"message"
+local function push_role(line, value, group, key, role)
+  if line.resolved then
+    push_styled(line, key, role, value, group)
+
+    return
+  end
+  push_item(line, value, group)
+end
+
+---@param line JLogLineBuilder
+---@param key string
 ---@param value string
 local function push_field(line, key, value)
   local col
 
+  if line.resolved then
+    push_styled(line, key, line.resolved.status[key] and "status" or nil, value)
+
+    return
+  end
   if line.sep then
     push(line, line.sep)
   end
@@ -319,29 +405,39 @@ local function compact_json(entry, node, prefix, opts, lines, spans)
   local shown = 0
   local keys, vals = node.keys, node.vals
   local text, base = entry.body, entry.json_at - 1
+  local resolved = compact.resolve(opts)
   local level
 
   -- colors are assigned as keys are first highlighted, not when lines are rendered without highlights
   line.field_colors = spans ~= nil and opts.view.field_colors
+  if resolved.active then
+    line.resolved, line.entry = resolved, entry
+  end
   prefix = str_match(prefix, "^(.-)%s*$")
   if prefix ~= "" then
     push_item(line, escape_newlines(prefix), "JLogPrefix")
   end
   if time_index then
     shown = shown + 1
-    push_item(line, short_time(scalar_text(node.vals[time_index])), "JLogTime")
+    push_role(line, short_time(scalar_text(node.vals[time_index])), "JLogTime", keys[time_index], "time")
   elseif entry.ts and entry.ts ~= "" then
-    push_item(line, loki_time(entry.ts), "JLogTime")
+    push_role(line, loki_time(entry.ts), "JLogTime", "time", "time")
   end
   if level_index then
     shown = shown + 1
     level = scalar_text(node.vals[level_index])
-    push_item(line, str_upper(level), level_group(level))
+    push_role(line, str_upper(level), level_group(level), keys[level_index], "level")
     line.sep = str_rep(" ", math.max(1, 6 - #level))
   end
   if message_index then
     shown = shown + 1
-    push_item(line, escape_newlines(scalar_text(node.vals[message_index])), "JLogMessage")
+    push_role(
+      line,
+      escape_newlines(scalar_text(node.vals[message_index])),
+      "JLogMessage",
+      keys[message_index],
+      "message"
+    )
   end
 
   if line.sep and #node.keys > shown then

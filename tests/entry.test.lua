@@ -84,6 +84,8 @@ describe("entry", function()
 
   it("should decline what it cannot prove", function()
     local cases = {
+      { '[{"k":"v","z":"\0"}]', "k", "array" },
+      { '[{"k":"a\0b"}]', "k", "array" },
       { '{"msg":"\\"request_id\\":\\"x\\"","request_id":"y"}', "request_id" },
       { '{"a":{"request_id":"x"},"request_id":"y"}', "request_id" },
       { '{"request_id":"a","request_id":"b"}', "request_id" },
@@ -97,7 +99,7 @@ describe("entry", function()
       { '{"a":{"x":1,"k":2},"k":3}', "k" },
     }
     for _, case in ipairs(cases) do
-      local value, found = entry.peek(build(case[1])[1], case[2], opts)
+      local value, found = entry.peek(build(case[1], case[3])[1], case[2], opts)
       assert.is_nil(value, case[1])
       assert.is_false(found, case[1])
     end
@@ -114,7 +116,12 @@ describe("entry", function()
       '{"k":"caf\\u00e9","v":"caf\195\169"}',
       '{"a\\/b":1,"a/b":2}',
     }
-    local sources = { { table.concat(gen.jsonl_lines(2000), "\n"), "jsonl" }, { table.concat(edge, "\n"), "jsonl" } }
+    local sources = {
+      { table.concat(gen.jsonl_lines(2000), "\n"), "jsonl" },
+      { table.concat(edge, "\n"), "jsonl" },
+      { '[{"k":"v","z":"\0"},{"k":"a\0b"},{"k":"v"}]', "array" },
+    }
+    local undecoded = 0
     local compared, answered, built = 0, 0, 0
     for _, name in ipairs(vim.fn.readdir("tests/fixtures")) do
       local text = table.concat(vim.fn.readfile("tests/fixtures/" .. name), "\n")
@@ -124,6 +131,13 @@ describe("entry", function()
       for _, e in ipairs(source.build(src[1], src[2])) do
         local decoded = entry.decode(e)
         built = built + 1
+        -- an entry that does not decode has no value for any field
+        if not decoded and e.json_at then
+          for key in e.body:gmatch('"([^"\\]*)"%s*:') do
+            undecoded = undecoded + 1
+            assert.is_false(select(2, entry.peek(e, key, opts)), e.body .. " " .. key)
+          end
+        end
         for key in pairs(type(decoded) == "table" and decoded or {}) do
           local value, found = entry.peek(e, key, opts)
           compared = compared + 1
@@ -138,11 +152,12 @@ describe("entry", function()
     end
     print(
       string.format(
-        "peek: %d entries, %d keys compared, %d answered, %d declined",
+        "peek: %d entries, %d keys compared, %d answered, %d declined, %d keys of undecodable entries",
         built,
         compared,
         answered,
-        compared - answered
+        compared - answered,
+        undecoded
       )
     )
     assert.is_true(answered > 0)

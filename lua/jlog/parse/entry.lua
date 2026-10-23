@@ -235,6 +235,10 @@ M.peek = function(entry, path, _opts)
   if not json_at or not peekable[path] or str_find(body, "\\u", json_at, true) then
     return nil, false
   end
+  -- the Lua parser accepts NUL in array elements but vim.json.decode does not, so `get` sees no fields
+  if str_find(body, "\0", json_at, true) then
+    return nil, false
+  end
   key_at, key_end = str_find(body, path, json_at, true)
   if not key_at or str_find(body, path, key_end + 1, true) then
     return nil, false

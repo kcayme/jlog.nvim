@@ -447,7 +447,7 @@ local function push_at(line, entry, node, index, role, text, base)
     push_role_at(line, entry, node, index, role)
   else
     if line.after_role then
-      line.sep = #line.sep >= 2 and line.sep or "  "
+      line.sep = line.sep and (#line.sep >= 2 and line.sep or "  ")
     end
     push_value(line, node.keys[index], node.vals[index], text, base)
   end
@@ -531,7 +531,7 @@ local function push_ordered(line, entry, node, time_slot, level_index, message_i
   end
   -- the rest are never roles: widen once after a role, then push them directly
   if line.after_role then
-    line.sep = #line.sep >= 2 and line.sep or "  "
+    line.sep = line.sep and (#line.sep >= 2 and line.sep or "  ")
   end
   for key_index = 1, #keys do
     if

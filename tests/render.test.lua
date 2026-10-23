@@ -375,6 +375,21 @@ describe("compact order", function()
     config.setup()
   end)
 
+  it("should keep an ordered line working when a leading role is hidden", function()
+    local hide = function()
+      return ""
+    end
+    local lines =
+      render.compact(one('{"msg":"x","a":1}'), ordered({ order = { "a" }, fields = { message = { format = hide } } }))
+
+    assert.are.equal("a=1", lines[1])
+    lines = render.compact(
+      one('{"time":"2026-10-16T12:50:24Z","msg":"x","a":1}'),
+      ordered({ order = { "time", "msg" }, fields = { time = { format = hide } } })
+    )
+    assert.are.equal("x  a=1", lines[1])
+  end)
+
   it("should show listed fields first, then the rest in source order", function()
     local lines = render.compact(one(entry_text), ordered({ order = { "status", "id" } }))
 

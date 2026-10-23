@@ -25,7 +25,7 @@
 
 ---@class JLogPagingOptions
 ---@field size integer source lines (jsonl) or array elements per page, before overlap
----@field overlap integer entries from each neighbouring page shown with a page
+---@field overlap integer neighbouring source lines (jsonl, extended so an entry is never cut) or elements shown with a page
 
 ---Every key may be `false` to disable the mapping.
 ---@class JLogKeymapsOptions

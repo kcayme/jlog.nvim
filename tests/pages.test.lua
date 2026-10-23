@@ -102,15 +102,16 @@ describe("pages", function()
   end)
 
   it("should not split an entry from its continuation lines", function()
-    local lines = numbered_lines(17)
+    local lines = numbered_lines(27)
+    local opts = { size = 20, overlap = 2 }
     local text, index, core
 
-    -- line 11, the 10th from the end, continues the entry on line 9
+    -- line 11, the 20th from the end, continues the entry on line 9, within the 2-line snap limit
     table.insert(lines, 10, "goroutine 1 [running]:")
     table.insert(lines, 11, "main.main()")
     table.insert(lines, 12, "\tmain.go:12")
     text = table.concat(lines, "\n")
-    index = full_index(text, "jsonl", OPTS, true)
+    index = full_index(text, "jsonl", opts, true)
     core = core_entries(text, "jsonl", index:range(1))
 
     assert.are.equal('{"n":9}', core[1].raw)
@@ -155,6 +156,49 @@ describe("pages", function()
     assert.are.equal(2000, index:known())
   end)
 
+  it("should split a run of plain lines at the snap limit", function()
+    local lines = {}
+
+    for line = 1, 35 do
+      lines[line] = "plain " .. line
+    end
+    for _, from_end in ipairs({ true, false }) do
+      assert.are.equal(4, full_index(table.concat(lines, "\n"), "jsonl", OPTS, from_end):count())
+    end
+  end)
+
+  it("should bound every scan call and drop no line when entry starts are sparse", function()
+    local lines = {}
+    local text, index, calls, covered, core_first, core_last
+
+    for line = 1, 20000 do
+      lines[line] = line % 600 == 1 and string.format('{"n":%d}', line)
+        or string.format("level=info msg={k=%d} at foo.go:12", line)
+    end
+    text = table.concat(lines, "\n")
+    for _, from_end in ipairs({ true, false }) do
+      index, calls, covered = pages.new(text, "jsonl", OPTS, from_end), 0, {}
+      while not index:scan(0) do
+        calls = calls + 1
+      end
+      -- every call advances at least 1024 lines of the line count or the walk
+      assert.is_true(calls > 2 and calls <= 2 * math.ceil(20000 / 1024) + 1)
+      assert.is_true(index:count() > 1000)
+      for page = 1, index:count() do
+        core_first, core_last = index:range(page).core_first_line, index:range(page).core_last_line
+        for _, entry in ipairs(core_entries(text, "jsonl", index:range(page))) do
+          for line = entry.src, math.min(entry.src + #(entry.cont or {}), core_last) do
+            assert.is_true(line >= core_first)
+            covered[line] = (covered[line] or 0) + 1
+          end
+        end
+      end
+      for line = 1, 20000 do
+        assert.are.equal(1, covered[line])
+      end
+    end
+  end)
+
   it("should index a newest-first loki array from the start", function()
     local text = gen.loki_text(25)
     local index = pages.new(text, "loki", OPTS, false)
@@ -195,7 +239,9 @@ describe("pages", function()
       { text = gen.loki_text(83), format = "loki" },
       { text = tricky, format = "array" },
     }
-    local opts = { size = 7, overlap = 3 }
+    -- jsonl needs a snap limit of 2 to keep gen's 2-line continuation runs whole
+    local opts =
+      { jsonl = { size = 20, overlap = 3 }, loki = { size = 7, overlap = 3 }, array = { size = 7, overlap = 3 } }
     local expected, index
 
     for _, case in ipairs(cases) do
@@ -203,7 +249,7 @@ describe("pages", function()
         return entry.src .. "\0" .. entry_key(entry)
       end, all_entries(case.text, case.format))
       for _, from_end in ipairs({ true, false }) do
-        index = full_index(case.text, case.format, opts, from_end)
+        index = full_index(case.text, case.format, opts[case.format], from_end)
         assert.is_true(index:count() > 1)
         assert.are.same(expected, core_keys(case.text, case.format, index, from_end))
       end

@@ -14,6 +14,7 @@ local json = require("jlog.parse.json")
 ---@field format JLogFormat
 ---@field size integer
 ---@field overlap integer
+---@field snap integer most lines a boundary moves to reach a line that starts an entry
 ---@field from_end boolean page 1 holds the end of the text
 ---@field ranges JLogPageRange[] jsonl: ranges of the pages found so far, in page order
 ---@field starts integer[] arrays: core start elements in file order
@@ -38,6 +39,8 @@ local BYTE_OPEN_BRACE = 123
 local BYTE_CLOSE_BRACE = 125
 -- units (lines or elements) scanned between deadline checks; also the least progress of a scan call
 local CHECK_EVERY = 1024
+-- lines tried while snapping between deadline checks: a line that is not JSON costs a failed decode
+local SNAP_CHECK_EVERY = 64
 
 local find, byte, sub = string.find, string.byte, string.sub
 
@@ -142,13 +145,16 @@ end
 
 ---@param index JLogPageIndex
 ---@param units integer units scanned so far
-local function checkpoint(index, units)
-  if units % CHECK_EVERY == 0 and vim.uv.hrtime() >= index.deadline then
+---@param snapped integer|nil lines tried so far while snapping
+local function checkpoint(index, units, snapped)
+  local due = units % CHECK_EVERY == 0 or (snapped and snapped > 0 and snapped % SNAP_CHECK_EVERY == 0)
+
+  if due and vim.uv.hrtime() >= index.deadline then
     coroutine.yield()
   end
 end
 
----Start byte and line of the line `overlap` lines before `pos`, moved further back to a line that starts an entry.
+---Start byte and line of the line `overlap` lines before `pos`, moved up to `snap` lines back to an entry start.
 ---@param index JLogPageIndex
 ---@param pos integer first byte of line `line`
 ---@param line integer
@@ -156,6 +162,7 @@ end
 ---@return integer line
 local function lead_start(index, pos, line)
   local text = index.text
+  local moved = 0
 
   for _ = 1, index.overlap do
     if line == 1 then
@@ -163,25 +170,28 @@ local function lead_start(index, pos, line)
     end
     pos, line = prev_newline(text, pos - 2) + 1, line - 1
   end
-  while line > 1 and not is_entry(text, pos, next_newline(text, pos) - 1) do
-    pos, line = prev_newline(text, pos - 2) + 1, line - 1
+  while line > 1 and moved < index.snap and not is_entry(text, pos, next_newline(text, pos) - 1) do
+    pos, line, moved = prev_newline(text, pos - 2) + 1, line - 1, moved + 1
+    checkpoint(index, 1, moved)
   end
 
   return pos, line
 end
 
----Last byte of the `overlap` lines from `pos`, moved further on to the end of the entry they end in.
+---Last byte of the `overlap` lines from `pos`, moved up to `snap` lines on to the end of the entry they end in.
 ---@param index JLogPageIndex
 ---@param pos integer first byte of a line, or `#text + 1`
 ---@return integer last
 local function trail_end(index, pos)
   local text = index.text
+  local moved = 0
 
   for _ = 1, index.overlap do
     pos = pos <= #text and next_newline(text, pos) + 1 or pos
   end
-  while pos <= #text and not is_entry(text, pos, next_newline(text, pos) - 1) do
-    pos = next_newline(text, pos) + 1
+  while pos <= #text and moved < index.snap and not is_entry(text, pos, next_newline(text, pos) - 1) do
+    pos, moved = next_newline(text, pos) + 1, moved + 1
+    checkpoint(index, 1, moved)
   end
 
   return pos > #text and #text or pos - 2
@@ -193,8 +203,14 @@ end
 ---@param line integer
 ---@param stop integer
 ---@param stop_line integer
-local function add_page(index, pos, line, stop, stop_line)
-  local first, first_src = lead_start(index, pos, line)
+---@param starts_entry boolean false when the snap limit put the core start on a continuation line
+local function add_page(index, pos, line, stop, stop_line, starts_entry)
+  local first, first_src = pos, line
+
+  -- no lead then: a slice from the core start reads the cut continuation lines as this page's own entries
+  if starts_entry then
+    first, first_src = lead_start(index, pos, line)
+  end
 
   index.ranges[#index.ranges + 1] = {
     first = first,
@@ -205,13 +221,14 @@ local function add_page(index, pos, line, stop, stop_line)
   }
 end
 
----Pages from the end: every `size`-th line back, moved further back to a line that starts an entry.
+---Pages from the end: every `size`-th line back, moved up to `snap` lines further back to an entry start.
 ---@param index JLogPageIndex
 local function scan_lines_back(index)
   local text = index.text
   local last = byte(text, #text) == BYTE_NEWLINE and #text - 1 or #text
   local line, count, pos = 0, 0, 1
-  local stop, stop_line, newline
+  local limit = index.size + index.snap
+  local stop, stop_line, newline, entry
 
   -- absolute line numbers need the line count first
   while pos <= #text do
@@ -222,39 +239,42 @@ local function scan_lines_back(index)
   while last >= 0 do
     newline = prev_newline(text, last)
     count = count + 1
-    if count >= index.size and newline > 0 and is_entry(text, newline + 1, last) then
-      add_page(index, newline + 1, line, stop, stop_line)
+    entry = count >= index.size and newline > 0 and is_entry(text, newline + 1, last)
+    if entry or (count >= limit and newline > 0) then
+      add_page(index, newline + 1, line, stop, stop_line, entry)
       stop, stop_line, count = newline + 1, line, 0
     end
     if newline == 0 then
       break
     end
     last, line = newline - 1, line - 1
-    checkpoint(index, line)
+    checkpoint(index, line, count - index.size)
   end
-  add_page(index, 1, 1, stop, stop_line)
+  add_page(index, 1, 1, stop, stop_line, true)
 end
 
----Pages from the start: every `size`-th line on, moved further on to a line that starts an entry.
+---Pages from the start: every `size`-th line on, moved up to `snap` lines further on to an entry start.
 ---@param index JLogPageIndex
 local function scan_lines_forward(index)
   local text = index.text
   local pos, line, count = 1, 0, 0
-  local start, start_line = 1, 1
-  local newline
+  local start, start_line, start_entry = 1, 1, true
+  local limit = index.size + index.snap
+  local newline, entry
 
   while pos <= #text do
     newline = next_newline(text, pos)
     line = line + 1
-    if count >= index.size and is_entry(text, pos, newline - 1) then
-      add_page(index, start, start_line, pos, line)
-      start, start_line, count = pos, line, 0
+    entry = count >= index.size and is_entry(text, pos, newline - 1)
+    if entry or count >= limit then
+      add_page(index, start, start_line, pos, line, start_entry)
+      start, start_line, start_entry, count = pos, line, entry, 0
     end
     count = count + 1
     pos = newline + 1
-    checkpoint(index, line)
+    checkpoint(index, line, count - index.size)
   end
-  add_page(index, start, start_line, #text + 1, line + 1)
+  add_page(index, start, start_line, #text + 1, line + 1, start_entry)
 end
 
 ---Walk the array's elements, calling `visit(element, start, sep)` for each.
@@ -410,6 +430,8 @@ M.new = function(text, format, opts, from_end)
     format = format,
     size = opts.size,
     overlap = opts.overlap,
+    -- a long run of plain lines splits rather than make one huge page
+    snap = math.max(1, math.floor(opts.size / 10)),
     from_end = from_end,
     ranges = {},
     starts = {},

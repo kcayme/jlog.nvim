@@ -43,6 +43,7 @@ local view_mod = require("jlog.ui.view")
 ---@field rendered integer generation of the last apply that finished rendering
 ---@field watcher uv.uv_fs_event_t|nil
 ---@field timer uv.uv_timer_t|nil debounces reloads
+---@field poll uv.uv_timer_t|nil polls for the file to come back after it was deleted or rotated
 ---@field loading boolean|nil the rest of a jsonl file is still being parsed in chunks
 ---@field reload_pending boolean|nil a reload arrived while loading
 local Workspace = {}
@@ -55,6 +56,7 @@ local SYNC_LIMIT = 20000
 local CHUNK_SIZE = 5000
 local DEBOUNCE_MS = 200
 local TAIL_CHECK = 256
+local POLL_MS = 500
 
 -- jsonl lines parsed before the first screen, and per later chunk (a chunk stays within ~16ms)
 M.load_sizes = { first = 2000, chunk = 4000 }
@@ -566,6 +568,11 @@ Workspace.reload = function(self)
 
   text, err = read_source(self.path, self.bufnr)
   if err then
+    -- a missing file is reported by the watcher, which waits for it to come back
+    if not self.path or vim.uv.fs_stat(self.path) then
+      vim.notify("jlog: cannot reload: " .. tostring(err), vim.log.levels.WARN)
+    end
+
     return
   end
   entries, err = source.build(text, self.format)
@@ -592,22 +599,60 @@ end
 
 ---@param ws JLogWorkspace
 local function watch_file(ws)
-  local function on_event(_, _, events)
-    if ws.closed then
+  local on_event, wait_for_file
+
+  -- watch `ws.path`; while it is missing, poll until it comes back
+  local function arm()
+    local ok, err = ws.watcher:start(ws.path, {}, vim.schedule_wrap(on_event))
+
+    if ok then
       return
     end
-    -- an atomic save replaces the file: the handle still watches the old one
+    if vim.uv.fs_stat(ws.path) then
+      vim.notify("jlog: cannot watch " .. ws.path .. ": " .. tostring(err), vim.log.levels.WARN)
+
+      return
+    end
+    wait_for_file()
+  end
+
+  wait_for_file = function()
+    ws.poll:start(
+      POLL_MS,
+      POLL_MS,
+      vim.schedule_wrap(function()
+        if ws.closed or not vim.uv.fs_stat(ws.path) then
+          return
+        end
+        ws.poll:stop()
+        arm()
+        debounce(ws)
+      end)
+    )
+  end
+
+  on_event = function(_, _, events)
+    -- events queued before the watcher stopped can still arrive while waiting for the file
+    if ws.closed or ws.poll:is_active() then
+      return
+    end
+    -- an atomic save, a rotation or a delete: the handle still watches the old file
     if events and events.rename then
       ws.watcher:stop()
-      if vim.uv.fs_stat(ws.path) then
-        ws.watcher:start(ws.path, {}, vim.schedule_wrap(on_event))
+      if not vim.uv.fs_stat(ws.path) then
+        vim.notify("jlog: " .. ws.path .. " is gone, waiting for it to come back", vim.log.levels.WARN)
+        wait_for_file()
+
+        return
       end
+      arm()
     end
     debounce(ws)
   end
 
   ws.watcher = vim.uv.new_fs_event()
-  ws.watcher:start(ws.path, {}, vim.schedule_wrap(on_event))
+  ws.poll = vim.uv.new_timer()
+  arm()
 end
 
 ---@param ws JLogWorkspace
@@ -637,7 +682,8 @@ Workspace.close = function(self)
   self.closed = true
   registry[self.key] = nil
   pcall(vim.api.nvim_del_augroup_by_id, self.augroup)
-  for _, handle in ipairs({ self.timer, self.watcher }) do
+  -- buffer sources have no watcher or poll timer
+  for _, handle in ipairs({ self.timer, self.watcher, self.poll }) do
     handle:stop()
     handle:close()
   end

@@ -5,6 +5,7 @@ local function wait(cond)
 end
 
 describe("reload", function()
+  local notify = vim.notify
   local path
   local ws
 
@@ -15,6 +16,7 @@ describe("reload", function()
   end)
 
   after_each(function()
+    vim.notify = notify
     if ws then
       ws:close()
       ws = nil
@@ -51,6 +53,45 @@ describe("reload", function()
     wait(function()
       return #ws.entries == 4
     end)
+  end)
+
+  it("should keep watching after the file is deleted and created again", function()
+    local notified = 0
+
+    ws = workspace.open({ path = path })
+    vim.notify = function()
+      notified = notified + 1
+    end
+    vim.fn.delete(path)
+    vim.wait(400)
+    vim.fn.writefile({ '{"msg":"x"}', '{"msg":"y"}', '{"msg":"z"}' }, path)
+    wait(function()
+      return #ws.entries == 3
+    end)
+    assert.are.equal(1, notified)
+    assert.are.equal("x", ws.entries[1].raw:match('"msg":"(%a)"'))
+    vim.fn.writefile({ '{"msg":"w"}' }, path, "a")
+    wait(function()
+      return #ws.entries == 4
+    end)
+  end)
+
+  it("should show the new file after the log is rotated", function()
+    local rotated = path .. ".1"
+
+    ws = workspace.open({ path = path })
+    vim.uv.fs_rename(path, rotated)
+    vim.wait(400)
+    vim.fn.writefile({ '{"msg":"new","level":"INFO"}' }, path)
+    wait(function()
+      return #ws.entries == 1
+    end)
+    assert.are.equal('{"msg":"new","level":"INFO"}', ws.entries[1].raw)
+    vim.fn.writefile({ '{"msg":"next"}' }, path, "a")
+    wait(function()
+      return #ws.entries == 2
+    end)
+    vim.fn.delete(rotated)
   end)
 
   it("should hold back a partial last line until it is completed", function()

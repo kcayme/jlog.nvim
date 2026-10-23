@@ -16,6 +16,7 @@ local keymaps = require("jlog.ui.keymaps")
 ---@field expanded table<string, boolean> unfolded field names
 ---@field errors JLogFilterError[] filter lines that failed to parse; shown after the valid ones until edited
 ---@field rows table<integer, JLogSidebarRow> buffer line (1-based) -> FIELDS row
+---@field width integer|nil text cells the FIELDS lines were last fitted to
 local Sidebar = {}
 Sidebar.__index = Sidebar
 
@@ -109,7 +110,6 @@ local function clause(name, value)
 end
 
 ---Text cells of the sidebar window, or the configured width while it is hidden.
--- shortcut: lines are fitted at render time only; re-render on WinResized if resizing the sidebar becomes common
 ---@param sidebar JLogSidebar
 ---@return integer
 local function text_width(sidebar)
@@ -164,6 +164,7 @@ Sidebar.render = function(self)
   local diagnostics = {}
   local width = text_width(self)
 
+  self.width = width
   self.rows = {}
   vim.list_extend(lines, state.filters)
   for _, err in ipairs(self.errors) do
@@ -378,5 +379,17 @@ M.omnifunc = function(findstart, base)
     return vim.startswith(name, base)
   end, sidebar.ws:field_names())
 end
+
+-- refit FIELDS to a resized sidebar; one with unsaved FILTERS/GROUP BY edits keeps them until it is synced
+vim.api.nvim_create_autocmd("WinResized", {
+  group = vim.api.nvim_create_augroup("jlog.sidebar", { clear = true }),
+  callback = function()
+    for bufnr, sidebar in pairs(sidebars) do
+      if vim.fn.bufwinid(bufnr) ~= -1 and not vim.bo[bufnr].modified and text_width(sidebar) ~= sidebar.width then
+        sidebar:render()
+      end
+    end
+  end,
+})
 
 return M

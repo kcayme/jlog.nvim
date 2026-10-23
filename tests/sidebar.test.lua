@@ -128,6 +128,37 @@ describe("sidebar", function()
     assert.are.same({ "path=" .. long }, ws.state.filters)
   end)
 
+  it("should refit field lines when the sidebar is resized, unless it has unsaved edits", function()
+    local long = string.rep("x", 100)
+    local buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { '{"msg":"a","path":"' .. long .. '"}', '{"msg":"b","path":"y"}' })
+    ws = assert(require("jlog.workspace").open({ bufnr = buf }))
+    assert.is_truthy(vim.wait(2000, function()
+      return ws.rendered == ws.generation
+    end, 10))
+    ws.sidebar:expand_field("path")
+    local winid = vim.fn.bufwinid(ws.sidebar.bufnr)
+    local function longest()
+      local max = 0
+      for _, line in ipairs(vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, -1, false)) do
+        max = math.max(max, vim.fn.strdisplaywidth(line))
+      end
+      return max
+    end
+    local before = longest()
+
+    -- headless nvim never redraws, so it never fires WinResized itself
+    vim.api.nvim_win_set_width(winid, 60)
+    vim.api.nvim_exec_autocmds("WinResized", {})
+    assert.is_true(longest() > before)
+    assert.is_true(longest() <= 60)
+
+    vim.api.nvim_buf_set_lines(ws.sidebar.bufnr, 1, 1, false, { "level=ERROR" })
+    vim.api.nvim_win_set_width(winid, 50)
+    vim.api.nvim_exec_autocmds("WinResized", {})
+    assert.are.equal("level=ERROR", vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 1, 2, false)[1])
+  end)
+
   it("should set the group from a field name", function()
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/loki.json", ":p") })
     ws.sidebar:cursor_to_value("request_id")

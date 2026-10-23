@@ -42,6 +42,24 @@ describe("workspace", function()
     assert.is_true(vim.api.nvim_tabpage_is_valid(second.tab))
   end)
 
+  it("should close the workspace when the view window is quit", function()
+    local path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p")
+    local first, second
+
+    vim.cmd("tabnew")
+    first = workspace.open({ path = path })
+    vim.api.nvim_set_current_win(vim.fn.bufwinid(first.view.bufnr))
+    vim.cmd("quit")
+    assert.is_true(vim.wait(1000, function()
+      return workspace.find(path) == nil
+    end, 10))
+    assert.is_true(first.closed)
+    second = workspace.open({ path = path })
+    assert.are_not.equal(first, second)
+    assert.is_true(vim.api.nvim_buf_is_valid(second.view.bufnr))
+    second:add_filter("level=ERROR")
+  end)
+
   it("should open plain text when forced", function()
     local buf = vim.api.nvim_create_buf(true, false)
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "not json", "still not" })

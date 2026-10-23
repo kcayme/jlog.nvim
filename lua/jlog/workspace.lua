@@ -894,6 +894,16 @@ M.open = function(target)
       end
     end,
   })
+  -- `:q` in the view wipes its buffer (bufhidden=wipe): the sidebar alone is no workspace
+  vim.api.nvim_create_autocmd("BufWipeout", {
+    group = ws.augroup,
+    buffer = ws.view.bufnr,
+    callback = function()
+      vim.schedule(function()
+        ws:close()
+      end)
+    end,
+  })
   if path then
     snapshot(ws, text)
     watch_file(ws)

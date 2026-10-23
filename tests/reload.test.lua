@@ -94,6 +94,23 @@ describe("reload", function()
     vim.fn.delete(rotated)
   end)
 
+  it("should rebuild a rewritten jsonl file in chunks and keep expanded entries", function()
+    ws = workspace.open({ path = path })
+    ws.state.expanded[2] = true
+    vim.fn.writefile({ '{"msg":"new"}', '{"msg":"a","level":"INFO"}', '{"msg":"b","level":"ERROR"}' }, path)
+    ws:reload()
+    assert.is_true(ws.loading)
+    assert.are.equal(2, #ws.entries)
+    wait(function()
+      return #ws.entries == 3 and not ws.loading
+    end)
+    assert.are.same({ [3] = true }, ws.state.expanded)
+    vim.fn.writefile({ '{"msg":"c"}' }, path, "a")
+    wait(function()
+      return #ws.entries == 4
+    end)
+  end)
+
   it("should hold back a partial last line until it is completed", function()
     local fd
 

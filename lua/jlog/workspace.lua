@@ -547,6 +547,69 @@ local function replace_entries(ws, entries)
   end)
 end
 
+---@param text string
+---@param pos integer
+---@param count integer
+---@return string[] lines
+---@return integer next_pos
+local function take_lines(text, pos, count)
+  local lines = {}
+  local newline
+
+  for _ = 1, count do
+    if pos > #text then
+      break
+    end
+    newline = text:find("\n", pos, true)
+    if not newline then
+      lines[#lines + 1] = text:sub(pos)
+      pos = #text + 1
+
+      break
+    end
+    lines[#lines + 1] = text:sub(pos, newline - 1)
+    pos = newline + 1
+  end
+
+  return lines, pos
+end
+
+---Parse the rest of a jsonl file into `entries` in chunks across event-loop ticks, then call `on_done` once.
+---@param ws JLogWorkspace
+---@param entries JLogEntry[] mutated
+---@param text string
+---@param pos integer byte position of the next unparsed line
+---@param lnum integer source line number of that line
+---@param on_done fun(entries: JLogEntry[])
+local function load_rest(ws, entries, text, pos, lnum, on_done)
+  local deadline = vim.uv.hrtime() + TICK_NS
+  local lines
+
+  if ws.closed then
+    return
+  end
+  repeat
+    lines, pos = take_lines(text, pos, M.load_sizes.chunk)
+    source.append_lines(entries, lines, lnum)
+    lnum = lnum + #lines
+  until pos > #text or vim.uv.hrtime() >= deadline
+  if pos <= #text then
+    ws.view:set_winbar("jlog · loading " .. math.floor(pos * 100 / #text) .. "%")
+    vim.defer_fn(function()
+      load_rest(ws, entries, text, pos, lnum, on_done)
+    end, 0)
+
+    return
+  end
+
+  ws.loading = nil
+  on_done(entries)
+  if ws.reload_pending then
+    ws.reload_pending = nil
+    ws:reload()
+  end
+end
+
 ---Pick up changes to the source: a grown jsonl file only parses its new lines; anything else is rebuilt.
 Workspace.reload = function(self)
   local tail, old_count, old_key, text, entries, err
@@ -591,12 +654,23 @@ Workspace.reload = function(self)
 
     return
   end
+  if self.path then
+    snapshot(self, text)
+  end
+  if self.format == "jsonl" then
+    -- parsed in chunks like at open; the old entries stay shown until the new ones are complete
+    self.loading = true
+    vim.defer_fn(function()
+      load_rest(self, {}, text, 1, 1, function(loaded)
+        replace_entries(self, loaded)
+      end)
+    end, 0)
+
+    return
+  end
   entries, err = source.build(text, self.format)
   if err then
     return
-  end
-  if self.path then
-    snapshot(self, text)
   end
   replace_entries(self, entries)
 end
@@ -776,67 +850,6 @@ M.current = function()
   return nil
 end
 
----@param text string
----@param pos integer
----@param count integer
----@return string[] lines
----@return integer next_pos
-local function take_lines(text, pos, count)
-  local lines = {}
-  local newline
-
-  for _ = 1, count do
-    if pos > #text then
-      break
-    end
-    newline = text:find("\n", pos, true)
-    if not newline then
-      lines[#lines + 1] = text:sub(pos)
-      pos = #text + 1
-
-      break
-    end
-    lines[#lines + 1] = text:sub(pos, newline - 1)
-    pos = newline + 1
-  end
-
-  return lines, pos
-end
-
----Parse the rest of a jsonl file in chunks across event-loop ticks, then apply once for the full entry list.
----@param ws JLogWorkspace
----@param text string
----@param pos integer byte position of the next unparsed line
----@param lnum integer source line number of that line
-local function load_rest(ws, text, pos, lnum)
-  local deadline = vim.uv.hrtime() + TICK_NS
-  local lines
-
-  if ws.closed then
-    return
-  end
-  repeat
-    lines, pos = take_lines(text, pos, M.load_sizes.chunk)
-    source.append_lines(ws.entries, lines, lnum)
-    lnum = lnum + #lines
-  until pos > #text or vim.uv.hrtime() >= deadline
-  if pos <= #text then
-    ws.view:set_winbar("jlog · loading " .. math.floor(pos * 100 / #text) .. "%")
-    vim.defer_fn(function()
-      load_rest(ws, text, pos, lnum)
-    end, 0)
-
-    return
-  end
-
-  ws.loading = nil
-  ws:apply()
-  if ws.reload_pending then
-    ws.reload_pending = nil
-    ws:reload()
-  end
-end
-
 ---Open (or focus) the workspace for a file or buffer: view on the left, sidebar on the right.
 ---@param target JLogOpenTarget
 ---@return JLogWorkspace|nil
@@ -933,7 +946,9 @@ M.open = function(target)
   if pos and pos <= #text then
     ws.loading = true
     vim.defer_fn(function()
-      load_rest(ws, text, pos, lnum)
+      load_rest(ws, ws.entries, text, pos, lnum, function()
+        ws:apply()
+      end)
     end, 0)
   end
 

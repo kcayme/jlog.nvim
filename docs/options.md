@@ -14,6 +14,8 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `sidebar.width` | `integer` | `40` | Sidebar width in columns. |
 | `sidebar.position` | `JLogSidebarPosition` | `"right"` | Sidebar side: `"left"` or `"right"`. |
 | `facets.top_values` | `integer` | `10` | Number of top values listed per field in the sidebar. |
+| `paging.size` | `integer` | `100000` | Page size: source lines for JSONL, array elements for JSON arrays and Loki exports. A page boundary moves to the next line that starts an entry, so an entry never splits. |
+| `paging.overlap` | `integer` | `2000` | Entries from each neighbouring page also shown on a page, so a request at a page edge stays whole. |
 | `keymaps.toggle_entry` | `string\|false` | `"<Tab>"` | Expand/collapse the entry under the cursor. |
 | `keymaps.toggle_mode` | `string\|false` | `"E"` | Toggle compact/expanded for the whole view. |
 | `keymaps.raw` | `string\|false` | `"gf"` | Show the entry's raw text in a float; inside the float, jump to the source line (JSONL only). |

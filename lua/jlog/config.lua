@@ -23,6 +23,10 @@
 ---@class JLogFacetsOptions
 ---@field top_values integer
 
+---@class JLogPagingOptions
+---@field size integer source lines (jsonl) or array elements per page, before overlap
+---@field overlap integer entries from each neighbouring page shown with a page
+
 ---Every key may be `false` to disable the mapping.
 ---@class JLogKeymapsOptions
 ---@field toggle_entry string|false
@@ -45,6 +49,7 @@
 ---@field unwrap JLogUnwrapOptions
 ---@field sidebar JLogSidebarOptions
 ---@field facets JLogFacetsOptions
+---@field paging JLogPagingOptions
 ---@field keymaps JLogKeymapsOptions
 
 local M = {}
@@ -60,6 +65,7 @@ M.defaults = {
   unwrap = { enable = true, max_depth = 4 },
   sidebar = { width = 40, position = "right" },
   facets = { top_values = 10 },
+  paging = { size = 100000, overlap = 2000 },
   keymaps = {
     toggle_entry = "<Tab>",
     toggle_mode = "E",

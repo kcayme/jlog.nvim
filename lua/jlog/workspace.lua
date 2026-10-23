@@ -283,18 +283,14 @@ end
 
 ---Count the facets of the matched entries in ticks after the view is shown, then publish; a newer apply stops it.
 ---@param ws JLogWorkspace
----@param generation integer the apply that matched them
----@param matched table<integer, boolean>|nil entry index -> matched; nil goes on with `ws.counting`
-local function count_facets(ws, generation, matched)
+---@param generation integer the apply that set up `ws.counting`
+local function count_facets(ws, generation)
   local deadline = vim.uv.hrtime() + M.timing.tick_ns
   local entries = ws.entries
   local counting, last, entry
 
   if ws.closed or ws.generation ~= generation then
     return
-  end
-  if matched then
-    ws.counting = { counter = facets.counter(), matched = matched, next_index = 1 }
   end
   counting = ws.counting
   repeat
@@ -361,6 +357,9 @@ Workspace.apply = function(self, on_done, counted)
   self.counting = nil
   -- the sidebar keeps the last counts until this apply's are counted
   self.sidebar.stale = counts and not prefilled
+  if self.sidebar.stale then
+    self.sidebar:render()
+  end
 
   -- each entry is decoded at most once per scan, and only when a filter or group needs it
   local function current_decoded()
@@ -410,8 +409,12 @@ Workspace.apply = function(self, on_done, counted)
       if cursor_entry then
         self.view:goto_entry(cursor_entry)
       end
+      -- set up now so appends join it; counting starts in a tick of its own
       if self.sidebar.stale then
-        count_facets(self, generation, matched)
+        self.counting = { counter = facets.counter(), matched = matched, next_index = 1 }
+        vim.defer_fn(function()
+          count_facets(self, generation)
+        end, 0)
       end
       if on_done then
         on_done()

@@ -241,6 +241,38 @@ describe("workspace", function()
     ws:close()
   end)
 
+  it("should mark the counts stale while a chunked scan runs", function()
+    local lines = {}
+    local timing = vim.deepcopy(workspace.timing)
+    local buf, ws, marks
+
+    for index = 1, 25000 do
+      lines[index] = string.format('{"msg":"m%d","level":"%s"}', index, index % 5 == 0 and "ERROR" or "INFO")
+    end
+    buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    ws = assert(workspace.open({ bufnr = buf }))
+    assert.is_true(vim.wait(10000, function()
+      return not ws.loading and ws.rendered == ws.generation and not ws.sidebar.stale
+    end))
+    ws.sidebar:expand_field("level")
+    workspace.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
+
+    ws:add_filter("level=ERROR")
+    workspace.timing = timing
+    marks = vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, -1, 0, -1, { details = true })
+
+    assert.are_not.equal(ws.generation, ws.rendered)
+    assert.are.equal("level=ERROR", vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 1, 2, false)[1])
+    assert.is_truthy(vim.iter(marks):any(function(mark)
+      return mark[4].hl_group == "JLogFieldStale"
+    end))
+    assert.is_truthy(vim.iter(marks):any(function(mark)
+      return mark[4].virt_text ~= nil and mark[4].virt_text[1][1]:find("counting…", 1, true) ~= nil
+    end))
+    ws:close()
+  end)
+
   it("should render a filter before counting fields, then publish the counts", function()
     local lines = {}
     local timing = vim.deepcopy(workspace.timing)

@@ -346,10 +346,12 @@ end
 ---@param key string
 ---@param value string
 local function push_field(line, key, value)
+  local resolved = line.resolved
   local col
 
-  if line.resolved then
-    push_styled(line, key, line.resolved.status[key] and "status" or nil, value)
+  -- a plain field with nothing configured for it renders as today, skipping the style and format lookups
+  if resolved and (resolved.style ~= "plain" or resolved.fields[key] or resolved.status[key]) then
+    push_styled(line, key, resolved.status[key] and "status" or nil, value)
 
     return
   end
@@ -464,7 +466,7 @@ end
 local function push_ordered(line, entry, node, time_slot, level_index, message_index, text, base)
   local resolved = line.resolved --[[@as JLogCompactResolved]]
   local rank_of, status, order = resolved.rank_of, resolved.status, resolved.order
-  local keys = node.keys
+  local keys, vals = node.keys, node.vals
   local slots, ranked = scratch_slots, scratch_ranked
   local rank, index, status_index, role
 
@@ -509,6 +511,10 @@ local function push_ordered(line, entry, node, time_slot, level_index, message_i
       line.after_role = line.after_role and role ~= "level"
     end
   end
+  -- the rest are never roles: widen once after a role, then push them directly
+  if line.after_role then
+    line.sep = #line.sep >= 2 and line.sep or "  "
+  end
   for key_index = 1, #keys do
     if
       ranked[key_index] == nil
@@ -516,7 +522,7 @@ local function push_ordered(line, entry, node, time_slot, level_index, message_i
       and key_index ~= level_index
       and key_index ~= message_index
     then
-      push_at(line, entry, node, key_index, nil, text, base)
+      push_value(line, keys[key_index], vals[key_index], text, base)
     end
   end
   for rank_index = 1, #order do

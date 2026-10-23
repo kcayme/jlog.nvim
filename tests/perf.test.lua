@@ -114,7 +114,7 @@ for _, count in ipairs(SIZES) do
     end)
 
     it("should parse, render, filter and stay within memory budgets", function()
-      local start, elapsed, budget, pred, entry, decoded, matched, items, ctx, ordered_opts
+      local start, elapsed, budget, pred, entry, decoded, matched, items, ctx, ordered_opts, unconfigured
       local function key_format(format_ctx)
         return format_ctx.key .. " " .. format_ctx.value
       end
@@ -144,13 +144,23 @@ for _, count in ipairs(SIZES) do
       budget = count * US_PER_LINE.compact / 1000
       print(string.format("render.compact x%d: %.0fms (budget %.0f)", #entries, elapsed, budget))
       assert.is_true(elapsed < budget)
+      unconfigured = elapsed
 
       start = now_ms()
       for _, item in ipairs(entries) do
         render.compact(item, ordered_opts, true)
       end
       elapsed = now_ms() - start
-      print(string.format("render.compact with order + 3 formats x%d: %.0fms (budget %.0f)", #entries, elapsed, budget))
+      -- printed, not asserted: it runs second in one process, which inflates it; +5% is measured one process per config
+      print(
+        string.format(
+          "render.compact with order + 3 formats x%d: %.0fms (budget %.0f, %.2fx unconfigured)",
+          #entries,
+          elapsed,
+          budget,
+          elapsed / unconfigured
+        )
+      )
       assert.is_true(elapsed < budget)
 
       -- the workspace drops the source text after parsing, so only the entries are counted

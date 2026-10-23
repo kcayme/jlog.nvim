@@ -1,3 +1,5 @@
+local entry_model = require("jlog.parse.entry")
+
 local M = {}
 
 ---@class JLogTerm
@@ -104,7 +106,7 @@ local function finish_term(term)
     end
     term.re = re
   end
-  -- shortcut: vim.json.decode turns integers past 2^53 into floats, so `=` on them is exact only up to 2^53
+  -- integers past 2^53 arrive as their literal text (see entry.get), so `=` on them compares text exactly
   if term.value:match("^-?%d[%d%.eE+-]*$") then
     term.num = tonumber(term.value)
   end
@@ -175,7 +177,7 @@ local function matches_term(term, ctx)
   end
 
   if op == "~" then
-    text = type(value) == "table" and vim.json.encode(value) or tostring(value)
+    text = type(value) == "table" and vim.json.encode(value) or entry_model.text(value)
 
     return term.re:match_str(text) ~= nil
   end
@@ -187,9 +189,9 @@ local function matches_term(term, ctx)
     elseif type(value) == "number" and term.num then
       equal = value == term.num
     elseif term.lower then
-      equal = tostring(value):lower() == term.lower
+      equal = entry_model.text(value):lower() == term.lower
     else
-      equal = tostring(value) == term.value
+      equal = entry_model.text(value) == term.value
       if not equal and term.num then
         equal = tonumber(value) == term.num
       end

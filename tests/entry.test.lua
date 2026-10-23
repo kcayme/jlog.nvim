@@ -18,6 +18,15 @@ describe("entry", function()
     assert.is_nil(entry.get(e, d, "missing.path", opts))
   end)
 
+  it("should format numbers exactly and briefly", function()
+    assert.are.equal("1234567890123456", entry.text(1234567890123456))
+    assert.are.equal("-42", entry.text(-42))
+    assert.are.equal("0.1", entry.text(0.1))
+    assert.are.equal("0.30000000000000004", entry.text(0.1 + 0.2))
+    assert.are.equal("1e+300", entry.text(1e300))
+    assert.are.equal("true", entry.text(true))
+  end)
+
   it("should use the last value for duplicate keys when filtering", function()
     local e = build('{"a":1,"a":2}')[1]
     assert.are.equal(2, entry.get(e, entry.decode(e), "a", opts))

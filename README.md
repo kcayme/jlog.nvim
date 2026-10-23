@@ -95,6 +95,9 @@ One clause per `:JLog filter` call or sidebar `FILTERS` line:
 - Inside quotes only `\"`, `\\` and `\n` are escapes; `\\` is one backslash and `\n` is a newline (a facet value
   with a newline becomes `field="a\nb"`). A quoted `~` regex that needs a literal backslash must therefore write
   `\\\\`, e.g. `msg~"a\\\\b"` matches `a\b`.
+- Integers are exact at any size: past 2^53 (where doubles stop holding every integer) `=`, `~`, groups and
+  FIELDS use the literal as written, so `id=12345678901234567890` works. `>`, `>=`, `<` and `<=` compare as
+  doubles, so beyond 2^53 they are approximate.
 - Filtering while grouped keeps whole groups: a group is shown if any of its entries matches.
 
 ## Configuration

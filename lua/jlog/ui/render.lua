@@ -503,13 +503,13 @@ M.header = function(group)
   end
   parts[1] = "▾ " .. label .. "  " .. count .. (count == 1 and " entry" or " entries")
   if group.status ~= nil then
-    parts[#parts + 1] = escape_newlines(tostring(group.status))
+    parts[#parts + 1] = escape_newlines(entry_model.text(group.status))
   end
   if group.method ~= nil then
-    request[#request + 1] = escape_newlines(tostring(group.method))
+    request[#request + 1] = escape_newlines(entry_model.text(group.method))
   end
   if group.path ~= nil then
-    request[#request + 1] = escape_newlines(tostring(group.path))
+    request[#request + 1] = escape_newlines(entry_model.text(group.path))
   end
   if #request > 0 then
     parts[#parts + 1] = concat(request, " ")

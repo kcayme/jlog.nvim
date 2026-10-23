@@ -150,6 +150,11 @@ describe("render.header", function()
     assert.are.equal("▾ a\\nb  1 entry · 5\\n0 · GE\\nT /x\\ny", line)
   end)
 
+  it("should show a numeric status exactly", function()
+    local line = render.header({ label = "x", idxs = { 1 }, status = 1234567890123456 })
+    assert.are.equal("▾ x  1 entry · 1234567890123456", line)
+  end)
+
   it("should omit missing parts and use the singular", function()
     local line, spans = render.header({ label = "(no request_id)", idxs = { 3 } })
     assert.are.equal("▾ (no requ…  1 entry", line)

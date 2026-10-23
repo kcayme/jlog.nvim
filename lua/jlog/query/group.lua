@@ -9,6 +9,8 @@
 ---@field get fun(i: integer, path: string): any
 ---@field reverse boolean|nil
 
+local entry_model = require("jlog.parse.entry")
+
 local M = {}
 
 local SUMMARY_FIELDS = { "status", "method", "path" }
@@ -18,7 +20,7 @@ local function key_of(value)
     return vim.json.encode(value)
   end
 
-  return tostring(value)
+  return entry_model.text(value)
 end
 
 -- Last non-nil value wins: a request's final status beats an earlier log line's.

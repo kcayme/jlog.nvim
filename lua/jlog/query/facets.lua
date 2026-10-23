@@ -1,3 +1,5 @@
+local entry_model = require("jlog.parse.entry")
+
 ---@class JLogFacet
 ---@field name string
 ---@field distinct integer
@@ -47,7 +49,7 @@ M.add = function(counter, flat)
 
   for name, value in pairs(flat) do
     local field = fields[name]
-    local text = tostring(value)
+    local text = entry_model.text(value)
 
     if not field then
       field = { counts = {}, distinct = 0, capped = false }

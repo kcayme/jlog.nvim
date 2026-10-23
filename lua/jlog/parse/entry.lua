@@ -3,6 +3,8 @@ local json = require("jlog.parse.json")
 local M = {}
 
 local ALIAS_FIELDS = { time = "time", level = "level", msg = "message" }
+-- doubles hold every integer below this exactly; vim.json.decode rounds bigger ones (and clamps past 2^63)
+local EXACT_LIMIT = 2 ^ 53
 
 -- `get` runs per entry per field: split each dotted path once (paths are few: filter, group and facet fields)
 local path_segments = setmetatable({}, {
@@ -35,6 +37,42 @@ local function resolve_key(decoded, segment, opts)
   return segment
 end
 
+---@param value any
+---@return boolean
+local function is_inexact(value)
+  return type(value) == "number" and (value >= EXACT_LIMIT or value <= -EXACT_LIMIT)
+end
+
+---Lua value of a parsed node, like vim.json.decode, but integers too big for a double keep their literal text.
+---@param node JLogNode
+---@return any
+local function to_lua(node)
+  local value
+  local kind = node.t
+
+  if kind == "object" or kind == "array" then
+    value = {}
+    for index, child in ipairs(node.vals) do
+      value[kind == "object" and node.keys[index] or index] = to_lua(child)
+    end
+
+    return value
+  end
+  if kind == "number" then
+    value = tonumber(node.lit)
+
+    return (is_inexact(value) and node.lit:find("^%-?%d+$")) and node.lit or value
+  end
+  if kind == "null" then
+    return vim.NIL
+  end
+  if kind == "boolean" then
+    return node.lit == "true"
+  end
+
+  return node.str
+end
+
 ---Decode JSON hidden inside a string value, or nil when there is none.
 ---@param text string
 ---@return table|nil
@@ -53,17 +91,114 @@ local function unwrap_string(text)
   return value
 end
 
+---`unwrap_string` with big integers kept exact.
+---@param text string
+---@return table|nil
+local function unwrap_string_exact(text)
+  local node = json.find(text)
+
+  if not node or (node.t ~= "object" and node.t ~= "array") then
+    return nil
+  end
+
+  return to_lua(node)
+end
+
 ---@param prefix string
 ---@param value table
 ---@param out table<string, any>
+---@return boolean inexact a number may have been rounded by the decoder
 local function flatten_into(prefix, value, out)
+  local inexact = false
+
   for key, child in pairs(value) do
     if type(child) == "table" and not vim.islist(child) then
-      flatten_into(prefix .. key .. ".", child, out)
+      inexact = flatten_into(prefix .. key .. ".", child, out) or inexact
     elseif type(child) ~= "table" and child ~= vim.NIL then
       out[prefix .. key] = child
+      inexact = inexact or is_inexact(child)
     end
   end
+
+  return inexact
+end
+
+---@param entry JLogEntry
+---@param decoded table|nil
+---@param path string
+---@param opts JLogOptions
+---@param unwrap fun(text: string): table|nil
+---@return any
+local function lookup(entry, decoded, path, opts, unwrap)
+  local segments = path_segments[path]
+  local current = decoded
+  local depth = 0
+  local label_key
+
+  if path:sub(1, 7) == "labels." then
+    label_key = path:sub(8)
+    if label_key == "_ts" then
+      return entry.ts
+    end
+
+    return entry.labels and entry.labels[label_key]
+  end
+
+  for index, segment in ipairs(segments) do
+    if type(current) == "string" and opts.unwrap.enable and depth < opts.unwrap.max_depth then
+      current = unwrap(current)
+      depth = depth + 1
+    end
+    if type(current) ~= "table" then
+      return nil
+    end
+    current = current[index == 1 and resolve_key(current, segment, opts) or segment]
+    if current == vim.NIL then
+      return nil
+    end
+  end
+
+  return current
+end
+
+---Text of a decoded scalar. Numbers are exact: integers in full, others in the fewest digits that read back
+---as the same double (`tostring` keeps only 14 digits).
+---@param value any
+---@return string
+M.text = function(value)
+  local text
+
+  if type(value) ~= "number" then
+    return tostring(value)
+  end
+  if value % 1 == 0 and not is_inexact(value) then
+    return string.format("%d", value)
+  end
+  for digits = 15, 16 do
+    text = string.format("%." .. digits .. "g", value)
+    if tonumber(text) == value then
+      return text
+    end
+  end
+
+  return string.format("%.17g", value)
+end
+
+---Like `decode`, but integers too big for a double are kept as their literal text (slower: Lua parser).
+---@param entry JLogEntry
+---@return table|nil
+M.decode_exact = function(entry)
+  local node
+
+  if not entry.json_at then
+    return nil
+  end
+  node = json.parse_all(entry.body:sub(entry.json_at))
+  if not node or (node.t ~= "object" and node.t ~= "array") then
+    return nil
+  end
+
+  return to_lua(node)
 end
 
 ---Parsed (and unwrapped, per `opts.unwrap`) tree of the entry's JSON, plus the text before it.
@@ -111,35 +246,14 @@ end
 ---@param opts JLogOptions
 ---@return any
 M.get = function(entry, decoded, path, opts)
-  local segments = path_segments[path]
-  local current = decoded
-  local depth = 0
-  local label_key
+  local value = lookup(entry, decoded, path, opts, unwrap_string)
 
-  if path:sub(1, 7) == "labels." then
-    label_key = path:sub(8)
-    if label_key == "_ts" then
-      return entry.ts
-    end
-
-    return entry.labels and entry.labels[label_key]
+  -- rare: the decoder may have rounded this number, read its literal instead
+  if is_inexact(value) then
+    return lookup(entry, M.decode_exact(entry), path, opts, unwrap_string_exact)
   end
 
-  for index, segment in ipairs(segments) do
-    if type(current) == "string" and opts.unwrap.enable and depth < opts.unwrap.max_depth then
-      current = unwrap_string(current)
-      depth = depth + 1
-    end
-    if type(current) ~= "table" then
-      return nil
-    end
-    current = current[index == 1 and resolve_key(current, segment, opts) or segment]
-    if current == vim.NIL then
-      return nil
-    end
-  end
-
-  return current
+  return value
 end
 
 ---Dotted path to scalar for every field, including labels. Arrays and nulls are skipped.
@@ -149,8 +263,10 @@ end
 M.flatten = function(entry, decoded)
   local out = {}
 
-  if decoded then
-    flatten_into("", decoded, out)
+  if decoded and flatten_into("", decoded, out) then
+    -- rare: the decoder may have rounded a number, take the literals instead
+    out = {}
+    flatten_into("", M.decode_exact(entry) or {}, out)
   end
   for key, value in pairs(entry.labels or {}) do
     out["labels." .. key] = value

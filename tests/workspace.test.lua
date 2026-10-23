@@ -60,6 +60,45 @@ describe("workspace", function()
     second:add_filter("level=ERROR")
   end)
 
+  it("should group, count and filter large numbers exactly", function()
+    local buf = vim.api.nvim_create_buf(true, false)
+    local ws, lines, values
+
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      '{"msg":"a","id":1234567890123456,"n":12345678901234567890}',
+      '{"msg":"b","id":1234567890123457,"n":0.1}',
+      '{"msg":"c","err":"x {\\"big\\":-12345678901234567890}"}',
+    })
+    ws = assert(workspace.open({ bufnr = buf }))
+    values = {}
+    for _, facet in ipairs(ws.sidebar.facets) do
+      for _, top in ipairs(facet.top) do
+        values[facet.name .. "=" .. top.value] = top.count
+      end
+    end
+    assert.are.same(
+      { ["id=1234567890123456"] = 1, ["id=1234567890123457"] = 1, ["n=12345678901234567890"] = 1, ["n=0.1"] = 1 },
+      {
+        ["id=1234567890123456"] = values["id=1234567890123456"],
+        ["id=1234567890123457"] = values["id=1234567890123457"],
+        ["n=12345678901234567890"] = values["n=12345678901234567890"],
+        ["n=0.1"] = values["n=0.1"],
+      }
+    )
+    ws:set_group("id")
+    lines = vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false)
+    assert.is_truthy(lines[1]:find("12345678…", 1, true))
+    assert.are.equal(3, #vim.tbl_filter(function(line)
+      return line:find("^▾") ~= nil
+    end, lines))
+    ws:set_group(nil)
+    ws:add_filter("n=12345678901234567890")
+    assert.is_truthy(ws.view.winbar_text:find(" 1/3 ", 1, true))
+    ws:clear_filters()
+    ws:add_filter("err.big=-12345678901234567890")
+    assert.is_truthy(ws.view.winbar_text:find(" 1/3 ", 1, true))
+  end)
+
   it("should open plain text when forced", function()
     local buf = vim.api.nvim_create_buf(true, false)
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "not json", "still not" })

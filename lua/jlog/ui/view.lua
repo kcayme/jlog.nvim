@@ -601,6 +601,15 @@ View.toggle_entry = function(self)
   self:goto_entry(item.idx)
 end
 
+---Render entry `idx` from its entry again on the next render instead of reusing its old lines.
+---@param idx integer entry index
+View.forget = function(self, idx)
+  self.entry_item[idx] = nil
+  if self.stream then
+    self.stream.entry_item[idx] = nil
+  end
+end
+
 ---Switch the whole view between compact and expanded, keeping the cursor on its entry.
 View.toggle_mode = function(self)
   local idx = self:entry_at_cursor()
@@ -608,6 +617,8 @@ View.toggle_mode = function(self)
 
   state.mode = state.mode == "expanded" and "compact" or "expanded"
   state.expanded = {}
+  -- every line changes, and the old lines were rendered in the other mode
+  self.rendered_entries = nil
   self:render(self.items, function()
     if idx then
       self:goto_entry(idx)

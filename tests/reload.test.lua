@@ -195,4 +195,37 @@ describe("reload", function()
       return #vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false) == 5
     end)
   end)
+
+  it("should show continuation lines appended to the last entry of a grouped view", function()
+    ws = workspace.open({ path = path })
+    ws:set_group("level")
+    wait(function()
+      return ws.rendered == ws.generation
+    end)
+    vim.fn.writefile({ "panic: boom", "goroutine 1 [running]:" }, path, "a")
+    wait(function()
+      return ws.entries[2].cont ~= nil and #ws.entries[2].cont == 2 and ws.rendered == ws.generation
+    end)
+    wait(function()
+      return vim.tbl_contains(vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false), "panic: boom")
+    end)
+  end)
+
+  it("should keep unsaved sidebar filter edits when lines are appended", function()
+    local bufnr
+
+    ws = workspace.open({ path = path })
+    wait(function()
+      return ws.rendered == ws.generation
+    end)
+    bufnr = ws.sidebar.bufnr
+    vim.api.nvim_buf_set_lines(bufnr, 1, 1, false, { "level=ERROR" })
+    vim.fn.writefile({ '{"msg":"c","level":"INFO"}' }, path, "a")
+    wait(function()
+      return #ws.entries == 3 and ws.rendered == ws.generation
+    end)
+    vim.wait(100)
+    assert.are.equal("level=ERROR", vim.api.nvim_buf_get_lines(bufnr, 1, 2, false)[1])
+    assert.is_true(vim.bo[bufnr].modified)
+  end)
 end)

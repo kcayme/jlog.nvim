@@ -276,6 +276,20 @@ local function publish_facets(ws, counter)
   ws.published.names = #counter.names
 end
 
+---Rewrite the sidebar from state, unless it holds FILTERS or GROUP BY edits not applied yet.
+---@param ws JLogWorkspace
+local function render_sidebar(ws)
+  if not vim.bo[ws.sidebar.bufnr].modified then
+    ws.sidebar:render()
+  end
+end
+
+---An action that sets filters or the group replaces what was typed in the sidebar.
+---@param ws JLogWorkspace
+local function discard_sidebar_edits(ws)
+  vim.bo[ws.sidebar.bufnr].modified = false
+end
+
 ---Show newly found fields while a load or apply runs, at most every `timing.publish_ns`; unsaved edits are kept.
 ---@param ws JLogWorkspace
 ---@param counter JLogFacetCounter
@@ -330,9 +344,7 @@ local function count_facets(ws, generation)
   ws.sidebar.stale = false
   publish_facets(ws, counting.counter)
   -- unsaved FILTERS edits are kept; the next sync renders the counts
-  if not vim.bo[ws.sidebar.bufnr].modified then
-    ws.sidebar:render()
-  end
+  render_sidebar(ws)
 end
 
 ---Filter, group and render, then count facets; work past the first ~12ms tick continues later, a newer apply wins.
@@ -372,7 +384,7 @@ Workspace.apply = function(self, on_done, counted)
   -- the sidebar keeps the last counts until this apply's are counted
   self.sidebar.stale = counts and not prefilled
   if self.sidebar.stale then
-    self.sidebar:render()
+    render_sidebar(self)
   end
 
   -- each entry is decoded at most once per scan, and only when a filter or group needs it
@@ -419,7 +431,7 @@ Workspace.apply = function(self, on_done, counted)
     end
     self.shown = shown
     self.view:set_winbar(winbar_text(self, shown))
-    self.sidebar:render()
+    render_sidebar(self)
     self.view:render(items, function()
       -- a newer apply that has not rendered yet supersedes this render too
       if self.generation ~= generation or self.closed then
@@ -545,18 +557,21 @@ end
 ---@param clause string
 Workspace.add_filter = function(self, clause)
   table.insert(self.state.filters, clause)
+  discard_sidebar_edits(self)
   self:apply()
 end
 
 Workspace.clear_filters = function(self)
   self.state.filters = {}
   self.sidebar:set_errors({})
+  discard_sidebar_edits(self)
   self:apply()
 end
 
 ---@param field string|nil nil clears the group
 Workspace.set_group = function(self, field)
   self.state.group = field ~= "" and field or nil
+  discard_sidebar_edits(self)
   self:apply()
 end
 
@@ -681,7 +696,7 @@ local function extend_view(ws, old_count, old_key)
   view:set_winbar(winbar_text(ws, ws.shown))
   if counter then
     publish_facets(ws, counter)
-    ws.sidebar:render()
+    render_sidebar(ws)
   end
 
   return true
@@ -1304,6 +1319,10 @@ Workspace.reload = function(self)
     return
   end
   if self.state.group or self.rendered ~= self.generation or not extend_view(self, old_count, old_key) then
+    -- the last entry took continuation lines, so its old lines must not be reused
+    if old_key and entry_model.key(self.entries[old_count]) ~= old_key then
+      self.view:forget(old_count)
+    end
     self:apply()
   end
 end

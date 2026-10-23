@@ -189,6 +189,20 @@ describe("view", function()
       assert.are.same({ "n1", "n2" }, vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
     end)
 
+    it("should render compact lines again when the whole view toggles back from expanded", function()
+      local v = view.new(make_ws(lines_of(3)))
+      render_and_wait(v, all({ 1, 2, 3 }))
+      v:toggle_mode()
+      assert.is_true(vim.wait(2000, function()
+        return vim.api.nvim_buf_get_lines(v.bufnr, 0, 1, false)[1] == "{"
+      end, 1))
+      v:toggle_mode()
+      assert.is_true(vim.wait(2000, function()
+        return vim.deep_equal({ "m1", "m2", "m3" }, vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+      end, 1))
+      assert.are.equal(#v.line_item, vim.api.nvim_buf_line_count(v.bufnr))
+    end)
+
     it("should keep lines and maps consistent when a newer render supersedes a chunked one", function()
       local v = view.new(make_ws(lines_of(300)))
       local ids = {}

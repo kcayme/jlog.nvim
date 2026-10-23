@@ -296,8 +296,9 @@ Sidebar.sync = function(self)
   self.errors = {}
   self.ws.state.filters = spec.filters
   self.ws.state.group = spec.group
-  self.ws:apply()
+  -- applied now, so the apply may rewrite the buffer
   vim.bo[self.bufnr].modified = false
+  self.ws:apply()
 end
 
 ---@param name string

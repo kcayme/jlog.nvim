@@ -16,6 +16,16 @@ local M = {}
 ---@field raw string entry raw text plus continuation lines
 
 local TWO_CHAR_OPS = { ["!="] = true, [">="] = true, ["<="] = true }
+local FIELD_ESCAPES = { n = "\n", ["\\"] = "\\" }
+
+-- Field names are written with `\n` for a newline and `\\` for a backslash, so they fit on one line.
+local function escape_field(name)
+  return (name:gsub("\\", "\\\\"):gsub("\n", "\\n"))
+end
+
+local function unescape_field(text)
+  return (text:gsub("\\(.)", FIELD_ESCAPES))
+end
 
 -- Splits an unquoted token like `-status>=500` into neg, field, op, value. Bare terms have no field/op.
 local function split_token(text)
@@ -41,7 +51,7 @@ local function split_token(text)
   if op == "!" then
     return neg, nil, nil, text
   end
-  field = text:sub(1, op_start - 1)
+  field = unescape_field(text:sub(1, op_start - 1))
 
   return neg, field, op, text:sub(op_start + #op)
 end
@@ -273,5 +283,15 @@ M.compile = function(lines)
   end,
     errors
 end
+
+---A field name as written in filter and group text.
+---@param name string
+---@return string
+M.escape_field = escape_field
+
+---The field name that filter or group text stands for.
+---@param text string
+---@return string
+M.unescape_field = unescape_field
 
 return M

@@ -1,3 +1,4 @@
+local filter = require("jlog.query.filter")
 local keymaps = require("jlog.ui.keymaps")
 
 ---@class JLogFilterError
@@ -57,6 +58,7 @@ end
 ---@param value string
 ---@return string
 local function clause(name, value)
+  name = filter.escape_field(name)
   if value ~= "" and not value:find('[%s"]') then
     return name .. "=" .. value
   end
@@ -68,13 +70,15 @@ end
 ---@param lines string[]
 ---@param highlights {[1]: integer, [2]: integer, [3]: integer, [4]: string}[] row, start col, end col, group
 local function add_fields(sidebar, lines, highlights)
+  local name
   local name_text
 
   for _, facet in ipairs(sidebar.facets) do
-    name_text = string.format("%-" .. NAME_WIDTH .. "s", facet.name)
+    name = filter.escape_field(facet.name)
+    name_text = string.format("%-" .. NAME_WIDTH .. "s", name)
     lines[#lines + 1] = (sidebar.expanded[facet.name] and "▾ " or "▸ ") .. name_text .. "  " .. summary(facet)
     sidebar.rows[#lines] = { name = facet.name }
-    highlights[#highlights + 1] = { #lines - 1, 4, 4 + #facet.name, "JLogFieldName" }
+    highlights[#highlights + 1] = { #lines - 1, 4, 4 + #name, "JLogFieldName" }
 
     if sidebar.expanded[facet.name] then
       for _, top in ipairs(facet.top) do
@@ -244,7 +248,7 @@ Sidebar.group_at_cursor = function(self)
   if not row or row.value then
     return false
   end
-  self.ws:set_group(row.name)
+  self.ws:set_group(filter.escape_field(row.name))
 
   return true
 end

@@ -90,6 +90,7 @@ One clause per `:JLog filter` call or sidebar `FILTERS` line:
 
 - Fields are dotted paths (`req.headers.host`). `time`, `level` and `msg` resolve through the configured `fields`
   aliases (e.g. `message`, `severity`). `level` compares case-insensitively.
+- In field names (filters, GROUP BY, FIELDS) a newline is written `\n` and a backslash `\\`.
 - A missing field never matches, so `-term` matches it.
 - Multiple sidebar lines are ANDed.
 - Inside quotes only `\"`, `\\` and `\n` are escapes; `\\` is one backslash and `\n` is a newline (a facet value

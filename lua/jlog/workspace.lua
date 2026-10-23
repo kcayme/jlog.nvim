@@ -55,6 +55,7 @@ local view_mod = require("jlog.ui.view")
 ---@field core integer[]|nil `{ first, last }` source positions of the page's own entries; the rest is overlap
 ---@field indexing JLogPageIndex|nil an index still being scanned in ticks
 ---@field appended string[]|nil lines appended since the index was built, until it is built again
+---@field load_token table|nil the page or first load running; a newer one stops it
 ---@field shown integer entries shown by the last apply, for the winbar
 local Workspace = {}
 Workspace.__index = Workspace
@@ -81,6 +82,8 @@ local GC_STEPMUL = 400
 M.load_sizes = { first = 2000, chunk = 500 }
 -- tick_ns: work per tick before yielding (keeps ticks ~16ms); publish_ns: how often new fields reach the sidebar
 M.timing = { tick_ns = 12e6, publish_ns = 250e6 }
+-- how long open may index to find page 1 before its first screen
+M.open_index_ns = 150e6
 
 ---@type table<string, JLogWorkspace>
 local registry = {}
@@ -826,7 +829,8 @@ end
 ---@param read JLogReader
 ---@param on_done fun(entries: JLogEntry[])
 ---@param counter JLogFacetCounter|nil counts the facets of the loaded JSON entries, from the load's own decode
-local function load_rest(ws, entries, read, on_done, counter)
+---@param token table|nil the load stops, dropping what it read, once `ws.load_token` is another load's
+local function load_rest(ws, entries, read, on_done, counter, token)
   local deadline = vim.uv.hrtime() + M.timing.tick_ns
   local fraction, progress
   local count_entry = counter
@@ -834,7 +838,7 @@ local function load_rest(ws, entries, read, on_done, counter)
       facets.add(counter, entry_model.flatten(entry, decoded))
     end
 
-  if ws.closed then
+  if ws.closed or (token and ws.load_token ~= token) then
     return
   end
   repeat
@@ -848,7 +852,7 @@ local function load_rest(ws, entries, read, on_done, counter)
       publish_partial(ws, counter, progress)
     end
     vim.defer_fn(function()
-      load_rest(ws, entries, read, on_done, counter)
+      load_rest(ws, entries, read, on_done, counter, token)
     end, 0)
 
     return
@@ -944,6 +948,34 @@ local function source_reader(text, format, order)
   read = element_reader(text, 1, format, 1, nil, #text)
 
   return (format == "loki" and order == "none") and sorting_reader(read) or read
+end
+
+---@param text string
+---@param pos integer
+---@return integer start first byte of the line holding `pos`
+local function line_start(text, pos)
+  while pos > 1 and text:byte(pos - 1) ~= 10 do
+    pos = pos - 1
+  end
+
+  return pos
+end
+
+---A reader of the last `count` lines of a jsonl page that ends the file: the top of a newest-first view.
+---@param text string
+---@param range JLogPageRange
+---@param count integer
+---@return JLogReader
+local function tail_reader(text, range, count)
+  local lnum = range.core_last_line
+  local target = math.max(range.first_src, lnum - count + 1)
+  local start = line_start(text, text:byte(range.last) == 10 and range.last - 1 or range.last)
+
+  while lnum > target do
+    start, lnum = line_start(text, start - 1), lnum - 1
+  end
+
+  return line_reader(text, start, lnum, range.last)
 end
 
 ---@param text string
@@ -1090,8 +1122,9 @@ local function load_page(ws, page, keep)
   local range = ws.pages:range(page)
   local read = page_reader(ws.pages.text, ws.format, range)
   local counter = facets.counter()
+  local token = {}
 
-  ws.loading = true
+  ws.loading, ws.load_token = true, token
   vim.defer_fn(function()
     load_rest(ws, {}, read, function(loaded)
       local winid
@@ -1110,7 +1143,7 @@ local function load_page(ws, page, keep)
           vim.api.nvim_win_set_cursor(winid, { 1, 0 })
         end
       end, counter)
-    end, counter)
+    end, counter, token)
   end, 0)
 end
 
@@ -1131,7 +1164,7 @@ local function page_holding(index, src)
   return 1
 end
 
----Show page `page`, keeping filters, group and mode; false when that page is not indexed (yet) or a load runs.
+---Show page `page`, keeping filters, group and mode; false when that page is not indexed (yet).
 ---@param page integer
 ---@return boolean
 Workspace.goto_page = function(self, page)
@@ -1142,11 +1175,7 @@ Workspace.goto_page = function(self, page)
 
     return false
   end
-  if self.loading then
-    vim.notify("jlog: still loading", vim.log.levels.WARN)
-
-    return false
-  end
+  -- a page load still running is dropped for this one
   load_page(self, page)
 
   return true
@@ -1449,12 +1478,14 @@ end
 ---@param early boolean the entries read so far are shown already
 ---@param counter JLogFacetCounter counts of `entries` when `early`
 local function load_first(ws, entries, read, early, counter)
-  ws.loading = true
+  local token = {}
+
+  ws.loading, ws.load_token = true, token
   vim.defer_fn(function()
     if early then
       load_rest(ws, entries, read, function()
         ws:apply(nil, counter)
-      end, counter)
+      end, counter, token)
 
       return
     end
@@ -1462,7 +1493,7 @@ local function load_first(ws, entries, read, early, counter)
     load_rest(ws, entries, read, function(loaded)
       ws.entries = loaded
       ws:apply()
-    end)
+    end, nil, token)
   end, 0)
 end
 
@@ -1477,7 +1508,7 @@ M.open = function(target)
   local existing = registry[key]
   local text, format, err, ws
   local order, read, early, more
-  local index, paged, range
+  local index, paged, range, deadline, tail
   local entries = {}
   local counter = facets.counter()
   local function count_entry(entry, decoded)
@@ -1499,18 +1530,27 @@ M.open = function(target)
     return nil, "not a recognized log format"
   end
   order = source.element_order(text, format)
-  -- a small source is indexed within this tick; a larger one goes on indexing in ticks
+  -- index until page 1 is known, so the first screen is page 1; the rest of the index follows in ticks
   index = new_index(text, format, order, opts)
   if index then
-    index:scan(vim.uv.hrtime() + M.timing.tick_ns)
-    paged = is_paged(index)
+    deadline = vim.uv.hrtime() + M.open_index_ns
+    repeat
+      index:scan(math.min(deadline, vim.uv.hrtime() + M.timing.tick_ns))
+      paged = is_paged(index)
+    until paged ~= nil or vim.uv.hrtime() >= deadline
   end
   range = paged and index:range(1)
   -- the first elements show early only when they are the top of the view; jsonl reverses
   early = format == "jsonl" or (order ~= "none" and (opts.view.sort == "desc") == (order == "desc"))
-  read = range and page_reader(text, format, range) or source_reader(text, format, order)
+  -- a page from the file's end shows newest first: its first screen is the page's last lines, then the whole page
+  tail = range and format == "jsonl" and index.from_end
+  read = tail and tail_reader(text, range, M.load_sizes.first)
+    or range and page_reader(text, format, range)
+    or source_reader(text, format, order)
   -- only the first lines or elements are parsed before the first screen; the rest follows in chunks
-  more = read(entries, early and count_entry or nil, M.load_sizes.first)
+  if not index or paged ~= nil then
+    more = read(entries, early and count_entry or nil, M.load_sizes.first)
+  end
 
   ws = setmetatable({
     key = key,
@@ -1573,7 +1613,7 @@ M.open = function(target)
   if index and not index.done then
     ws.indexing = index
     vim.defer_fn(function()
-      -- until it is known whether there are pages, the first screen comes from the start of the source
+      -- nothing was read yet: either page 1 or the whole source loads from its start
       scan_pages(ws, index, paged == nil and function(has_pages)
         if has_pages then
           ws.pages = index
@@ -1586,8 +1626,12 @@ M.open = function(target)
     end, 0)
   end
   if paged == nil and ws.indexing then
+    -- page 1 is not known yet: an empty view rather than the wrong end of the log
     ws.loading = true
-  elseif not early or more then
+    ws.view:set_winbar("jlog · indexing…")
+  elseif tail and range.core_last_line - range.first_src + 1 > M.load_sizes.first then
+    load_page(ws, 1)
+  elseif not tail and (not early or more) then
     load_first(ws, entries, read, early, counter)
   end
 

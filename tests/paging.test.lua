@@ -20,6 +20,8 @@ end
 describe("paging", function()
   local notify = vim.notify
   local timing = vim.deepcopy(workspace.timing)
+  local load_sizes = vim.deepcopy(workspace.load_sizes)
+  local open_index_ns = workspace.open_index_ns
   local path
   local ws
 
@@ -36,6 +38,8 @@ describe("paging", function()
   after_each(function()
     vim.notify = notify
     workspace.timing = vim.deepcopy(timing)
+    workspace.load_sizes = vim.deepcopy(load_sizes)
+    workspace.open_index_ns = open_index_ns
     if ws then
       ws:close()
       ws = nil
@@ -73,12 +77,45 @@ describe("paging", function()
 
     vim.fn.writefile(log_lines(5000), path)
     workspace.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
+    workspace.open_index_ns = 0
     vim.notify = function(msg)
       message = msg
     end
     ws = workspace.open({ path = path })
     assert.is_false(ws:goto_page(4))
     assert.are.equal("jlog: still indexing pages", message)
+    -- the wrong end of the log is never shown while page 1 is unknown
+    assert.are.same({ "" }, vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false))
+    assert.are.equal("jlog · indexing…", ws.view.winbar_text)
+  end)
+
+  it("should show the newest entry as the first screen of a large log", function()
+    require("jlog").setup({ paging = { size = 5000, overlap = 20 } })
+    vim.fn.writefile(log_lines(20000), path)
+    ws = workspace.open({ path = path })
+    assert.is_truthy(vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, 1, false)[1]:find("m20000", 1, true))
+  end)
+
+  it("should switch pages while page 1 is still loading", function()
+    require("jlog").setup({ paging = { size = 3000, overlap = 2 } })
+    vim.fn.writefile(log_lines(7000), path)
+    workspace.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
+    workspace.load_sizes.chunk = 10
+    ws = workspace.open({ path = path })
+    wait(function()
+      return ws.pages:known() >= 2
+    end)
+    assert.is_true(ws.loading)
+    workspace.load_sizes.chunk = load_sizes.chunk
+    assert.is_true(ws:goto_page(2))
+    wait(function()
+      return settled() and ws.page == 2
+    end)
+    -- page 2 is lines 1001..4000 with 2 lines of overlap on each side
+    assert.are.same({ 999, 4002, 3004 }, { ws.entries[1].src, ws.entries[#ws.entries].src, #ws.entries })
+    -- the dropped page 1 load does not come back later
+    vim.wait(300)
+    assert.are.same({ 2, 999, 3004 }, { ws.page, ws.entries[1].src, #ws.entries })
   end)
 
   it("should dim overlap entries", function()

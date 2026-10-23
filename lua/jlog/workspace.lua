@@ -1537,8 +1537,9 @@ M.open = function(target)
   order = source.element_order(text, format)
   -- index until page 1 is known, so the first screen is page 1; the rest of the index follows in ticks
   index = new_index(text, format, order, opts)
+  -- page 1 starts where the source does unless it is the end: then the first screen needs no more than a tick of it
   if index then
-    deadline = vim.uv.hrtime() + M.open_index_ns
+    deadline = vim.uv.hrtime() + (index.from_end and M.open_index_ns or M.timing.tick_ns)
     repeat
       index:scan(math.min(deadline, vim.uv.hrtime() + M.timing.tick_ns))
       paged = is_paged(index)
@@ -1553,7 +1554,7 @@ M.open = function(target)
     or range and page_reader(text, format, range)
     or source_reader(text, format, order)
   -- only the first lines or elements are parsed before the first screen; the rest follows in chunks
-  if not index or paged ~= nil then
+  if not index or paged ~= nil or not index.from_end then
     more = read(entries, early and count_entry or nil, M.load_sizes.first)
   end
 
@@ -1631,7 +1632,7 @@ M.open = function(target)
     end, 0)
   end
   if paged == nil and ws.indexing then
-    -- page 1 is not known yet: an empty view rather than the wrong end of the log
+    -- page 1 is not known yet: the start of the source, or an empty view rather than the wrong end of the log
     ws.loading = true
     ws.view:set_winbar("jlog · indexing…")
   elseif tail and range.core_last_line - range.first_src + 1 > M.load_sizes.first then

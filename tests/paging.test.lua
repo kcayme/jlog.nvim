@@ -216,6 +216,28 @@ describe("paging", function()
     assert.are.same({ 31, 35 }, ws.core)
   end)
 
+  it("should show a newest-first loki export's first elements before its pages are indexed", function()
+    local elements = {}
+
+    -- page 1 is known only once more elements are scanned than one scan call reads
+    require("jlog").setup({ paging = { size = 2000, overlap = 2 } })
+    for index = 1, 5000 do
+      elements[index] =
+        string.format('{"line":"{\\"msg\\":\\"m%d\\"}","timestamp":"%d","fields":{"app":"a"}}', index, 10000 - index)
+    end
+    vim.fn.writefile(vim.split("[" .. table.concat(elements, ",\n") .. "]", "\n"), path)
+    workspace.timing.tick_ns = 0
+    workspace.load_sizes = { first = 3, chunk = 3 }
+    ws = workspace.open({ path = path })
+
+    assert.is_nil(ws.page)
+    assert.are.same({ 1, 3 }, { ws.entries[1].src, #ws.entries })
+    assert.are.equal(1, ws.view.items[1].idx)
+    workspace.timing = vim.deepcopy(timing)
+    wait(settled)
+    assert.are.same({ 1, 1, 2002 }, { ws.page, ws.entries[1].src, #ws.entries })
+  end)
+
   it("should refuse a page that is not a whole number", function()
     local message
 

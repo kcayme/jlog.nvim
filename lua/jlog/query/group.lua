@@ -7,7 +7,8 @@
 ---@field pred fun(i: integer): boolean
 ---@field field string|nil
 ---@field get fun(i: integer, path: string): any
----@field reverse boolean|nil
+---@field reverse boolean|nil show the stored order reversed
+---@field newest_first boolean|nil entries are stored newest first; groups are still built in time order
 ---@field checkpoint fun()|nil called every CHECKPOINT_EVERY entries, so a caller can yield a long build
 
 local entry_model = require("jlog.parse.entry")
@@ -28,7 +29,7 @@ local function key_of(value)
   return entry_model.text(value)
 end
 
--- Last non-nil value wins: a request's final status beats an earlier log line's.
+-- Last non-nil value in time wins: a request's final status beats an earlier log line's.
 local function summarize(group, get)
   local idxs = group.idxs
   local pending = #SUMMARY_FIELDS
@@ -79,8 +80,15 @@ local function build_grouped(count, args)
   local matched = {}
   local missing
   local first, last, step
+  -- groups and their entries are collected oldest first, then shown newest first when that is on top
+  local newest_on_top = (args.reverse or false) ~= (args.newest_first or false)
 
-  for i = 1, count do
+  first, last, step = 1, count, 1
+  if args.newest_first then
+    first, last, step = count, 1, -1
+  end
+
+  for i = first, last, step do
     local value = args.get(i, field)
     local bucket
 
@@ -114,7 +122,7 @@ local function build_grouped(count, args)
   end
 
   first, last, step = 1, #ordered, 1
-  if args.reverse then
+  if newest_on_top then
     first, last, step = #ordered, 1, -1
   end
 
@@ -129,7 +137,7 @@ local function build_grouped(count, args)
       size = size + 1
       items[size] = { kind = "header", group = group }
 
-      if args.reverse then
+      if newest_on_top then
         from, to, direction = #idxs, 1, -1
       end
       for index = from, to, direction do

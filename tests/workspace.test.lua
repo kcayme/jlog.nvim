@@ -120,7 +120,13 @@ describe("workspace", function()
     assert.are.equal(2, #ws.entries)
     ws, err = workspace.open({ path = truncated, force = true })
     assert.is_nil(err)
-    assert.are.equal("jsonl", ws.format)
+    -- the broken element and everything after it are kept as plain entries
+    assert.are.equal("loki", ws.format)
+    assert.is_true(vim.wait(2000, function()
+      return not ws.loading
+    end))
+    assert.are.equal(2, #ws.entries)
+    assert.is_nil(ws.entries[2].json_at)
     vim.fn.delete(prefixed)
     vim.fn.delete(truncated)
   end)
@@ -448,6 +454,139 @@ describe("workspace", function()
         assert.is_true(ws.entries[index - 1].ts < ws.entries[index].ts)
       end
       vim.fn.delete(path)
+    end)
+
+    local function capture_warnings()
+      local warnings = {}
+      local notify = vim.notify
+
+      vim.notify = function(message, level)
+        if level == vim.log.levels.WARN and message:find("broken JSON array", 1, true) then
+          warnings[#warnings + 1] = message
+        end
+      end
+
+      return warnings, function()
+        vim.notify = notify
+      end
+    end
+
+    local function loki_line(stamp)
+      return vim.json.encode({ line = '{"msg":"m' .. stamp .. '"}', timestamp = tostring(stamp), fields = {} })
+    end
+
+    it("should open an export broken at element 3 with a warning and plain tail lines", function()
+      local path = vim.fn.tempname() .. ".json"
+      local warnings, restore = capture_warnings()
+      local ws, err
+
+      vim.fn.writefile({ "[" .. loki_line(20) .. "," .. loki_line(10) .. ',{"line":"cut', "more text", "" }, path)
+      ws, err = workspace.open({ path = path })
+      restore()
+
+      assert.is_nil(err)
+      assert.are.equal("loki", ws.format)
+      assert.are.equal(1, #warnings)
+      assert.are.equal(4, #ws.entries)
+      assert.are.equal('{"line":"cut', ws.entries[3].raw)
+      assert.are.equal("more text", ws.entries[4].raw)
+      for _, entry in ipairs(ws.entries) do
+        assert.is_nil(entry.cont)
+      end
+      ws:close()
+      vim.fn.delete(path)
+    end)
+
+    it("should open and reload an export broken past the first slice with a warning", function()
+      local path = vim.fn.tempname() .. ".json"
+      local elements = {}
+      local warnings, restore = capture_warnings()
+      local ws, done
+
+      for stamp = 9, 1, -1 do
+        elements[#elements + 1] = loki_line(stamp)
+      end
+      vim.fn.writefile({ "[" .. table.concat(elements, ",") .. ',{"line', "tail one", "tail two" }, path)
+      workspace.load_sizes = { first = 2, chunk = 2 }
+      ws = assert(workspace.open({ path = path }))
+      done = function()
+        return not ws.loading and ws.rendered == ws.generation
+      end
+
+      assert.is_true(ws.loading)
+      assert.is_true(vim.wait(2000, done))
+      assert.are.equal(1, #warnings)
+      assert.are.equal(12, #ws.entries)
+      assert.are.same({ '{"line', "tail one", "tail two" }, {
+        ws.entries[10].raw,
+        ws.entries[11].raw,
+        ws.entries[12].raw,
+      })
+      assert.is_nil(ws.entries[9].cont)
+      assert.is_nil(ws.view.winbar_text:find("loading", 1, true))
+
+      table.insert(elements, 1, loki_line(10))
+      vim.fn.writefile({ "[" .. table.concat(elements, ",") .. ',{"line', "tail one", "tail two" }, path)
+      ws:reload()
+      assert.is_true(vim.wait(2000, function()
+        return #ws.entries == 13 and done()
+      end))
+      restore()
+
+      assert.are.equal(2, #warnings)
+      assert.are.equal("tail two", ws.entries[13].raw)
+      assert.is_nil(ws.view.winbar_text:find("loading", 1, true))
+      ws:close()
+      vim.fn.delete(path)
+    end)
+
+    it("should group a newest-first export like the same logs stored oldest first", function()
+      local logs = {
+        '{"time":"2026-10-22T10:00:01Z","request_id":"A","status":200,"msg":"start"}',
+        '{"time":"2026-10-22T10:00:02Z","request_id":"B","status":201,"msg":"other"}',
+        '{"time":"2026-10-22T10:00:03Z","request_id":"A","status":500,"msg":"done"}',
+        '{"time":"2026-10-22T10:00:04Z","request_id":"B","msg":"after"}',
+      }
+      local jsonl = vim.fn.tempname() .. ".jsonl"
+      local loki = vim.fn.tempname() .. ".json"
+      local elements = {}
+
+      for index = #logs, 1, -1 do
+        elements[#elements + 1] = { line = logs[index], timestamp = tostring(index), fields = {} }
+      end
+      vim.fn.writefile(logs, jsonl)
+      vim.fn.writefile({ vim.json.encode(elements) }, loki)
+
+      local function grouped(path)
+        local ws = assert(workspace.open({ path = path }))
+        local lines
+
+        assert.is_true(vim.wait(2000, function()
+          return not ws.loading and ws.rendered == ws.generation
+        end))
+        ws:set_group("request_id")
+        assert.is_true(vim.wait(2000, function()
+          return ws.rendered == ws.generation
+        end))
+        lines = vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false)
+        ws:close()
+
+        return lines
+      end
+
+      for _, sort in ipairs({ "desc", "asc" }) do
+        config.setup({ view = { sort = sort } })
+        local expected = grouped(jsonl)
+
+        assert.are.same(expected, grouped(loki))
+        -- the request that failed shows its final status, and groups follow time like the entries do
+        assert.are.equal(1, #vim.tbl_filter(function(line)
+          return line:find("A  2 entries · 500", 1, true) ~= nil
+        end, expected))
+        assert.is_truthy(expected[1]:find(sort == "desc" and "B" or "A", 1, true))
+      end
+      vim.fn.delete(jsonl)
+      vim.fn.delete(loki)
     end)
 
     it("should load a plain json array in file order and rebuild it in chunks on reload", function()

@@ -376,6 +376,7 @@ Workspace.apply = function(self, on_done, counted)
         end,
         field = field,
         reverse = state.reverse,
+        newest_first = self.stored_newest_first,
         get = function(index, path)
           return (path == field and group_values or summary_values[path])[index]
         end,
@@ -682,8 +683,8 @@ local function take_lines(text, pos, count)
   return lines, pos
 end
 
----Reads the next chunk into `entries`; returns the fraction of the text read, nil when done, or an error.
----@alias JLogReader fun(entries: JLogEntry[], on_json: function|nil): number|nil, string|nil
+---Reads the next chunk into `entries`; returns the fraction of the text read, or nil when done.
+---@alias JLogReader fun(entries: JLogEntry[], on_json: function|nil): number|nil
 
 ---@param text string
 ---@param pos integer byte position of the next unparsed line
@@ -701,12 +702,21 @@ local function line_reader(text, pos, lnum)
   end
 end
 
+---A broken array keeps what was read; the unparsed rest follows as plain entries, one per line.
+---@param entries JLogEntry[] mutated
 ---@param text string
----@param pos integer where `source.read_elements` goes on
+---@param rest_at integer where the unparsed rest starts
+---@param err string
+local function keep_broken_rest(entries, text, rest_at, err)
+  vim.notify("jlog: broken JSON array: " .. err .. "; the rest is shown as plain lines", vim.log.levels.WARN)
+  source.append_plain(entries, text:sub(rest_at))
+end
+
+---@param text string
+---@param pos integer|nil where `source.read_elements` goes on; nil when nothing is left
 ---@param format JLogFormat
----@param keep_rest boolean on a parse error, keep the unparsed rest as plain lines instead of failing
 ---@return JLogReader
-local function element_reader(text, pos, format, keep_rest)
+local function element_reader(text, pos, format)
   return function(entries, on_json)
     local chunk, next_pos, err
 
@@ -715,12 +725,8 @@ local function element_reader(text, pos, format, keep_rest)
     end
     chunk, next_pos, err = source.read_elements(text, pos, M.load_sizes.chunk, format, #entries + 1, on_json)
     vim.list_extend(entries, chunk)
-    if err and not keep_rest then
-      return nil, err
-    end
     if err then
-      vim.notify("jlog: " .. err .. "; the rest is shown as plain text", vim.log.levels.WARN)
-      source.append_lines(entries, vim.split(text:sub(next_pos), "\n", { plain = true }), #entries + 1, on_json)
+      keep_broken_rest(entries, text, next_pos, err)
 
       return nil
     end
@@ -738,7 +744,7 @@ end
 ---@param counter JLogFacetCounter|nil counts the facets of the loaded JSON entries, from the load's own decode
 local function load_rest(ws, entries, read, on_done, counter)
   local deadline = vim.uv.hrtime() + M.timing.tick_ns
-  local fraction, err, progress
+  local fraction, progress
   local count_facets = counter
     and function(entry, decoded)
       facets.add(counter, entry_model.flatten(entry, decoded))
@@ -748,7 +754,7 @@ local function load_rest(ws, entries, read, on_done, counter)
     return
   end
   repeat
-    fraction, err = read(entries, count_facets)
+    fraction = read(entries, count_facets)
   until not fraction or vim.uv.hrtime() >= deadline
   if fraction then
     progress = "loading " .. math.floor(fraction * 100) .. "%"
@@ -765,9 +771,7 @@ local function load_rest(ws, entries, read, on_done, counter)
   end
 
   ws.loading = nil
-  if not err then
-    on_done(entries)
-  end
+  on_done(entries)
   if ws.reload_pending then
     ws.reload_pending = nil
     ws:reload()
@@ -824,12 +828,12 @@ local function sorting_reader(read)
   end
 
   return function(entries, on_json)
-    local fraction, err
+    local fraction
 
     if not sorter then
-      fraction, err = read(entries, on_json)
-      if fraction or err then
-        return fraction, err
+      fraction = read(entries, on_json)
+      if fraction then
+        return fraction
       end
       sorter = coroutine.create(function()
         merge_sort(entries, source.older_first, checkpoint)
@@ -847,10 +851,9 @@ end
 ---@param pos integer|nil
 ---@param format JLogFormat
 ---@param order "asc"|"desc"|"none"
----@param keep_rest boolean
 ---@return JLogReader
-local function array_reader(text, pos, format, order, keep_rest)
-  local read = element_reader(text, pos, format, keep_rest)
+local function array_reader(text, pos, format, order)
+  local read = element_reader(text, pos, format)
 
   return (format == "loki" and order == "none") and sorting_reader(read) or read
 end
@@ -909,7 +912,7 @@ Workspace.reload = function(self)
   end
   -- parsed in chunks like at open; the old entries stay shown until the new ones are complete
   order = source.element_order(text, self.format)
-  read = self.format == "jsonl" and line_reader(text, 1, 1) or array_reader(text, 1, self.format, order, false)
+  read = self.format == "jsonl" and line_reader(text, 1, 1) or array_reader(text, 1, self.format, order)
   self.loading = true
   vim.defer_fn(function()
     load_rest(self, {}, read, function(loaded)
@@ -1119,13 +1122,11 @@ M.open = function(target)
     -- the first elements show early only when they are the top of the view
     early = order ~= "none" and (opts.view.sort == "desc") == (order == "desc")
     entries, pos, err = source.read_elements(text, 1, M.load_sizes.first, format, 1)
-    if err and not target.force then
-      return nil, err
+    if err then
+      keep_broken_rest(entries, text, pos, err)
+      pos = nil
     end
-    -- a forced open of a broken array (e.g. a truncated download) still shows every line
-    format = err and "jsonl" or format
-    order = not err and order or nil
-    read = array_reader(text, pos, format, order, true)
+    read = array_reader(text, pos, format, order)
   end
   if format == "jsonl" then
     -- only the first lines are parsed before the first screen; the rest follows in chunks

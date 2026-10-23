@@ -251,13 +251,13 @@ M.older_first = older_first
 ---@param count integer
 ---@param format JLogFormat
 ---@param first_index integer `src` of the first element read
----@param on_json fun(entry: JLogEntry, decoded: table|nil)|nil called with each loki entry, and each array object
+---@param on_json fun(entry: JLogEntry, decoded: table|nil)|nil called with each entry and its decoded loki line
 ---@return JLogEntry[] entries
 ---@return integer|nil next_pos nil once the closing `]` is reached; after an error, where the unparsed rest starts
 ---@return string|nil err
 M.read_elements = function(text, pos, count, format, first_index, on_json)
   local entries = {}
-  local node, after, entry, decoded, ok, err
+  local node, after, entry, decoded, err
 
   pos = skip_space(text, pos)
   if first_index == 1 then
@@ -280,12 +280,8 @@ M.read_elements = function(text, pos, count, format, first_index, on_json)
       return entries, pos, after
     end
     entry, decoded = element_entry(node, text, index, format)
-    if on_json and format ~= "loki" and entry.json_at then
-      ok, decoded = pcall(vim.json.decode, entry.raw)
-      decoded = ok and decoded or nil
-    end
     entries[#entries + 1] = entry
-    if on_json and (format == "loki" or decoded) then
+    if on_json then
       on_json(entry, decoded)
     end
 
@@ -330,6 +326,18 @@ M.element_order = function(text, format)
   end
 
   return falling and "desc" or "asc"
+end
+
+---Append each non-blank line of `text` as a plain entry of its own, numbered after the last entry.
+---@param entries JLogEntry[] mutated
+---@param text string
+M.append_plain = function(entries, text)
+  for _, line in ipairs(vim.split(text, "\n", { plain = true })) do
+    line = line:gsub("\r$", "")
+    if line:find("%S") then
+      entries[#entries + 1] = { src = #entries + 1, raw = line, body = line }
+    end
+  end
 end
 
 ---@param text string

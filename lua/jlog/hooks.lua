@@ -133,7 +133,7 @@ M.register = function(opts)
   vim.api.nvim_create_autocmd("ColorScheme", {
     group = group,
     callback = function()
-      require("jlog").set_highlights()
+      require("jlog.ui.highlights").setup()
     end,
   })
   if not opts.auto_open.enable then

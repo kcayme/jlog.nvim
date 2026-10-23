@@ -79,7 +79,7 @@ describe("view", function()
 
   it("should leave user highlight overrides alone", function()
     vim.api.nvim_set_hl(0, "JLogLevelError", { fg = "#ff0000" })
-    require("jlog").set_highlights()
+    require("jlog.ui.highlights").setup()
     assert.are.equal(0xff0000, vim.api.nvim_get_hl(0, { name = "JLogLevelError" }).fg)
   end)
 end)

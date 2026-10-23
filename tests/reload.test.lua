@@ -219,13 +219,13 @@ describe("reload", function()
       return ws.rendered == ws.generation
     end)
     bufnr = ws.sidebar.bufnr
-    vim.api.nvim_buf_set_lines(bufnr, 1, 1, false, { "level=ERROR" })
+    vim.api.nvim_buf_set_lines(bufnr, 2, 2, false, { "level=ERROR" })
     vim.fn.writefile({ '{"msg":"c","level":"INFO"}' }, path, "a")
     wait(function()
       return #ws.entries == 3 and ws.rendered == ws.generation
     end)
     vim.wait(100)
-    assert.are.equal("level=ERROR", vim.api.nvim_buf_get_lines(bufnr, 1, 2, false)[1])
+    assert.are.equal("level=ERROR", vim.api.nvim_buf_get_lines(bufnr, 2, 3, false)[1])
     assert.is_true(vim.bo[bufnr].modified)
   end)
 end)

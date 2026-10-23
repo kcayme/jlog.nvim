@@ -297,7 +297,7 @@ describe("workspace", function()
     marks = vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, -1, 0, -1, { details = true })
 
     assert.are_not.equal(ws.generation, ws.rendered)
-    assert.are.equal("level=ERROR", vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 1, 2, false)[1])
+    assert.are.equal("level=ERROR", vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 2, 3, false)[1])
     assert.is_truthy(vim.iter(marks):any(function(mark)
       return mark[4].hl_group == "JLogFieldStale"
     end))

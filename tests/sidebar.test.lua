@@ -11,7 +11,7 @@ describe("sidebar", function()
     require("jlog.config").setup()
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
     local sb = ws.sidebar.bufnr
-    vim.api.nvim_buf_set_lines(sb, 1, 1, false, { "level=ERROR", 'msg="oops' })
+    vim.api.nvim_buf_set_lines(sb, 2, 2, false, { "level=ERROR", 'msg="oops' })
     vim.api.nvim_buf_call(sb, function()
       vim.cmd("write")
     end)
@@ -31,13 +31,13 @@ describe("sidebar", function()
   it("should keep a bad filter line visible until it is edited", function()
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/loki.json", ":p") })
     local sb = ws.sidebar.bufnr
-    vim.api.nvim_buf_set_lines(sb, 1, 1, false, { 'msg="oops' })
+    vim.api.nvim_buf_set_lines(sb, 2, 2, false, { 'msg="oops' })
     vim.api.nvim_buf_call(sb, function()
       vim.cmd("write")
     end)
     ws:add_filter("status=200")
-    assert.are.same({ "FILTERS", "status=200", 'msg="oops' }, vim.api.nvim_buf_get_lines(sb, 0, 3, false))
-    assert.are.equal(2, vim.diagnostic.get(sb)[1].lnum)
+    assert.are.same({ "", "FILTERS", "status=200", 'msg="oops' }, vim.api.nvim_buf_get_lines(sb, 0, 4, false))
+    assert.are.equal(3, vim.diagnostic.get(sb)[1].lnum)
     assert.is_false(vim.bo[sb].modified)
   end)
 
@@ -116,7 +116,8 @@ describe("sidebar", function()
     end, 10))
     ws.sidebar:expand_field("path")
     local winid = vim.fn.bufwinid(ws.sidebar.bufnr)
-    local width = vim.api.nvim_win_get_width(winid) - vim.fn.getwininfo(winid)[1].textoff
+    -- field lines stop 2 cells short of the window's right edge
+    local width = vim.api.nvim_win_get_width(winid) - vim.fn.getwininfo(winid)[1].textoff - 2
     local lines = vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, -1, false)
     for _, line in ipairs(lines) do
       assert.is_true(vim.fn.strdisplaywidth(line) <= width, line)
@@ -151,12 +152,12 @@ describe("sidebar", function()
     vim.api.nvim_win_set_width(winid, 60)
     vim.api.nvim_exec_autocmds("WinResized", {})
     assert.is_true(longest() > before)
-    assert.is_true(longest() <= 60)
+    assert.is_true(longest() <= 58)
 
-    vim.api.nvim_buf_set_lines(ws.sidebar.bufnr, 1, 1, false, { "level=ERROR" })
+    vim.api.nvim_buf_set_lines(ws.sidebar.bufnr, 2, 2, false, { "level=ERROR" })
     vim.api.nvim_win_set_width(winid, 50)
     vim.api.nvim_exec_autocmds("WinResized", {})
-    assert.are.equal("level=ERROR", vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 1, 2, false)[1])
+    assert.are.equal("level=ERROR", vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 2, 3, false)[1])
   end)
 
   it("should keep the cursor on the same field when new fields are rendered above it", function()
@@ -219,17 +220,21 @@ describe("sidebar", function()
       local ns = vim.api.nvim_get_namespaces()["jlog.hint"]
       for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(bufnr, ns, 0, -1, { details = true })) do
         found[#found + 1] = { row = mark[2], text = mark[4].virt_text[1][1] }
+        -- the right-aligned hint keeps the same right padding as the field lines
+        if mark[4].virt_text_pos == "right_align" then
+          assert.are.same({ "  " }, mark[4].virt_text[2])
+        end
       end
 
       return found
     end
 
-    it("should show examples on empty FILTERS and GROUP BY lines and how to apply on the header", function()
+    it("should show examples on empty FILTERS and GROUP BY lines and how to apply on the first row", function()
       ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
       assert.are.same({
-        { row = 0, text = ":w to apply" },
-        { row = 1, text = "status>=500 level=ERROR -health" },
-        { row = 3, text = "request_id" },
+        { row = 0, text = ":w to apply | ? help" },
+        { row = 2, text = "status>=500 level=ERROR -health" },
+        { row = 4, text = "request_id" },
       }, hints(ws.sidebar.bufnr))
     end)
 
@@ -237,7 +242,7 @@ describe("sidebar", function()
       ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
       ws:add_filter("level=ERROR")
       ws:set_group("request_id")
-      assert.are.same({ { row = 0, text = ":w to apply" } }, hints(ws.sidebar.bufnr))
+      assert.are.same({ { row = 0, text = ":w to apply | ? help" } }, hints(ws.sidebar.bufnr))
     end)
 
     it("should hide examples in insert mode and on a line being typed", function()
@@ -248,13 +253,32 @@ describe("sidebar", function()
       vim.api.nvim_buf_call(sb, function()
         vim.api.nvim_exec_autocmds("InsertEnter", { buffer = sb })
       end)
-      assert.are.same({ { row = 0, text = ":w to apply" } }, hints(sb))
-      vim.api.nvim_buf_set_lines(sb, 1, 2, false, { "level" })
+      assert.are.same({ { row = 0, text = ":w to apply | ? help" } }, hints(sb))
+      vim.api.nvim_buf_set_lines(sb, 2, 3, false, { "level" })
       vim.api.nvim_buf_call(sb, function()
         vim.api.nvim_exec_autocmds("TextChanged", { buffer = sb })
       end)
-      assert.are.same({ { row = 0, text = ":w to apply" }, { row = 3, text = "request_id" } }, hints(sb))
+      assert.are.same({ { row = 0, text = ":w to apply | ? help" }, { row = 4, text = "request_id" } }, hints(sb))
     end)
+  end)
+
+  it("should name the buffers by filetype and leave out the help hint when its key is off", function()
+    require("jlog.config").setup({ keymaps = { help = false } })
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    require("jlog.config").setup()
+    assert.are.equal("jlog", vim.bo[ws.view.bufnr].filetype)
+    assert.are.equal("jlog_sidebar", vim.bo[ws.sidebar.bufnr].filetype)
+    assert.are.same(
+      { ":w to apply" },
+      vim.tbl_map(
+        function(mark)
+          return mark[4].virt_text[1][1]
+        end,
+        vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, vim.api.nvim_get_namespaces()["jlog.hint"], 0, 0, {
+          details = true,
+        })
+      )
+    )
   end)
 
   it("should open a guide to the configured keys from the sidebar and close it with q", function()
@@ -263,7 +287,7 @@ describe("sidebar", function()
     require("jlog.config").setup({ keymaps = { toggle_mode = "X", prev_entry = false } })
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
     vim.api.nvim_set_current_win(vim.fn.bufwinid(ws.sidebar.bufnr))
-    assert.is_truthy(vim.wo.winbar:find("(?) Help", 1, true))
+    assert.are.equal("", vim.wo.winbar)
     vim.api.nvim_feedkeys("?", "x", false)
     float = vim.api.nvim_get_current_win()
     assert.are_not.equal("", vim.api.nvim_win_get_config(float).relative)

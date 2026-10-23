@@ -202,9 +202,6 @@ local function open_sidebar_window(ws)
   wo.relativenumber = false
   wo.wrap = false
   wo.winfixwidth = true
-  if ws.opts.keymaps.help then
-    wo.winbar = "(" .. ws.opts.keymaps.help:gsub("%%", "%%%%") .. ") Help"
-  end
 
   return winid
 end

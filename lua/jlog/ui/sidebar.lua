@@ -28,6 +28,8 @@ local HEADERS = { filters = "FILTERS", group = "GROUP BY", fields = "FIELDS" }
 local COUNTING = "counting…"
 local INLINE_VALUES = 3
 local NAME_WIDTH = 14
+-- cells left empty at the right edge, so field lines do not run into the window border
+local RIGHT_PADDING = 2
 
 local HINTS = { [HEADERS.filters] = "status>=500 level=ERROR -health", [HEADERS.group] = "request_id" }
 
@@ -115,17 +117,17 @@ local function clause(name, value)
   return name .. '="' .. value:gsub('[\\"]', "\\%0"):gsub("\n", "\\n") .. '"'
 end
 
----Text cells of the sidebar window, or the configured width while it is hidden.
+---Text cells field lines may fill: the sidebar window's (or the configured width while hidden), less the padding.
 ---@param sidebar JLogSidebar
 ---@return integer
 local function text_width(sidebar)
   local winid = vim.fn.bufwinid(sidebar.bufnr)
 
   if winid == -1 then
-    return sidebar.ws.opts.sidebar.width
+    return sidebar.ws.opts.sidebar.width - RIGHT_PADDING
   end
 
-  return vim.api.nvim_win_get_width(winid) - vim.fn.getwininfo(winid)[1].textoff
+  return vim.api.nvim_win_get_width(winid) - vim.fn.getwininfo(winid)[1].textoff - RIGHT_PADDING
 end
 
 ---@param sidebar JLogSidebar
@@ -197,25 +199,26 @@ local function ends_sections(text)
   return text == HEADERS.fields or vim.startswith(text, "▸") or vim.startswith(text, "▾")
 end
 
----Show how to apply on the FILTERS header and, outside insert mode, an example on each blank section line.
+---Show how to apply on the first row and, outside insert mode, an example on each blank section line.
 ---@param sidebar JLogSidebar
 ---@param insert boolean
 local function show_hints(sidebar, insert)
   local bufnr = sidebar.bufnr
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local help = sidebar.ws.opts.keymaps.help
+  -- here rather than in the winbar, which statusline plugins such as lualine take over
+  local how = ":w to apply" .. (help and (" | " .. help .. " help") or "")
   local text, hint
 
   vim.api.nvim_buf_clear_namespace(bufnr, hint_ns, 0, -1)
+  vim.api.nvim_buf_set_extmark(bufnr, hint_ns, 0, 0, {
+    virt_text = { { how, "JLogHint" }, { string.rep(" ", RIGHT_PADDING) } },
+    virt_text_pos = "right_align",
+  })
   for row, line in ipairs(lines) do
     text = vim.trim(line)
     if ends_sections(text) then
       break
-    end
-    if text == HEADERS.filters then
-      vim.api.nvim_buf_set_extmark(bufnr, hint_ns, row - 1, 0, {
-        virt_text = { { ":w to apply", "JLogHint" } },
-        virt_text_pos = "right_align",
-      })
     end
     hint = HINTS[text]
     if hint and not insert and lines[row + 1] and vim.trim(lines[row + 1]) == "" then
@@ -228,7 +231,8 @@ end
 ---@param progress string|nil shown after the FIELDS header while the counts are partial
 Sidebar.render = function(self, progress)
   local state = self.ws.state
-  local lines = { HEADERS.filters }
+  -- the first row is left blank for how to apply edits, drawn over it by `show_hints`
+  local lines = { "", HEADERS.filters }
   local highlights = {}
   local diagnostics = {}
   local width = text_width(self)
@@ -399,6 +403,7 @@ M.new = function(ws)
     setmetatable({ bufnr = bufnr, ws = ws, facets = {}, expanded = {}, errors = {}, rows = {}, stale = false }, Sidebar)
 
   vim.bo[bufnr].buftype = "acwrite"
+  vim.bo[bufnr].filetype = "jlog_sidebar"
   vim.bo[bufnr].bufhidden = "hide"
   vim.bo[bufnr].swapfile = false
   vim.bo[bufnr].omnifunc = "v:lua.require'jlog.ui.sidebar'.omnifunc"

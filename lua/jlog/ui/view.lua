@@ -377,6 +377,7 @@ local function create_buffer(view)
   local name = "jlog://" .. (ws.path and vim.fn.fnamemodify(ws.path, ":t") or ws.key or "log")
 
   vim.bo[bufnr].buftype = "nofile"
+  vim.bo[bufnr].filetype = "jlog"
   vim.bo[bufnr].bufhidden = "wipe"
   vim.bo[bufnr].swapfile = false
   vim.bo[bufnr].modifiable = false

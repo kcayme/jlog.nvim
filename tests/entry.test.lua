@@ -71,4 +71,80 @@ describe("entry", function()
     assert.is_nil(entry.get(e, d, "n", opts))
     assert.are.equal("info", entry.get(e, d, "level", opts))
   end)
+
+  it("should peek simple top-level values and match get", function()
+    local e = build('{"request_id":"a1","status":200,"msg":"x"}')[1]
+    local value, found = entry.peek(e, "request_id", opts)
+    assert.are.equal("a1", value)
+    assert.is_true(found)
+    value, found = entry.peek(e, "status", opts)
+    assert.are.equal(200, value)
+    assert.is_true(found)
+  end)
+
+  it("should decline what it cannot prove", function()
+    local cases = {
+      { '{"msg":"\\"request_id\\":\\"x\\"","request_id":"y"}', "request_id" },
+      { '{"a":{"request_id":"x"},"request_id":"y"}', "request_id" },
+      { '{"request_id":"a","request_id":"b"}', "request_id" },
+      { '{"request_id":"a\\"b"}', "request_id" },
+      { '{"n":12345678901234567890}', "n" },
+      { '{"n":1e300}', "n" },
+      { '{"n":1.5}', "n" },
+      { '{"a":{"b":"x"}}', "a.b" },
+      { '{"level":"info"}', "level" },
+      { '{"request\\u005fid":"b","request_id":"a"}', "request_id" },
+      { '{"a":{"x":1,"k":2},"k":3}', "k" },
+    }
+    for _, case in ipairs(cases) do
+      local value, found = entry.peek(build(case[1])[1], case[2], opts)
+      assert.is_nil(value, case[1])
+      assert.is_false(found, case[1])
+    end
+  end)
+
+  it("should agree with get on every fixture line", function()
+    local detect = require("jlog.parse.detect")
+    local gen = dofile("bench/gen.lua")
+    local edge = {
+      '{ "k" : "v" , "n" : -12 }',
+      '{"k":"{\\"a\\":1}","n":123456789012345,"m":1234567890123456}',
+      '{"k":"","n":0,"z":-0,"b":true,"x":null,"arr":[1,"k"]}',
+      'prefix text {"k":"v","s":"a/b"}',
+      '{"k":"caf\\u00e9","v":"caf\195\169"}',
+      '{"a\\/b":1,"a/b":2}',
+    }
+    local sources = { { table.concat(gen.jsonl_lines(2000), "\n"), "jsonl" }, { table.concat(edge, "\n"), "jsonl" } }
+    local compared, answered, built = 0, 0, 0
+    for _, name in ipairs(vim.fn.readdir("tests/fixtures")) do
+      local text = table.concat(vim.fn.readfile("tests/fixtures/" .. name), "\n")
+      sources[#sources + 1] = { text, detect.detect(text, opts) or "jsonl" }
+    end
+    for _, src in ipairs(sources) do
+      for _, e in ipairs(source.build(src[1], src[2])) do
+        local decoded = entry.decode(e)
+        built = built + 1
+        for key in pairs(type(decoded) == "table" and decoded or {}) do
+          local value, found = entry.peek(e, key, opts)
+          compared = compared + 1
+          if found then
+            answered = answered + 1
+            local expected = entry.get(e, decoded, key, opts)
+            assert.are.equal(type(expected), type(value), e.body .. " " .. key)
+            assert.are.equal(expected, value, e.body .. " " .. key)
+          end
+        end
+      end
+    end
+    print(
+      string.format(
+        "peek: %d entries, %d keys compared, %d answered, %d declined",
+        built,
+        compared,
+        answered,
+        compared - answered
+      )
+    )
+    assert.is_true(answered > 0)
+  end)
 end)

@@ -369,12 +369,17 @@ Workspace.apply = function(self, on_done, counted)
 
     return decoded
   end
-  local ctx = {
-    raw = "",
-    get = function(path)
-      return entry_model.get(entry, current_decoded(), path, opts)
-    end,
-  }
+  -- simple top-level values are read from the text, the rest from the decode
+  local function read(path)
+    local value, found = entry_model.peek(entry, path, opts)
+
+    if found then
+      return value
+    end
+
+    return entry_model.get(entry, current_decoded(), path, opts)
+  end
+  local ctx = { raw = "", get = read }
 
   local function scan(first, last)
     for index = first, last do
@@ -384,10 +389,10 @@ Workspace.apply = function(self, on_done, counted)
         matched[index] = true
       end
       if field then
-        group_values[index] = entry_model.get(entry, current_decoded(), field, opts)
+        group_values[index] = read(field)
         -- read now, in the time-boxed scan: decoding again while building groups is one long tick
         for name, values in pairs(summary_values) do
-          values[index] = entry_model.get(entry, current_decoded(), name, opts)
+          values[index] = read(name)
         end
       end
     end

@@ -97,6 +97,9 @@ describe("workspace", function()
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     local ws = assert(workspace.open({ bufnr = buf }))
     local done = 0
+    assert.is_true(vim.wait(10000, function()
+      return not ws.loading
+    end))
     ws.state.filters = { "status=500" }
     ws:apply(function()
       done = done + 1
@@ -111,5 +114,65 @@ describe("workspace", function()
     assert.are.equal(10, done)
     assert.is_truthy(ws.view.winbar_text:find("/25000 ", 1, true))
     assert.is_truthy(vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, 1, false)[1]:find("^m1 "))
+  end)
+
+  describe("chunked jsonl loading", function()
+    local sizes = vim.deepcopy(workspace.load_sizes)
+
+    after_each(function()
+      workspace.load_sizes = sizes
+    end)
+
+    it("should load every entry in order, with continuation lines across chunk boundaries", function()
+      local lines = {}
+      local buf, ws, view_lines
+
+      for index = 1, 23 do
+        lines[#lines + 1] = string.format('{"msg":"m%d","level":"INFO"}', index)
+        if index % 5 == 0 then
+          lines[#lines + 1] = "  at frame " .. index
+        end
+      end
+      buf = vim.api.nvim_create_buf(true, false)
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      -- chunks of 3 lines split entries from their continuation lines
+      workspace.load_sizes = { first = 4, chunk = 3 }
+
+      ws = assert(workspace.open({ bufnr = buf }))
+      assert.is_true(ws.loading)
+      assert.is_true(#ws.entries < 23)
+      assert.is_true(vim.wait(2000, function()
+        return not ws.loading
+      end))
+
+      assert.are.equal(23, #ws.entries)
+      for index, entry in ipairs(ws.entries) do
+        assert.is_truthy(entry.body:find('"m' .. index .. '"', 1, true))
+        assert.are.equal(index % 5 == 0 and 1 or nil, entry.cont and #entry.cont)
+      end
+      assert.is_true(vim.wait(2000, function()
+        return ws.rendered == ws.generation
+      end))
+      view_lines = vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false)
+      assert.are.equal(#lines, #view_lines)
+      assert.is_truthy(view_lines[#view_lines]:find("m23", 1, true))
+    end)
+
+    it("should stop loading when the workspace is closed", function()
+      local lines = {}
+      local buf, ws
+
+      for index = 1, 50 do
+        lines[index] = '{"msg":"m' .. index .. '"}'
+      end
+      buf = vim.api.nvim_create_buf(true, false)
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      workspace.load_sizes = { first = 2, chunk = 2 }
+
+      ws = assert(workspace.open({ bufnr = buf }))
+      ws:close()
+      vim.wait(100)
+      assert.is_true(#ws.entries < 50)
+    end)
   end)
 end)

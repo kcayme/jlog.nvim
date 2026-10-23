@@ -43,6 +43,8 @@ local view_mod = require("jlog.ui.view")
 ---@field rendered integer generation of the last apply that finished rendering
 ---@field watcher uv.uv_fs_event_t|nil
 ---@field timer uv.uv_timer_t|nil debounces reloads
+---@field loading boolean|nil the rest of a jsonl file is still being parsed in chunks
+---@field reload_pending boolean|nil a reload arrived while loading
 local Workspace = {}
 Workspace.__index = Workspace
 
@@ -53,6 +55,9 @@ local SYNC_LIMIT = 20000
 local CHUNK_SIZE = 5000
 local DEBOUNCE_MS = 200
 local TAIL_CHECK = 256
+
+-- jsonl lines parsed before the first screen, and per later chunk (a chunk stays within ~16ms)
+M.load_sizes = { first = 2000, chunk = 4000 }
 
 ---@type table<string, JLogWorkspace>
 local registry = {}
@@ -531,6 +536,11 @@ Workspace.reload = function(self)
   if self.closed then
     return
   end
+  if self.loading then
+    self.reload_pending = true
+
+    return
+  end
   tail = self.path and self.format == "jsonl" and read_appended(self) or nil
   if tail then
     old_count = #self.entries
@@ -704,6 +714,64 @@ M.current = function()
   return nil
 end
 
+---@param text string
+---@param pos integer
+---@param count integer
+---@return string[] lines
+---@return integer next_pos
+local function take_lines(text, pos, count)
+  local lines = {}
+  local newline
+
+  for _ = 1, count do
+    if pos > #text then
+      break
+    end
+    newline = text:find("\n", pos, true)
+    if not newline then
+      lines[#lines + 1] = text:sub(pos)
+      pos = #text + 1
+
+      break
+    end
+    lines[#lines + 1] = text:sub(pos, newline - 1)
+    pos = newline + 1
+  end
+
+  return lines, pos
+end
+
+---Parse the rest of a jsonl file in chunks across event-loop ticks, then apply once for the full entry list.
+---@param ws JLogWorkspace
+---@param text string
+---@param pos integer byte position of the next unparsed line
+---@param lnum integer source line number of that line
+local function load_rest(ws, text, pos, lnum)
+  local lines
+
+  if ws.closed then
+    return
+  end
+  lines, pos = take_lines(text, pos, M.load_sizes.chunk)
+  source.append_lines(ws.entries, lines, lnum)
+  lnum = lnum + #lines
+  if pos <= #text then
+    ws.view:set_winbar("jlog · loading " .. math.floor(pos * 100 / #text) .. "%")
+    vim.schedule(function()
+      load_rest(ws, text, pos, lnum)
+    end)
+
+    return
+  end
+
+  ws.loading = nil
+  ws:apply()
+  if ws.reload_pending then
+    ws.reload_pending = nil
+    ws:reload()
+  end
+end
+
 ---Open (or focus) the workspace for a file or buffer: view on the left, sidebar on the right.
 ---@param target JLogOpenTarget
 ---@return JLogWorkspace|nil
@@ -714,6 +782,7 @@ M.open = function(target)
   local key = path or ("buf:" .. tostring(target.bufnr))
   local existing = registry[key]
   local text, format, entries, err, ws
+  local pos, lnum, lines
 
   if existing and vim.api.nvim_tabpage_is_valid(existing.tab) then
     vim.api.nvim_set_current_tabpage(existing.tab)
@@ -729,9 +798,17 @@ M.open = function(target)
   if not format then
     return nil, "not a recognized log format"
   end
-  entries, err = source.build(text, format)
-  if not entries then
-    return nil, err
+  if format == "jsonl" then
+    -- only the first lines are parsed before the first screen; the rest follows in chunks
+    entries = {}
+    lines, pos = take_lines(text, 1, M.load_sizes.first)
+    source.append_lines(entries, lines, 1)
+    lnum = #lines + 1
+  else
+    entries, err = source.build(text, format)
+    if not entries then
+      return nil, err
+    end
   end
 
   ws = setmetatable({
@@ -775,6 +852,12 @@ M.open = function(target)
     watch_buffer(ws)
   end
   ws:apply()
+  if pos and pos <= #text then
+    ws.loading = true
+    vim.schedule(function()
+      load_rest(ws, text, pos, lnum)
+    end)
+  end
 
   return ws
 end

@@ -1,4 +1,5 @@
 local json = require("jlog.parse.json")
+local pages = require("jlog.parse.pages")
 
 ---@class JLogEntry
 ---@field src integer source line (jsonl) or 1-based element index (loki/array)
@@ -14,6 +15,7 @@ local M = {}
 local BYTE_OPEN_BRACKET = 91
 local BYTE_CLOSE_BRACKET = 93
 local BYTE_COMMA = 44
+local BYTE_OPEN_BRACE = 123
 -- only a real key matches: inside a JSON string these quotes would be escaped
 local TIMESTAMP_PATTERN = '"timestamp"%s*:%s*"(%d+)"'
 -- entries with the same labels share one table; past this many distinct sets, new ones are not remembered
@@ -63,18 +65,16 @@ local function trie_step(node, name, create)
   return child
 end
 
----The labels of a loki element's `fields` object, shared with earlier entries that have the same ones.
----@param fields JLogNode
+---`labels`, or an equal label set seen earlier: entries with the same labels share one table.
+---@param labels table<string, string>
 ---@return table<string, string>
-local function shared_labels(fields)
+local function shared_labels(labels)
   local create = label_set_count < MAX_LABEL_SETS
   local node = label_sets
-  local labels = {}
 
-  for label_index, label_key in ipairs(fields.keys) do
-    labels[label_key] = scalar_text(fields.vals[label_index])
+  for label_key, value in pairs(labels) do
     node = node and trie_step(node, label_key, create)
-    node = node and trie_step(node, labels[label_key], create)
+    node = node and trie_step(node, value, create)
   end
   if not node then
     return labels
@@ -106,7 +106,55 @@ local function loki_entry(node, text, index)
   entry.body = scalar_text(line_node):gsub("\n$", "")
   entry.json_at, decoded = json.object_at(entry.body)
   entry.ts = scalar_text(field_of(node, "timestamp"))
-  entry.labels = fields and fields.t == "object" and shared_labels(fields) or {}
+  entry.labels = {}
+  if fields and fields.t == "object" then
+    for label_index, label_key in ipairs(fields.keys) do
+      entry.labels[label_key] = scalar_text(fields.vals[label_index])
+    end
+    entry.labels = shared_labels(entry.labels)
+  end
+
+  return entry, decoded
+end
+
+---Whether `key` occurs as `"key"` more than once in `raw`.
+---@param raw string
+---@param key string
+---@return boolean
+local function repeated(raw, key)
+  local _, last = raw:find('"' .. key .. '"', 1, true)
+
+  return last ~= nil and raw:find('"' .. key .. '"', last + 1, true) ~= nil
+end
+
+---A loki element read with one C decode instead of a node tree; nil when that could differ from `loki_entry`.
+---@param raw string the element's exact text
+---@param index integer
+---@return JLogEntry|nil
+---@return table|nil decoded the decoded log line, when it is JSON
+local function fast_loki_entry(raw, index)
+  local ok, element, labels, entry, decoded
+
+  -- unicode escapes, duplicate keys and non-string values are left to the exact parser
+  if raw:byte(1) ~= BYTE_OPEN_BRACE or raw:find("\\u", 1, true) or repeated(raw, "line") or repeated(raw, "fields") then
+    return nil
+  end
+  ok, element = pcall(vim.json.decode, raw)
+  if not ok or type(element) ~= "table" or type(element.line) ~= "string" or type(element.timestamp) ~= "string" then
+    return nil
+  end
+  if repeated(raw, "timestamp") or (element.fields ~= nil and type(element.fields) ~= "table") then
+    return nil
+  end
+  labels = element.fields or {}
+  for _, value in pairs(labels) do
+    if type(value) ~= "string" then
+      return nil
+    end
+  end
+  entry = { src = index, raw = raw, body = element.line:gsub("\n$", ""), ts = element.timestamp }
+  entry.json_at, decoded = json.object_at(entry.body)
+  entry.labels = next(labels) and shared_labels(labels) or {}
 
   return entry, decoded
 end
@@ -275,11 +323,22 @@ M.read_elements = function(text, pos, count, format, first_index, on_json)
   end
 
   for index = first_index, first_index + count - 1 do
-    node, after = json.parse(text, pos)
-    if not node then
-      return entries, pos, after
+    entry, after = nil, nil
+    if format == "loki" then
+      after = pages.element_end(text, pos) - 1
+      while after > pos and text:find("^%s", after) do
+        after = after - 1
+      end
+      entry, decoded = fast_loki_entry(text:sub(pos, after), index)
+      after = after + 1
     end
-    entry, decoded = element_entry(node, text, index, format)
+    if not entry then
+      node, after = json.parse(text, pos)
+      if not node then
+        return entries, pos, after
+      end
+      entry, decoded = element_entry(node, text, index, format)
+    end
     entries[#entries + 1] = entry
     if on_json then
       on_json(entry, decoded)

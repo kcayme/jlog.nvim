@@ -457,4 +457,6 @@ M.new = function(text, format, opts, from_end)
   return index
 end
 
+M.element_end = element_end
+
 return M

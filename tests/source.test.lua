@@ -86,6 +86,27 @@ describe("source.read_elements", function()
     end
   end)
 
+  it("should read loki edge cases the same as a full build when the fast decode declines them", function()
+    local text = element_text({
+      ' {"line":"{\\"a\\":1}\\n","timestamp":"1","fields":{"app":"x"}} ',
+      '{"line":"caf\\u00e9","timestamp":"2","fields":{"app":"x"}}',
+      '{"line":"one","line":"two","timestamp":"3","fields":{}}',
+      '{"line":"n","timestamp":"4","fields":{"port":8080,"line":"l"}}',
+      '{"line":"n","timestamp":"5","fields":null}',
+      '{"line":"n","timestamp":6}',
+      '{"line":"tab\\there","timestamp":"7"}\n',
+    })
+    local built = source.build(text, "loki")
+    local chunked = read_all(text, "loki", 3)
+
+    assert.are.equal(#built, #chunked)
+    for index, entry in ipairs(built) do
+      for _, field in ipairs({ "src", "raw", "body", "ts", "labels", "json_at" }) do
+        assert.are.same(entry[field], chunked[index][field])
+      end
+    end
+  end)
+
   it("should read array elements and report a broken array", function()
     local entries = read_all(read("array.json"), "array", 1)
     local _, _, err

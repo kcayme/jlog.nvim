@@ -40,7 +40,8 @@ local view_mod = require("jlog.ui.view")
 ---@field complete boolean the bytes read so far end on a newline
 ---@field check string last bytes read, to detect a rewritten file
 ---@field next_lnum integer source line number of the next appended line
----@field counter JLogFacetCounter|nil facet counts of the last apply
+---@field counter JLogFacetCounter|nil facet counts of the last apply, once complete
+---@field counting JLogFacetCounting|nil the current apply's facet count, still running after its view rendered
 ---@field rendered integer generation of the last apply that finished rendering
 ---@field watcher uv.uv_fs_event_t|nil
 ---@field timer uv.uv_timer_t|nil debounces reloads
@@ -51,11 +52,18 @@ local view_mod = require("jlog.ui.view")
 local Workspace = {}
 Workspace.__index = Workspace
 
+---@class JLogFacetCounting
+---@field counter JLogFacetCounter
+---@field matched table<integer, boolean> entry index -> matched the apply's filters
+---@field next_index integer
+
 local M = {}
 
 local HEAD_LIMIT = 65536
 -- entries scanned between checks of the tick's time budget
 local SCAN_BATCH = 500
+-- entries looked at between checks of the tick's time budget while counting facets
+local COUNT_BATCH = 100
 local DEBOUNCE_MS = 200
 local TAIL_CHECK = 256
 local POLL_MS = 500
@@ -273,7 +281,51 @@ local function publish_partial(ws, counter, progress)
   ws.sidebar:render(progress)
 end
 
----Filter, count facets, group and render; work past the first ~12ms tick continues later, a newer apply wins.
+---Count the facets of the matched entries in ticks after the view is shown, then publish; a newer apply stops it.
+---@param ws JLogWorkspace
+---@param generation integer the apply that matched them
+---@param matched table<integer, boolean>|nil entry index -> matched; nil goes on with `ws.counting`
+local function count_facets(ws, generation, matched)
+  local deadline = vim.uv.hrtime() + M.timing.tick_ns
+  local entries = ws.entries
+  local counting, last, entry
+
+  if ws.closed or ws.generation ~= generation then
+    return
+  end
+  if matched then
+    ws.counting = { counter = facets.counter(), matched = matched, next_index = 1 }
+  end
+  counting = ws.counting
+  repeat
+    last = math.min(counting.next_index + COUNT_BATCH - 1, #entries)
+    for index = counting.next_index, last do
+      if counting.matched[index] then
+        entry = entries[index]
+        facets.add(counting.counter, entry_model.flatten(entry, entry_model.decode(entry)))
+      end
+    end
+    counting.next_index = last + 1
+  until counting.next_index > #entries or vim.uv.hrtime() >= deadline
+  if counting.next_index <= #entries then
+    vim.defer_fn(function()
+      count_facets(ws, generation)
+    end, 0)
+
+    return
+  end
+
+  ws.counting = nil
+  ws.counter = counting.counter
+  ws.sidebar.stale = false
+  publish_facets(ws, counting.counter)
+  -- unsaved FILTERS edits are kept; the next sync renders the counts
+  if not vim.bo[ws.sidebar.bufnr].modified then
+    ws.sidebar:render()
+  end
+end
+
+---Filter, group and render, then count facets; work past the first ~12ms tick continues later, a newer apply wins.
 ---@param on_done fun()|nil called once the view has rendered
 ---@param counted JLogFacetCounter|nil facets of every entry, counted while loading; used when no filter applies
 Workspace.apply = function(self, on_done, counted)
@@ -281,7 +333,7 @@ Workspace.apply = function(self, on_done, counted)
   local entries, opts, state = self.entries, self.opts, self.state
   local count = #entries
   local field = state.group and filter.unescape_field(state.group)
-  local counter = window_in_tab(self, self.sidebar.bufnr) and facets.counter() or nil
+  local counts = window_in_tab(self, self.sidebar.bufnr) ~= nil
   local matched = {}
   local group_values = {}
   local summary_values = {}
@@ -304,16 +356,13 @@ Workspace.apply = function(self, on_done, counted)
   state.filters, invalid = split_invalid(lines, errors)
   self.sidebar:set_errors(invalid)
   -- every entry matches, so the load's counts are this apply's counts
-  prefilled = counter and counted and #state.filters == 0
-  if prefilled then
-    counter = counted
-  elseif counter then
-    -- a fresh counter: its first fields are new to the sidebar
-    self.published.names = 0
-  end
-  self.counter = counter
+  prefilled = counts and counted ~= nil and #state.filters == 0
+  self.counter = prefilled and counted or nil
+  self.counting = nil
+  -- the sidebar keeps the last counts until this apply's are counted
+  self.sidebar.stale = counts and not prefilled
 
-  -- each entry is decoded at most once per apply, and only when a filter, group or facet needs it
+  -- each entry is decoded at most once per scan, and only when a filter or group needs it
   local function current_decoded()
     if not decoded_done then
       decoded, decoded_done = entry_model.decode(entry), true
@@ -334,9 +383,6 @@ Workspace.apply = function(self, on_done, counted)
       ctx.raw = entry_model.key(entry)
       if pred(ctx) then
         matched[index] = true
-        if counter and not prefilled then
-          facets.add(counter, entry_model.flatten(entry, current_decoded()))
-        end
       end
       if field then
         group_values[index] = entry_model.get(entry, current_decoded(), field, opts)
@@ -350,15 +396,22 @@ Workspace.apply = function(self, on_done, counted)
   end
 
   local function publish(items, shown)
-    if counter then
-      publish_facets(self, counter)
+    if prefilled then
+      publish_facets(self, counted)
     end
     self.view:set_winbar(winbar_text(self, shown))
     self.sidebar:render()
     self.view:render(items, function()
+      -- a newer apply that has not rendered yet supersedes this render too
+      if self.generation ~= generation or self.closed then
+        return
+      end
       self.rendered = generation
       if cursor_entry then
         self.view:goto_entry(cursor_entry)
+      end
+      if self.sidebar.stale then
+        count_facets(self, generation, matched)
       end
       if on_done then
         on_done()
@@ -459,9 +512,6 @@ Workspace.apply = function(self, on_done, counted)
       return
     end
     self.view:set_winbar("jlog · applying " .. math.floor(last * 100 / count) .. "%")
-    if counter and not prefilled then
-      publish_partial(self, counter, "applying " .. math.floor(last * 100 / count) .. "%")
-    end
     -- a timer, not vim.schedule: chained scheduled callbacks run back to back without handling input or redraw
     vim.defer_fn(step, 0)
   end
@@ -566,7 +616,7 @@ end
 ---@param old_key string|nil key of the last old entry before the append
 ---@return boolean
 local function extend_view(ws, old_count, old_key)
-  local entries, view, counter = ws.entries, ws.view, ws.counter
+  local entries, view, counter, counting = ws.entries, ws.view, ws.counter, ws.counting
   local pred = filter.compile(ws.state.filters)
   local changed = old_key ~= nil and entry_model.key(entries[old_count]) ~= old_key
   local indexes = {}
@@ -591,7 +641,10 @@ local function extend_view(ws, old_count, old_key)
     elseif matches then
       indexes[#indexes + 1] = index
     end
-    if matches and counter and index > old_count then
+    -- a count still running takes new matches into its pass
+    if matches and counting and index > old_count then
+      counting.matched[index] = true
+    elseif matches and counter and index > old_count then
       facets.add(counter, entry_model.flatten(entry, decoded))
     end
   end
@@ -745,7 +798,7 @@ end
 local function load_rest(ws, entries, read, on_done, counter)
   local deadline = vim.uv.hrtime() + M.timing.tick_ns
   local fraction, progress
-  local count_facets = counter
+  local count_entry = counter
     and function(entry, decoded)
       facets.add(counter, entry_model.flatten(entry, decoded))
     end
@@ -754,7 +807,7 @@ local function load_rest(ws, entries, read, on_done, counter)
     return
   end
   repeat
-    fraction = read(entries, count_facets)
+    fraction = read(entries, count_entry)
   until not fraction or vim.uv.hrtime() >= deadline
   if fraction then
     progress = "loading " .. math.floor(fraction * 100) .. "%"
@@ -1101,7 +1154,11 @@ M.open = function(target)
   local existing = registry[key]
   local text, format, entries, err, ws
   local pos, lnum, lines
-  local counter, order, read, early
+  local order, read, early
+  local counter = facets.counter()
+  local function count_entry(entry, decoded)
+    facets.add(counter, entry_model.flatten(entry, decoded))
+  end
 
   if existing and vim.api.nvim_tabpage_is_valid(existing.tab) then
     vim.api.nvim_set_current_tabpage(existing.tab)
@@ -1121,7 +1178,7 @@ M.open = function(target)
     order = source.element_order(text, format)
     -- the first elements show early only when they are the top of the view
     early = order ~= "none" and (opts.view.sort == "desc") == (order == "desc")
-    entries, pos, err = source.read_elements(text, 1, M.load_sizes.first, format, 1)
+    entries, pos, err = source.read_elements(text, 1, M.load_sizes.first, format, 1, early and count_entry or nil)
     if err then
       keep_broken_rest(entries, text, pos, err)
       pos = nil
@@ -1132,7 +1189,7 @@ M.open = function(target)
     -- only the first lines are parsed before the first screen; the rest follows in chunks
     entries = {}
     lines, pos = take_lines(text, 1, M.load_sizes.first)
-    source.append_lines(entries, lines, 1)
+    source.append_lines(entries, lines, 1, count_entry)
     lnum = #lines + 1
     read = line_reader(text, pos, lnum)
     early = true
@@ -1191,10 +1248,9 @@ M.open = function(target)
   else
     watch_buffer(ws)
   end
-  ws:apply()
+  -- the first slice was counted as it was parsed; the load goes on counting into the same counter
+  ws:apply(nil, early and counter or nil)
   if early and pos and pos <= #text then
-    -- the first slice's apply matched every entry, so its counts go on with the rest of the load
-    counter = ws.counter
     ws.loading = true
     vim.defer_fn(function()
       load_rest(ws, ws.entries, read, function()

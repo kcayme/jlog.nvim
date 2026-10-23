@@ -162,6 +162,7 @@ linked group's color, reversed and bold, so the level reads as a colored label i
 | `JLogSectionHeader` | sidebar `FILTERS` / `GROUP BY` / `FIELDS` | `Title` |
 | `JLogFieldName` | field names in the FIELDS section | `Identifier` |
 | `JLogFieldCount` | counts in the FIELDS section | `Comment` |
+| `JLogFieldStale` | FIELDS counts kept from the last apply while new ones are counted | `NonText` |
 | `JLogWinbar` | jlog winbar text | `WinBar` |
 
 ## Benchmark

@@ -177,6 +177,35 @@ describe("sidebar", function()
     assert.are.same({ name = "path", value = "/y" }, ws.sidebar:row_at_cursor())
   end)
 
+  it("should keep acting on stale rows", function()
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/loki.json", ":p") })
+    ws.sidebar:expand_field("status")
+    ws.sidebar.stale = true
+    ws.sidebar:render()
+    ws.sidebar:cursor_to_value("status", "200")
+    vim.api.nvim_feedkeys(vim.keycode("<CR>"), "x", false)
+    assert.are.same({ "status=200" }, ws.state.filters)
+  end)
+
+  it("should mark stale counts and show the counting marker", function()
+    local marks
+
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/loki.json", ":p") })
+    ws.sidebar:expand_field("status")
+    ws.sidebar.stale = true
+    ws.sidebar:render()
+    marks = vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, -1, 0, -1, { details = true })
+    assert.is_truthy(vim.iter(marks):any(function(mark)
+      return mark[4].virt_text ~= nil and mark[4].virt_text[1][1]:find("counting…", 1, true) ~= nil
+    end))
+    assert.is_truthy(vim.iter(marks):any(function(mark)
+      return mark[4].hl_group == "JLogFieldStale"
+    end))
+    assert.is_falsy(vim.iter(marks):any(function(mark)
+      return mark[4].hl_group == "JLogFieldCount"
+    end))
+  end)
+
   it("should set the group from a field name", function()
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/loki.json", ":p") })
     ws.sidebar:cursor_to_value("request_id")

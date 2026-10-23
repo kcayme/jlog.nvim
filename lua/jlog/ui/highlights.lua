@@ -27,6 +27,7 @@ M.GROUPS = {
   { name = "JLogSectionHeader", link = "Title" },
   { name = "JLogFieldName", link = "Identifier" },
   { name = "JLogFieldCount", link = "Comment" },
+  { name = "JLogFieldStale", link = "NonText" },
   { name = "JLogWinbar", link = "WinBar" },
 }
 

@@ -53,6 +53,42 @@ describe("reload", function()
     assert.are.equal(generation, ws.generation)
   end)
 
+  it("should count entries appended while the sidebar is still counting", function()
+    local timing = vim.deepcopy(workspace.timing)
+    local lines = {}
+    local generation, level
+
+    for index = 1, 1000 do
+      lines[index] = string.format('{"msg":"m%d","level":"ERROR"}', index)
+    end
+    vim.fn.writefile(lines, path)
+    ws = workspace.open({ path = path })
+    wait(function()
+      return not ws.loading and ws.rendered == ws.generation and not ws.sidebar.stale
+    end)
+    workspace.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
+    ws:add_filter("level=ERROR")
+    wait(function()
+      return ws.rendered == ws.generation
+    end)
+    generation = ws.generation
+    assert.is_not_nil(ws.counting)
+    vim.fn.writefile({ '{"msg":"c","level":"ERROR"}' }, path, "a")
+    ws:reload()
+    wait(function()
+      return not ws.sidebar.stale
+    end)
+    workspace.timing = timing
+
+    assert.are.equal(generation, ws.generation)
+    for _, facet in ipairs(ws.sidebar.facets) do
+      if facet.name == "level" then
+        level = facet
+      end
+    end
+    assert.are.same({ value = "ERROR", count = 1001 }, level.top[1])
+  end)
+
   it("should rebuild after an atomic rename save and keep the cursor entry", function()
     local tmp = path .. ".tmp"
 

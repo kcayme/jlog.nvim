@@ -17,12 +17,14 @@ local keymaps = require("jlog.ui.keymaps")
 ---@field errors JLogFilterError[] filter lines that failed to parse; shown after the valid ones until edited
 ---@field rows table<integer, JLogSidebarRow> buffer line (1-based) -> FIELDS row
 ---@field width integer|nil text cells the FIELDS lines were last fitted to
+---@field stale boolean the facets are the last apply's, kept while the current apply counts its own
 local Sidebar = {}
 Sidebar.__index = Sidebar
 
 local M = {}
 
 local HEADERS = { filters = "FILTERS", group = "GROUP BY", fields = "FIELDS" }
+local COUNTING = "counting…"
 local INLINE_VALUES = 3
 local NAME_WIDTH = 14
 
@@ -127,6 +129,7 @@ end
 ---@param highlights {[1]: integer, [2]: integer, [3]: integer, [4]: string}[] row, start col, end col, group
 ---@param width integer text cells of the sidebar window
 local function add_fields(sidebar, lines, highlights, width)
+  local count_group = sidebar.stale and "JLogFieldStale" or "JLogFieldCount"
   local name
   local head
 
@@ -136,12 +139,15 @@ local function add_fields(sidebar, lines, highlights, width)
     lines[#lines + 1] = truncate(head .. summary(facet, width - vim.fn.strdisplaywidth(head)), width)
     sidebar.rows[#lines] = { name = facet.name }
     highlights[#highlights + 1] = { #lines - 1, 4, math.min(4 + #name, #lines[#lines]), "JLogFieldName" }
+    if sidebar.stale then
+      highlights[#highlights + 1] = { #lines - 1, math.min(#head, #lines[#lines]), -1, count_group }
+    end
 
     if sidebar.expanded[facet.name] then
       for _, top in ipairs(facet.top) do
         lines[#lines + 1] = "  " .. counted(top.value, top.count, width - 2)
         sidebar.rows[#lines] = { name = facet.name, value = top.value }
-        highlights[#highlights + 1] = { #lines - 1, #lines[#lines] - #tostring(top.count) - 2, -1, "JLogFieldCount" }
+        highlights[#highlights + 1] = { #lines - 1, #lines[#lines] - #tostring(top.count) - 2, -1, count_group }
       end
     end
   end
@@ -188,6 +194,7 @@ Sidebar.render = function(self, progress)
   local anchor = cursor and self.rows[cursor[1]]
   local fields_row, anchor_row
 
+  progress = progress or (self.stale and COUNTING or nil)
   self.width = width
   self.rows = {}
   vim.list_extend(lines, state.filters)
@@ -226,7 +233,7 @@ Sidebar.render = function(self, progress)
   end
   if progress then
     vim.api.nvim_buf_set_extmark(self.bufnr, hl_ns, fields_row - 1, 0, {
-      virt_text = { { "  " .. progress, "JLogFieldCount" } },
+      virt_text = { { "  " .. progress, self.stale and "JLogFieldStale" or "JLogFieldCount" } },
     })
   end
 end
@@ -348,7 +355,8 @@ end
 ---@return JLogSidebar
 M.new = function(ws)
   local bufnr = vim.api.nvim_create_buf(false, true)
-  local sidebar = setmetatable({ bufnr = bufnr, ws = ws, facets = {}, expanded = {}, errors = {}, rows = {} }, Sidebar)
+  local sidebar =
+    setmetatable({ bufnr = bufnr, ws = ws, facets = {}, expanded = {}, errors = {}, rows = {}, stale = false }, Sidebar)
 
   vim.bo[bufnr].buftype = "acwrite"
   vim.bo[bufnr].bufhidden = "hide"

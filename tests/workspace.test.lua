@@ -208,6 +208,76 @@ describe("workspace", function()
     assert.is_truthy(vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, 1, false)[1]:find("^m1 "))
   end)
 
+  it("should not report a superseded apply as done when its scan finished in one tick", function()
+    local timing = vim.deepcopy(workspace.timing)
+    local lines = {}
+    local done = 0
+    local buf, ws
+
+    for index = 1, 25000 do
+      lines[index] = string.format('{"msg":"m%d","status":%d}', index, index % 2 == 0 and 500 or 200)
+    end
+    buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    ws = assert(workspace.open({ bufnr = buf }))
+    assert.is_true(vim.wait(10000, function()
+      return not ws.loading
+    end))
+    workspace.timing = { tick_ns = 1e12, publish_ns = timing.publish_ns }
+    ws.state.filters = { "status=500" }
+    ws:apply(function()
+      done = done + 1
+    end)
+    workspace.timing = timing
+    ws.state.filters = { "status=200" }
+    ws:apply(function()
+      done = done + 10
+    end)
+    assert.is_true(vim.wait(10000, function()
+      return done >= 10
+    end))
+    vim.wait(100)
+    assert.are.equal(10, done)
+    ws:close()
+  end)
+
+  it("should render a filter before counting fields, then publish the counts", function()
+    local lines = {}
+    local timing = vim.deepcopy(workspace.timing)
+    local buf, ws, stale_at_render, level
+
+    for index = 1, 25000 do
+      lines[index] = string.format('{"msg":"m%d","level":"%s"}', index, index % 5 == 0 and "ERROR" or "INFO")
+    end
+    buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    ws = assert(workspace.open({ bufnr = buf }))
+    assert.is_true(vim.wait(10000, function()
+      return not ws.loading and ws.rendered == ws.generation and not ws.sidebar.stale
+    end))
+    workspace.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
+
+    ws:add_filter("level=ERROR")
+    assert.is_true(vim.wait(10000, function()
+      return ws.rendered == ws.generation
+    end, 1))
+    stale_at_render = ws.sidebar.stale
+    assert.is_true(vim.wait(10000, function()
+      return ws.sidebar.stale == false
+    end))
+    workspace.timing = timing
+
+    assert.is_true(stale_at_render)
+    for _, facet in ipairs(ws.sidebar.facets) do
+      if facet.name == "level" then
+        level = facet
+      end
+    end
+    assert.are.same({ value = "ERROR", count = 5000 }, level.top[1])
+    assert.are.equal(1, level.distinct)
+    ws:close()
+  end)
+
   describe("chunked jsonl loading", function()
     local sizes = vim.deepcopy(workspace.load_sizes)
 

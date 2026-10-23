@@ -43,6 +43,9 @@ show the first screen immediately and finish loading in the background; meanwhil
 they appear, marked `loading N%` until the counts are final. An oldest-first Grafana export, or any Grafana export
 with `view.sort = "asc"`, appears once loading finishes.
 
+Type filters under `FILTERS` and a field under `GROUP BY` in the sidebar, then `:w` to apply (leaving insert mode
+also applies). An empty section shows an example in normal mode.
+
 A search or group shows its lines first; FIELDS counts arrive afterwards. Until they do, FIELDS keeps the previous
 counts, dimmed with `JLogFieldStale` and marked `counting…`. With the sidebar closed nothing is counted.
 
@@ -186,6 +189,7 @@ linked group's color, reversed and bold, so the level reads as a colored label i
 | `JLogFieldName` | field names in the FIELDS section | `Identifier` |
 | `JLogFieldCount` | counts in the FIELDS section | `Comment` |
 | `JLogFieldStale` | FIELDS counts kept from the last apply while new ones are counted | `NonText` |
+| `JLogHint` | sidebar examples on empty FILTERS / GROUP BY lines and `:w to apply` | `Comment` |
 | `JLogWinbar` | jlog winbar text | `WinBar` |
 | `JLogOverlap` | entries a page shares with its neighbours | `Comment` |
 

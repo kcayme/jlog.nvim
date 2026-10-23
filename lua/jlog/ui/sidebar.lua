@@ -28,8 +28,11 @@ local COUNTING = "counting…"
 local INLINE_VALUES = 3
 local NAME_WIDTH = 14
 
+local HINTS = { [HEADERS.filters] = "status>=500 level=ERROR -health", [HEADERS.group] = "request_id" }
+
 local ns = vim.api.nvim_create_namespace("jlog.filter")
 local hl_ns = vim.api.nvim_create_namespace("jlog.sidebar")
+local hint_ns = vim.api.nvim_create_namespace("jlog.hint")
 
 ---@type table<integer, JLogSidebar>
 local sidebars = {}
@@ -181,6 +184,39 @@ local function find_row(rows, anchor)
   return field_row
 end
 
+---@param text string trimmed line
+---@return boolean
+local function ends_sections(text)
+  return text == HEADERS.fields or vim.startswith(text, "▸") or vim.startswith(text, "▾")
+end
+
+---Show how to apply on the FILTERS header and, outside insert mode, an example on each blank section line.
+---@param sidebar JLogSidebar
+---@param insert boolean
+local function show_hints(sidebar, insert)
+  local bufnr = sidebar.bufnr
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local text, hint
+
+  vim.api.nvim_buf_clear_namespace(bufnr, hint_ns, 0, -1)
+  for row, line in ipairs(lines) do
+    text = vim.trim(line)
+    if ends_sections(text) then
+      break
+    end
+    if text == HEADERS.filters then
+      vim.api.nvim_buf_set_extmark(bufnr, hint_ns, row - 1, 0, {
+        virt_text = { { ":w to apply", "JLogHint" } },
+        virt_text_pos = "right_align",
+      })
+    end
+    hint = HINTS[text]
+    if hint and not insert and lines[row + 1] and vim.trim(lines[row + 1]) == "" then
+      vim.api.nvim_buf_set_extmark(bufnr, hint_ns, row, 0, { virt_text = { { hint, "JLogHint" } } })
+    end
+  end
+end
+
 ---Rewrite the buffer from state and facets; FIELDS edits are discarded and a FIELDS cursor stays on its row.
 ---@param progress string|nil shown after the FIELDS header while the counts are partial
 Sidebar.render = function(self, progress)
@@ -236,12 +272,8 @@ Sidebar.render = function(self, progress)
       virt_text = { { "  " .. progress, self.stale and "JLogFieldStale" or "JLogFieldCount" } },
     })
   end
-end
-
----@param text string trimmed line
----@return boolean
-local function ends_sections(text)
-  return text == HEADERS.fields or vim.startswith(text, "▸") or vim.startswith(text, "▾")
+  -- a reload can render while the user types in the sidebar
+  show_hints(self, vim.api.nvim_get_current_buf() == self.bufnr and vim.fn.mode():find("^[iR]") ~= nil)
 end
 
 ---Filters and group typed in the sidebar; reading stops at FIELDS, and without GROUP BY a blank line ends filters.
@@ -375,9 +407,22 @@ M.new = function(ws)
   vim.api.nvim_create_autocmd("InsertLeave", {
     buffer = bufnr,
     callback = function()
+      show_hints(sidebar, false)
       if vim.bo[bufnr].modified then
         sidebar:sync()
       end
+    end,
+  })
+  vim.api.nvim_create_autocmd("InsertEnter", {
+    buffer = bufnr,
+    callback = function()
+      show_hints(sidebar, true)
+    end,
+  })
+  vim.api.nvim_create_autocmd("TextChanged", {
+    buffer = bufnr,
+    callback = function()
+      show_hints(sidebar, false)
     end,
   })
   vim.api.nvim_create_autocmd("BufWipeout", {

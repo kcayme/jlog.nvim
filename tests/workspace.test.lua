@@ -402,9 +402,18 @@ describe("workspace", function()
       )
       assert.are.same(
         {},
-        vim.tbl_filter(function(mark)
-          return mark[4].virt_text ~= nil
-        end, vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, -1, 0, -1, { details = true }))
+        vim.tbl_filter(
+          function(mark)
+            return mark[4].virt_text ~= nil
+          end,
+          vim.api.nvim_buf_get_extmarks(
+            ws.sidebar.bufnr,
+            vim.api.nvim_get_namespaces()["jlog.sidebar"],
+            0,
+            -1,
+            { details = true }
+          )
+        )
       )
       ws:close()
     end)

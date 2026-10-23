@@ -212,4 +212,48 @@ describe("sidebar", function()
     vim.api.nvim_feedkeys("g", "x", false)
     assert.are.equal("request_id", ws.state.group)
   end)
+
+  describe("hints", function()
+    local function hints(bufnr)
+      local found = {}
+      local ns = vim.api.nvim_get_namespaces()["jlog.hint"]
+      for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(bufnr, ns, 0, -1, { details = true })) do
+        found[#found + 1] = { row = mark[2], text = mark[4].virt_text[1][1] }
+      end
+
+      return found
+    end
+
+    it("should show examples on empty FILTERS and GROUP BY lines and how to apply on the header", function()
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+      assert.are.same({
+        { row = 0, text = ":w to apply" },
+        { row = 1, text = "status>=500 level=ERROR -health" },
+        { row = 3, text = "request_id" },
+      }, hints(ws.sidebar.bufnr))
+    end)
+
+    it("should hide an example once its section is set", function()
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+      ws:add_filter("level=ERROR")
+      ws:set_group("request_id")
+      assert.are.same({ { row = 0, text = ":w to apply" } }, hints(ws.sidebar.bufnr))
+    end)
+
+    it("should hide examples in insert mode and on a line being typed", function()
+      local sb
+
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+      sb = ws.sidebar.bufnr
+      vim.api.nvim_buf_call(sb, function()
+        vim.api.nvim_exec_autocmds("InsertEnter", { buffer = sb })
+      end)
+      assert.are.same({ { row = 0, text = ":w to apply" } }, hints(sb))
+      vim.api.nvim_buf_set_lines(sb, 1, 2, false, { "level" })
+      vim.api.nvim_buf_call(sb, function()
+        vim.api.nvim_exec_autocmds("TextChanged", { buffer = sb })
+      end)
+      assert.are.same({ { row = 0, text = ":w to apply" }, { row = 3, text = "request_id" } }, hints(sb))
+    end)
+  end)
 end)

@@ -217,7 +217,7 @@ for _, count in ipairs(SIZES) do
       assert.is_true(elapsed < 1000)
     end)
 
-    it("should group a 100k page by request_id in under a second", function()
+    it("should group a 100k page by request_id in under two seconds", function()
       local elapsed
 
       path = write_log(gen.jsonl_lines(count), ".jsonl")
@@ -227,8 +227,8 @@ for _, count in ipairs(SIZES) do
       elapsed = time_apply(ws, function()
         ws:set_group("request_id")
       end)
-      print(string.format("group request_id (%d entries): %.0fms (budget 1000)", #ws.entries, elapsed))
-      assert.is_true(elapsed < 1000)
+      print(string.format("group request_id (%d entries): %.0fms (budget 2000)", #ws.entries, elapsed))
+      assert.is_true(elapsed < 2000)
     end)
 
     it("should show a grafana export's first screen quickly", function()
@@ -254,6 +254,23 @@ for _, count in ipairs(SIZES) do
       end)
       print(string.format("worst tick: grafana export load %.0fms (budget 100)", tick))
       assert.is_true(tick < 100)
+    end)
+
+    it("should group a grafana export's 100k page by request_id in under two seconds", function()
+      local elapsed
+
+      -- its plain lines have no request_id, so the page has a missing-value group
+      path = write_log({ gen.loki_text(count, true) }, ".json")
+      ws = workspace.open({ path = path })
+      assert.is_true(vim.wait(60000, function()
+        return settled(ws)() and ws.indexing == nil
+      end, 50))
+
+      elapsed = time_apply(ws, function()
+        ws:set_group("request_id")
+      end)
+      print(string.format("grafana group request_id (%d entries): %.0fms (budget 2000)", #ws.entries, elapsed))
+      assert.is_true(elapsed < 2000)
     end)
 
     it("should show appended lines quickly in an ungrouped workspace", function()

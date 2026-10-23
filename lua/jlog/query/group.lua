@@ -117,18 +117,17 @@ local function build_grouped(count, args)
     end
   end
 
+  -- the missing group goes last in either order: on top it would span the page and defeat line reuse
+  if newest_on_top then
+    for position = 1, math.floor(#ordered / 2) do
+      ordered[position], ordered[#ordered + 1 - position] = ordered[#ordered + 1 - position], ordered[position]
+    end
+  end
   if missing then
     ordered[#ordered + 1] = missing
   end
 
-  first, last, step = 1, #ordered, 1
-  if newest_on_top then
-    first, last, step = #ordered, 1, -1
-  end
-
-  for position = first, last, step do
-    local group = ordered[position]
-
+  for _, group in ipairs(ordered) do
     if matched[group] then
       local idxs = group.idxs
       local from, to, direction = 1, #idxs, 1

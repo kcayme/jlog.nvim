@@ -62,6 +62,29 @@ describe("group.build", function()
     assert.are.equal("(no request_id)", list[#list - 1].group.label)
   end)
 
+  it("should put the missing-value group last when the newest is on top", function()
+    for _, order in ipairs({ { newest_first = true }, { reverse = true } }) do
+      local list = group.build(#rows, {
+        pred = function()
+          return true
+        end,
+        field = "request_id",
+        get = get,
+        newest_first = order.newest_first,
+        reverse = order.reverse,
+      })
+      local last_header
+
+      for _, item in ipairs(list) do
+        if item.kind == "header" then
+          last_header = item
+        end
+      end
+      assert.are.equal("(no request_id)", last_header.group.label)
+      assert.are_not.equal("(no request_id)", list[1].group.label)
+    end
+  end)
+
   it("should build the same items when a checkpoint is given, and call it", function()
     local many = {}
     for i = 1, 10000 do

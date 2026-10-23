@@ -1619,7 +1619,7 @@ M.open = function(target)
   if index and not index.done then
     ws.indexing = index
     vim.defer_fn(function()
-      -- nothing was read yet: either page 1 or the whole source loads from its start
+      -- once paging is known: page 1 loads, or the load goes on from the first slice (none if page 1 is the end)
       scan_pages(ws, index, paged == nil and function(has_pages)
         if has_pages then
           ws.pages = index

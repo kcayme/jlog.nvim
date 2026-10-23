@@ -38,19 +38,61 @@ local function display(value)
   return (value:gsub("\n", "\\n"))
 end
 
----@param facet JLogFacet
+---`text` cut to at most `width` display cells, ending in `…` when cut.
+---@param text string
+---@param width integer
 ---@return string
-local function summary(facet)
+local function truncate(text, width)
+  local chars
+
+  if vim.fn.strdisplaywidth(text) <= width then
+    return text
+  end
+  if width < 1 then
+    return ""
+  end
+  chars = vim.fn.strchars(text)
+  repeat
+    chars = math.min(chars - 1, width - 1)
+    text = vim.fn.strcharpart(text, 0, chars)
+  until vim.fn.strdisplaywidth(text) <= width - 1
+
+  return text .. "…"
+end
+
+---`value (count)`, the value cut so the whole fits in `width` cells.
+---@param value string
+---@param count integer
+---@param width integer
+---@return string
+local function counted(value, count, width)
+  local suffix = " (" .. count .. ")"
+
+  return truncate(display(value), width - #suffix) .. suffix
+end
+
+---The inline values of a field line, or their number when there are many or they do not fit in `width` cells.
+---@param facet JLogFacet
+---@param width integer
+---@return string
+local function summary(facet, width)
   local parts = {}
+  local text
 
-  if facet.distinct > INLINE_VALUES then
-    return facet.distinct .. (facet.capped and "+" or "") .. " values"
+  if facet.distinct == 1 then
+    return counted(facet.top[1].value, facet.top[1].count, width)
   end
-  for _, top in ipairs(facet.top) do
-    parts[#parts + 1] = display(top.value) .. " (" .. top.count .. ")"
+  if facet.distinct <= INLINE_VALUES then
+    for _, top in ipairs(facet.top) do
+      parts[#parts + 1] = display(top.value) .. " (" .. top.count .. ")"
+    end
+    text = table.concat(parts, "  ")
+    if vim.fn.strdisplaywidth(text) <= width then
+      return text
+    end
   end
 
-  return table.concat(parts, "  ")
+  return facet.distinct .. (facet.capped and "+" or "") .. " values"
 end
 
 ---`field=value`, quoting the value when the filter parser needs it; a newline is written as `\n`.
@@ -66,23 +108,38 @@ local function clause(name, value)
   return name .. '="' .. value:gsub('[\\"]', "\\%0"):gsub("\n", "\\n") .. '"'
 end
 
+---Text cells of the sidebar window, or the configured width while it is hidden.
+-- shortcut: lines are fitted at render time only; re-render on WinResized if resizing the sidebar becomes common
+---@param sidebar JLogSidebar
+---@return integer
+local function text_width(sidebar)
+  local winid = vim.fn.bufwinid(sidebar.bufnr)
+
+  if winid == -1 then
+    return sidebar.ws.opts.sidebar.width
+  end
+
+  return vim.api.nvim_win_get_width(winid) - vim.fn.getwininfo(winid)[1].textoff
+end
+
 ---@param sidebar JLogSidebar
 ---@param lines string[]
 ---@param highlights {[1]: integer, [2]: integer, [3]: integer, [4]: string}[] row, start col, end col, group
-local function add_fields(sidebar, lines, highlights)
+---@param width integer text cells of the sidebar window
+local function add_fields(sidebar, lines, highlights, width)
   local name
-  local name_text
+  local head
 
   for _, facet in ipairs(sidebar.facets) do
     name = filter.escape_field(facet.name)
-    name_text = string.format("%-" .. NAME_WIDTH .. "s", name)
-    lines[#lines + 1] = (sidebar.expanded[facet.name] and "▾ " or "▸ ") .. name_text .. "  " .. summary(facet)
+    head = (sidebar.expanded[facet.name] and "▾ " or "▸ ") .. string.format("%-" .. NAME_WIDTH .. "s", name) .. "  "
+    lines[#lines + 1] = truncate(head .. summary(facet, width - vim.fn.strdisplaywidth(head)), width)
     sidebar.rows[#lines] = { name = facet.name }
-    highlights[#highlights + 1] = { #lines - 1, 4, 4 + #name, "JLogFieldName" }
+    highlights[#highlights + 1] = { #lines - 1, 4, math.min(4 + #name, #lines[#lines]), "JLogFieldName" }
 
     if sidebar.expanded[facet.name] then
       for _, top in ipairs(facet.top) do
-        lines[#lines + 1] = "  " .. display(top.value) .. " (" .. top.count .. ")"
+        lines[#lines + 1] = "  " .. counted(top.value, top.count, width - 2)
         sidebar.rows[#lines] = { name = facet.name, value = top.value }
         highlights[#highlights + 1] = { #lines - 1, #lines[#lines] - #tostring(top.count) - 2, -1, "JLogFieldCount" }
       end
@@ -105,6 +162,7 @@ Sidebar.render = function(self)
   local lines = { HEADERS.filters }
   local highlights = {}
   local diagnostics = {}
+  local width = text_width(self)
 
   self.rows = {}
   vim.list_extend(lines, state.filters)
@@ -118,7 +176,7 @@ Sidebar.render = function(self)
     lines[#lines + 1] = state.group
   end
   vim.list_extend(lines, { "", HEADERS.fields })
-  add_fields(self, lines, highlights)
+  add_fields(self, lines, highlights, width)
 
   vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, lines)
   vim.bo[self.bufnr].modified = false

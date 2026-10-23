@@ -103,6 +103,31 @@ describe("sidebar", function()
     assert.is_truthy(vim.tbl_contains(vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, -1, false), "k\\ney"))
   end)
 
+  it("should fit long field values to the sidebar width and keep their counts", function()
+    local long = string.rep("x", 100)
+    local buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      '{"msg":"a","path":"' .. long .. '","event":"' .. long .. '"}',
+      '{"msg":"b","path":"/short","event":"' .. long .. '"}',
+    })
+    ws = assert(require("jlog.workspace").open({ bufnr = buf }))
+    assert.is_truthy(vim.wait(2000, function()
+      return ws.rendered == ws.generation
+    end, 10))
+    ws.sidebar:expand_field("path")
+    local winid = vim.fn.bufwinid(ws.sidebar.bufnr)
+    local width = vim.api.nvim_win_get_width(winid) - vim.fn.getwininfo(winid)[1].textoff
+    local lines = vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, -1, false)
+    for _, line in ipairs(lines) do
+      assert.is_true(vim.fn.strdisplaywidth(line) <= width, line)
+    end
+    assert.is_truthy(vim.tbl_contains(lines, "  " .. string.rep("x", width - 7) .. "… (1)"))
+    assert.is_truthy(vim.tbl_contains(lines, "▸ event           " .. long:sub(1, width - 23) .. "… (2)"))
+    ws.sidebar:cursor_to_value("path", long)
+    vim.api.nvim_feedkeys(vim.keycode("<CR>"), "x", false)
+    assert.are.same({ "path=" .. long }, ws.state.filters)
+  end)
+
   it("should set the group from a field name", function()
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/loki.json", ":p") })
     ws.sidebar:cursor_to_value("request_id")

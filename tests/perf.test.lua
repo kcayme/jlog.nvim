@@ -52,6 +52,9 @@ for _, count in ipairs(SIZES) do
         vim.fn.delete(path)
         path = nil
       end
+      -- each check starts from a heap like a fresh session's, not one holding the last check's 500k entries
+      entries = nil
+      collectgarbage("collect")
     end)
 
     it("should parse, render, filter and stay within memory budgets", function()

@@ -28,7 +28,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `keymaps.next_page` | `string\|false` | `"]p"` | Next page of a paged log. |
 | `keymaps.prev_page` | `string\|false` | `"[p"` | Previous page of a paged log. |
 | `keymaps.focus_sidebar` | `string\|false` | `"s"` | Focus the sidebar. |
-| `keymaps.toggle_sidebar` | `string\|false` | `"S"` | Show/hide the sidebar. |
+| `keymaps.toggle_sidebar` | `string\|false` | `"S"` | Show/hide the sidebar (in the log view and the sidebar). |
 | `keymaps.close` | `string\|false` | `"q"` | Close the workspace (in the sidebar and log view). |
 | `keymaps.add_filter` | `string\|false` | `"<CR>"` | Sidebar: add the field value under the cursor as a filter. |
 | `keymaps.group_by` | `string\|false` | `"g"` | Sidebar: group by the field under the cursor. |

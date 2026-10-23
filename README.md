@@ -90,7 +90,7 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
 | `]e` / `[e` | log view | Next / previous ERROR-level entry |
 | `]p` / `[p` | log view | Next / previous page of a paged log |
 | `s` | log view | Focus the sidebar |
-| `S` | log view | Toggle the sidebar |
+| `S` | log view, sidebar | Toggle the sidebar |
 | `q` | log view, sidebar | Close the workspace (closes the float in the raw popup) |
 | `<CR>` | sidebar | On a field value, add it as a filter |
 | `g` | sidebar | On a field, group by it |

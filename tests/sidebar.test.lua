@@ -214,6 +214,14 @@ describe("sidebar", function()
     assert.are.equal("request_id", ws.state.group)
   end)
 
+  it("should hide the sidebar with the toggle key from inside it", function()
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    vim.api.nvim_set_current_win(vim.fn.bufwinid(ws.sidebar.bufnr))
+    vim.api.nvim_feedkeys("S", "x", false)
+    assert.are.equal(-1, vim.fn.bufwinid(ws.sidebar.bufnr))
+    assert.are.equal(ws.view.bufnr, vim.api.nvim_get_current_buf())
+  end)
+
   describe("hints", function()
     local function hints(bufnr)
       local found = {}

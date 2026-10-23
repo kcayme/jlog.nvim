@@ -60,6 +60,26 @@ describe("workspace", function()
     second:add_filter("level=ERROR")
   end)
 
+  it("should close the workspace and wipe both view buffers whichever mode is shown", function()
+    local path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p")
+    local ws, buffers
+
+    vim.cmd("tabnew")
+    ws = workspace.open({ path = path })
+    ws.view:toggle_mode()
+    assert.is_true(vim.wait(2000, function()
+      return ws.view.complete
+    end))
+    buffers = { ws.view.bufnr, ws.view.cache.bufnr }
+    vim.api.nvim_set_current_win(vim.fn.bufwinid(ws.view.bufnr))
+    vim.cmd("quit")
+    assert.is_true(vim.wait(1000, function()
+      return ws.closed
+    end, 10))
+    assert.is_false(vim.api.nvim_buf_is_valid(buffers[1]))
+    assert.is_false(vim.api.nvim_buf_is_valid(buffers[2]))
+  end)
+
   it("should group, count and filter large numbers exactly", function()
     config.setup({ view = { sort = "asc" } })
     local buf = vim.api.nvim_create_buf(true, false)

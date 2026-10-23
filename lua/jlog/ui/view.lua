@@ -1,4 +1,5 @@
 local entry_model = require("jlog.parse.entry")
+local cache = require("jlog.ui.cache")
 local keymaps = require("jlog.ui.keymaps")
 local render = require("jlog.ui.render")
 local utils = require("jlog.utils")
@@ -16,6 +17,12 @@ local utils = require("jlog.utils")
 ---@field redraw_spans table<integer, JLogSpan[][]> item index -> spans, valid for one redraw only
 ---@field rendered_entries JLogEntry[]|nil the entries list the buffer's lines were rendered from
 ---@field stream JLogReuseStream|nil while a render reuses the old lines it replaces
+---@field complete boolean the last render into the buffer finished
+---@field edited boolean entries were expanded or collapsed in place since the last render
+---@field mode JLogViewMode|nil the mode the buffer was rendered in
+---@field folded table<integer, boolean> windows whose folds were made for the buffer's last render
+---@field cache JLogViewBuffer|nil the other mode's finished buffer, hidden, kept until anything changes
+---@field on_close fun()|nil called when the shown buffer is wiped
 
 ---Old lines below a render's new ones, read and deleted from the front; on the view so no closure keeps them alive.
 ---@class JLogReuseStream
@@ -137,6 +144,7 @@ local function apply_window_options(view, winid)
       create_manual_folds(view)
     end
   end)
+  view.folded[winid] = true
 end
 
 ---Old lines of `item` at buffer row `row` onward, or nil if it is expanded now, new, or already passed (reordered).
@@ -360,6 +368,52 @@ end
 
 vim.api.nvim_set_decoration_provider(ns, { on_win = on_win, on_line = on_line })
 
+---A new, empty buffer for `view`, with the view's options, autocmds and keymaps.
+---@param view JLogView
+---@return integer bufnr
+local function create_buffer(view)
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  local ws = view.ws
+  local name = "jlog://" .. (ws.path and vim.fn.fnamemodify(ws.path, ":t") or ws.key or "log")
+
+  vim.bo[bufnr].buftype = "nofile"
+  vim.bo[bufnr].bufhidden = "wipe"
+  vim.bo[bufnr].swapfile = false
+  vim.bo[bufnr].modifiable = false
+  -- renders replace the whole buffer: undo would copy every old line each time (~70ms at 500k lines)
+  vim.bo[bufnr].undolevels = -1
+  if not pcall(vim.api.nvim_buf_set_name, bufnr, name) then
+    vim.api.nvim_buf_set_name(bufnr, name .. " (" .. bufnr .. ")")
+  end
+
+  views[bufnr] = view
+  vim.api.nvim_create_autocmd("BufWinEnter", {
+    buffer = bufnr,
+    callback = function()
+      local winid = vim.api.nvim_get_current_win()
+
+      -- a window shows the folds it made for this buffer again (rebuilding them costs ~50ms at 100k+ lines)
+      if not view.folded[winid] then
+        apply_window_options(view, winid)
+      end
+      apply_winbar(view, view.winbar_text)
+    end,
+  })
+  vim.api.nvim_create_autocmd("BufWipeout", {
+    buffer = bufnr,
+    callback = function()
+      views[bufnr] = nil
+      -- a dropped cache going away is not the view closing
+      if bufnr == view.bufnr and view.on_close then
+        view.on_close()
+      end
+    end,
+  })
+  keymaps.attach(bufnr, "view", ws)
+
+  return bufnr
+end
+
 ---Render `items`, replacing the buffer. What does not fit in the first ~12ms tick renders in later ticks.
 ---@param items JLogItem[]
 ---@param on_done fun()|nil
@@ -369,6 +423,9 @@ View.render = function(self, items, on_done)
   local next_item
 
   self.generation = generation
+  -- any other render changes what is shown, so the other mode's buffer no longer matches it
+  cache.drop(self)
+  self.complete, self.edited, self.mode, self.folded = false, false, self.ws.state.mode, {}
   -- reuse the old lines' text when they come from the same entries (a reload that rebuilds them makes a new list)
   self.stream = self.rendered_entries == self.ws.entries
       and #self.line_item > 0
@@ -388,6 +445,7 @@ View.render = function(self, items, on_done)
 
   local function finish()
     self.stream = nil
+    self.complete = true
     apply_winbar(self, self.winbar_text)
     for _, winid in ipairs(vim.fn.win_findbuf(self.bufnr)) do
       apply_window_options(self, winid)
@@ -460,6 +518,7 @@ View.append = function(self, indexes, refresh)
   local first = #items + 1
   local item_index, first_line, lines
 
+  cache.drop(self)
   if refresh then
     item_index = self.entry_item[refresh]
     first_line = self.item_line[item_index]
@@ -498,6 +557,8 @@ View.prepend = function(self, indexes, refresh)
   local count, old_items, old_lines = #indexes, #items, #line_item
   local old_span = 0
   local new_lines, new_line_item, new_item_line = {}, {}, {}
+
+  cache.drop(self)
   local lines, delta
 
   if refresh then
@@ -572,6 +633,7 @@ View.toggle_entry = function(self)
     return
   end
 
+  self.edited = true
   expanded = self.ws.state.expanded
   expanded[item.idx] = not expanded[item.idx] or nil
   first_line = item_line[item_index]
@@ -613,19 +675,51 @@ View.forget = function(self, idx)
 end
 
 ---Switch the whole view between compact and expanded, keeping the cursor on its entry.
+---The mode left stays in a hidden buffer, so switching back shows it again without rendering.
 View.toggle_mode = function(self)
   local idx = self:entry_at_cursor()
   local state = self.ws.state
+  local cached = self.cache
+  local items = self.items
+  local left
 
   state.mode = state.mode == "expanded" and "compact" or "expanded"
   state.expanded = {}
-  -- every line changes, and the old lines were rendered in the other mode
-  self.rendered_entries = nil
-  self:render(self.items, function()
+  self.cache = nil
+  if cached and cache.matches(cached, state.mode, items, self.ws.entries) then
+    cache.keep_or_wipe(self, cache.swap(self, cached))
+    if idx then
+      self:goto_entry(idx)
+    end
+
+    return
+  end
+  if cached then
+    cache.wipe(cached.bufnr)
+  end
+
+  if self.complete and not self.edited then
+    -- render into a new buffer and keep this one for switching back
+    left = cache.swap(self, cache.empty(create_buffer(self)))
+  else
+    -- every line changes, and the old lines were rendered in the other mode
+    self.rendered_entries = nil
+  end
+  self:render(items, function()
     if idx then
       self:goto_entry(idx)
     end
   end)
+  -- set after the render, which drops any cache it finds
+  self.cache = left
+  if idx then
+    self:goto_entry(idx)
+  end
+end
+
+---Wipe the cached buffer of the mode not shown.
+View.drop_cache = function(self)
+  cache.drop(self)
 end
 
 ---Move the cursor to the next/previous entry, or the next/previous error-level entry.
@@ -679,10 +773,7 @@ end
 ---@param ws table workspace: `entries`, `opts`, `state = { mode, expanded }`, `format`
 ---@return JLogView
 M.new = function(ws)
-  local bufnr = vim.api.nvim_create_buf(false, true)
-  local name = "jlog://" .. (ws.path and vim.fn.fnamemodify(ws.path, ":t") or ws.key or "log")
   local view = setmetatable({
-    bufnr = bufnr,
     ws = ws,
     items = {},
     line_item = {},
@@ -691,33 +782,12 @@ M.new = function(ws)
     generation = 0,
     winbar_text = "",
     redraw_spans = {},
+    complete = false,
+    edited = false,
+    folded = {},
   }, View)
 
-  vim.bo[bufnr].buftype = "nofile"
-  vim.bo[bufnr].bufhidden = "wipe"
-  vim.bo[bufnr].swapfile = false
-  vim.bo[bufnr].modifiable = false
-  -- renders replace the whole buffer: undo would copy every old line each time (~70ms at 500k lines)
-  vim.bo[bufnr].undolevels = -1
-  if not pcall(vim.api.nvim_buf_set_name, bufnr, name) then
-    vim.api.nvim_buf_set_name(bufnr, name .. " (" .. bufnr .. ")")
-  end
-
-  views[bufnr] = view
-  vim.api.nvim_create_autocmd("BufWinEnter", {
-    buffer = bufnr,
-    callback = function()
-      apply_window_options(view, vim.api.nvim_get_current_win())
-      apply_winbar(view, view.winbar_text)
-    end,
-  })
-  vim.api.nvim_create_autocmd("BufWipeout", {
-    buffer = bufnr,
-    callback = function()
-      views[bufnr] = nil
-    end,
-  })
-  keymaps.attach(bufnr, "view", ws)
+  view.bufnr = create_buffer(view)
 
   return view
 end

@@ -1459,6 +1459,7 @@ Workspace.close = function(self)
   if vim.api.nvim_tabpage_is_valid(self.tab) and #vim.api.nvim_list_tabpages() > 1 then
     pcall(vim.cmd.tabclose, vim.api.nvim_tabpage_get_number(self.tab))
   end
+  self.view:drop_cache()
   for _, bufnr in ipairs({ self.view.bufnr, self.sidebar.bufnr }) do
     if vim.api.nvim_buf_is_valid(bufnr) then
       pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
@@ -1640,15 +1641,11 @@ M.open = function(target)
     end,
   })
   -- `:q` in the view wipes its buffer (bufhidden=wipe): the sidebar alone is no workspace
-  vim.api.nvim_create_autocmd("BufWipeout", {
-    group = ws.augroup,
-    buffer = ws.view.bufnr,
-    callback = function()
-      vim.schedule(function()
-        ws:close()
-      end)
-    end,
-  })
+  ws.view.on_close = function()
+    vim.schedule(function()
+      ws:close()
+    end)
+  end
   if path then
     snapshot(ws, text)
     watch_file(ws)

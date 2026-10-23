@@ -322,4 +322,159 @@ describe("view", function()
     require("jlog.ui.highlights").setup()
     assert.are.equal(0xff0000, vim.api.nvim_get_hl(0, { name = "JLogLevelError" }).fg)
   end)
+
+  describe("mode cache", function()
+    local render = require("jlog.ui.render")
+    local tick_ns = view.tick_ns
+
+    local function show(v)
+      vim.api.nvim_win_set_buf(0, v.bufnr)
+    end
+    local function wait_complete(v)
+      assert.is_true(vim.wait(2000, function()
+        return v.complete
+      end, 1))
+    end
+    local function buffer_lines(v)
+      return vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false)
+    end
+    local function renders_during(fn)
+      local compact, expanded = render.compact, render.expanded
+      local calls = 0
+
+      render.compact = function(...)
+        calls = calls + 1
+        return compact(...)
+      end
+      render.expanded = function(...)
+        calls = calls + 1
+        return expanded(...)
+      end
+      fn()
+      render.compact, render.expanded = compact, expanded
+
+      return calls
+    end
+    local function rendered_view(text, ids)
+      local v = view.new(make_ws(text))
+
+      show(v)
+      v:render(all(ids))
+      wait_complete(v)
+
+      return v
+    end
+
+    after_each(function()
+      view.tick_ns = tick_ns
+    end)
+
+    it("should switch back to the mode it left without rendering it again", function()
+      local v = rendered_view('{"msg":"m1"}\n{"msg":"m2"}', { 1, 2 })
+      local compact_bufnr = v.bufnr
+
+      v:toggle_mode()
+      wait_complete(v)
+      assert.are.equal("{", buffer_lines(v)[1])
+      assert.are_not.equal(compact_bufnr, v.bufnr)
+
+      assert.are.equal(
+        0,
+        renders_during(function()
+          v:toggle_mode()
+        end)
+      )
+      assert.are.equal(compact_bufnr, v.bufnr)
+      assert.are.equal(v.bufnr, vim.api.nvim_win_get_buf(0))
+      assert.are.same({ "m1", "m2" }, buffer_lines(v))
+      assert.are.equal(#v.line_item, vim.api.nvim_buf_line_count(v.bufnr))
+
+      assert.are.equal(
+        0,
+        renders_during(function()
+          v:toggle_mode()
+        end)
+      )
+      assert.are.equal("{", buffer_lines(v)[1])
+      assert.are.equal(#v.line_item, vim.api.nvim_buf_line_count(v.bufnr))
+    end)
+
+    it("should drop the cached mode on a new render, an append or a toggled entry", function()
+      local v = rendered_view('{"msg":"m1"}\n{"msg":"m2"}', { 1 })
+      local cached
+
+      v:toggle_mode()
+      wait_complete(v)
+      cached = v.cache.bufnr
+      v:render(all({ 1 }))
+      wait_complete(v)
+      assert.is_nil(v.cache)
+      assert.is_false(vim.api.nvim_buf_is_valid(cached))
+
+      v:toggle_mode()
+      wait_complete(v)
+      cached = v.cache.bufnr
+      v:append({ 2 })
+      assert.is_nil(v.cache)
+      assert.is_false(vim.api.nvim_buf_is_valid(cached))
+
+      v:toggle_mode()
+      wait_complete(v)
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+      v:toggle_entry()
+      cached = v.bufnr
+      assert.are.equal(
+        0,
+        renders_during(function()
+          v:toggle_mode()
+        end)
+      )
+      assert.is_nil(v.cache)
+      assert.is_false(vim.api.nvim_buf_is_valid(cached))
+    end)
+
+    it("should keep hand-made group folds when switching back to a cached grouped view", function()
+      local v = view.new(make_ws('{"msg":"a"}\n{"msg":"b"}'))
+      local limit = view.fold_expr_limit
+      local levels
+
+      view.fold_expr_limit = 0
+      show(v)
+      v:render({
+        { kind = "header", group = { label = "g", idxs = { 1, 2 } } },
+        { kind = "entry", idx = 1 },
+        { kind = "entry", idx = 2 },
+      })
+      wait_complete(v)
+      v:toggle_mode()
+      wait_complete(v)
+      v:toggle_mode()
+      levels = vim.tbl_map(vim.fn.foldlevel, { 1, 2, 3 })
+      view.fold_expr_limit = limit
+      assert.are.equal("manual", vim.wo.foldmethod)
+      assert.are.same({ 1, 1, 1 }, levels)
+      assert.are.same({ "▾ g  2 entries", "a", "b" }, buffer_lines(v))
+    end)
+
+    it("should go back to the cached mode and drop a half-rendered one", function()
+      local text = {}
+      local v, compact_bufnr, half
+
+      for index = 1, 300 do
+        text[index] = string.format('{"msg":"m%d"}', index)
+      end
+      v = rendered_view(table.concat(text, "\n"), vim.fn.range(1, 300))
+      compact_bufnr = v.bufnr
+      view.tick_ns = 0
+      v:toggle_mode()
+      half = v.bufnr
+      assert.is_false(v.complete)
+      v:toggle_mode()
+      assert.are.equal(compact_bufnr, v.bufnr)
+      assert.is_false(vim.api.nvim_buf_is_valid(half))
+      vim.wait(100)
+      assert.are.equal("m1", buffer_lines(v)[1])
+      assert.are.equal(300, vim.api.nvim_buf_line_count(v.bufnr))
+    end)
+  end)
 end)

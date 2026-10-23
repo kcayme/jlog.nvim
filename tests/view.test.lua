@@ -203,6 +203,24 @@ describe("view", function()
       assert.are.equal(#v.line_item, vim.api.nvim_buf_line_count(v.bufnr))
     end)
 
+    it("should notify when a render runs past the first screen and when it is done", function()
+      local notify = vim.notify
+      local messages = {}
+      local v = view.new(make_ws(lines_of(300)))
+      local ids = {}
+
+      for i = 1, 300 do
+        ids[i] = i
+      end
+      vim.notify = function(msg)
+        messages[#messages + 1] = msg
+      end
+      render_and_wait(v, all({ 1 }))
+      render_and_wait(v, all(ids))
+      vim.notify = notify
+      assert.are.same({ "jlog: rendering…", "jlog: rendering done" }, messages)
+    end)
+
     it("should keep lines and maps consistent when a newer render supersedes a chunked one", function()
       local v = view.new(make_ws(lines_of(300)))
       local ids = {}

@@ -73,20 +73,24 @@ describe("paging", function()
   end)
 
   it("should refuse a page that is not indexed yet", function()
-    local message
+    local messages = {}
 
     vim.fn.writefile(log_lines(5000), path)
     workspace.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
     workspace.open_index_ns = 0
     vim.notify = function(msg)
-      message = msg
+      messages[#messages + 1] = msg
     end
     ws = workspace.open({ path = path })
     assert.is_false(ws:goto_page(4))
-    assert.are.equal("jlog: still indexing pages", message)
+    assert.are.same({ "jlog: indexing pages…", "jlog: still indexing pages" }, messages)
     -- the wrong end of the log is never shown while page 1 is unknown
     assert.are.same({ "" }, vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false))
-    assert.are.equal("jlog · indexing…", ws.view.winbar_text)
+    assert.is_nil(ws.view.winbar_text:find("indexing", 1, true))
+    assert.is_true(vim.wait(10000, function()
+      return ws.indexing == nil
+    end))
+    assert.are.equal("jlog: indexed " .. ws.pages:count() .. " pages", messages[#messages])
   end)
 
   it("should show the newest entry as the first screen of a large log", function()

@@ -427,10 +427,10 @@ View.render = function(self, items, on_done)
     end
     if work(false) then
       finish()
+      vim.notify("jlog: rendering done", vim.log.levels.INFO)
 
       return
     end
-    apply_winbar(self, "jlog · rendering " .. math.floor((next_item - 1) * 100 / math.max(total, 1)) .. "%")
     vim.defer_fn(step, 0)
   end
 
@@ -446,7 +446,8 @@ View.render = function(self, items, on_done)
 
     return
   end
-  apply_winbar(self, "jlog · rendering " .. math.floor((next_item - 1) * 100 / math.max(total, 1)) .. "%")
+  -- one message when a render outlasts the first screen and one when it ends: each notify is a line in :messages
+  vim.notify("jlog: rendering…", vim.log.levels.INFO)
   -- a timer, not vim.schedule: chained scheduled callbacks run back to back without handling input or redraw
   vim.defer_fn(step, 0)
 end

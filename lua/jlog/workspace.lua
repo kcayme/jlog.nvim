@@ -54,6 +54,7 @@ local view_mod = require("jlog.ui.view")
 ---@field page integer|nil the page shown, 1 holding the newest entries
 ---@field core integer[]|nil `{ first, last }` source positions of the page's own entries; the rest is overlap
 ---@field indexing JLogPageIndex|nil an index still being scanned in ticks
+---@field index_notified boolean|nil the scan of `indexing` said it started, so it says when it is done
 ---@field appended string[]|nil lines appended since the index was built, until it is built again
 ---@field load_token table|nil the page or first load running; a newer one stops it
 ---@field target_page integer|nil the page last asked for, which `ws.page` becomes once it has loaded
@@ -368,6 +369,7 @@ Workspace.apply = function(self, on_done, counted)
   local next_index = 1
   local prefilled, collected
   local cursor_entry
+  local notified = false
 
   self.generation = generation
   for _, name in ipairs(group.SUMMARY_FIELDS) do
@@ -460,6 +462,10 @@ Workspace.apply = function(self, on_done, counted)
   -- group.build in a coroutine that yields when the tick is up; a build spanning ticks publishes in a tick of its own
   local function finish()
     local build_deadline
+
+    if notified then
+      vim.notify("jlog: applying done", vim.log.levels.INFO)
+    end
     local build = coroutine.create(function()
       return group.build(count, {
         pred = function(index)
@@ -549,7 +555,10 @@ Workspace.apply = function(self, on_done, counted)
 
       return
     end
-    self.view:set_winbar("jlog · applying " .. math.floor(last * 100 / count) .. "%")
+    if sync then
+      notified = true
+      vim.notify("jlog: applying…", vim.log.levels.INFO)
+    end
     -- a timer, not vim.schedule: chained scheduled callbacks run back to back without handling input or redraw
     vim.defer_fn(step, 0)
   end
@@ -849,7 +858,8 @@ end
 ---@param on_done fun(entries: JLogEntry[])
 ---@param counter JLogFacetCounter|nil counts the facets of the loaded JSON entries, from the load's own decode
 ---@param token table|nil the load stops, dropping what it read, once `ws.load_token` is another load's
-local function load_rest(ws, entries, read, on_done, counter, token)
+---@param notified boolean|nil a load past its first tick says so once, and again when it is done
+local function load_rest(ws, entries, read, on_done, counter, token, notified)
   local deadline = vim.uv.hrtime() + M.timing.tick_ns
   local fraction, progress
   local count_entry = counter
@@ -865,18 +875,23 @@ local function load_rest(ws, entries, read, on_done, counter, token)
   until not fraction or vim.uv.hrtime() >= deadline
   if fraction then
     progress = "loading " .. math.floor(fraction * 100) .. "%"
-    ws.view:set_winbar("jlog · " .. progress)
+    if not notified then
+      vim.notify("jlog: loading…", vim.log.levels.INFO)
+    end
     -- with a filter set, the sidebar shows the filtered counts of the last apply instead
     if counter and #ws.state.filters == 0 then
       publish_partial(ws, counter, progress)
     end
     vim.defer_fn(function()
-      load_rest(ws, entries, read, on_done, counter, token)
+      load_rest(ws, entries, read, on_done, counter, token, true)
     end, 0)
 
     return
   end
 
+  if notified then
+    vim.notify("jlog: loaded " .. #entries .. " entries", vim.log.levels.INFO)
+  end
   ws.loading = nil
   on_done(entries)
   if ws.reload_pending then
@@ -1129,6 +1144,10 @@ local function scan_pages(ws, index, on_known, wait_done)
     return
   end
   ws.indexing = nil
+  if ws.index_notified then
+    ws.index_notified = nil
+    vim.notify("jlog: indexed " .. index:count() .. " pages", vim.log.levels.INFO)
+  end
   -- an index rebuilt after an append replaces the one in use
   if ws.pages and ws.pages ~= index then
     ws.pages = index
@@ -1655,8 +1674,8 @@ M.open = function(target)
   end
   if paged == nil and ws.indexing then
     -- page 1 is not known yet: the start of the source, or an empty view rather than the wrong end of the log
-    ws.loading = true
-    ws.view:set_winbar("jlog · indexing…")
+    ws.loading, ws.index_notified = true, true
+    vim.notify("jlog: indexing pages…", vim.log.levels.INFO)
   elseif tail and range.core_last_line - range.first_src + 1 > M.load_sizes.first then
     load_page(ws, 1)
   elseif not tail and more then

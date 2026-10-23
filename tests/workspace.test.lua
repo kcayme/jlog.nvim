@@ -189,9 +189,16 @@ describe("workspace", function()
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     local ws = assert(workspace.open({ bufnr = buf }))
     local done = 0
+    local notify = vim.notify
+    local messages = {}
     assert.is_true(vim.wait(10000, function()
       return not ws.loading
     end))
+    vim.notify = function(msg)
+      if msg:find("applying", 1, true) then
+        messages[#messages + 1] = msg
+      end
+    end
     ws.state.filters = { "status=500" }
     ws:apply(function()
       done = done + 1
@@ -203,7 +210,14 @@ describe("workspace", function()
     assert.is_true(vim.wait(10000, function()
       return done > 0
     end))
+    vim.notify = notify
     assert.are.equal(10, done)
+    -- the superseded apply never says it is done
+    assert.are.equal("jlog: applying…", messages[1])
+    assert.are.equal("jlog: applying done", messages[#messages])
+    assert.are.equal(1, #vim.tbl_filter(function(msg)
+      return msg == "jlog: applying done"
+    end, messages))
     assert.is_truthy(ws.view.winbar_text:find("/25000 ", 1, true))
     assert.is_truthy(vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, 1, false)[1]:find("^m1 "))
   end)
@@ -415,6 +429,36 @@ describe("workspace", function()
           )
         )
       )
+      ws:close()
+    end)
+
+    it("should notify when loading takes more than one tick and when it is done", function()
+      local notify = vim.notify
+      local timing = vim.deepcopy(workspace.timing)
+      local messages = {}
+      local lines = {}
+      local buf, ws
+
+      for index = 1, 30 do
+        lines[index] = string.format('{"msg":"m%d"}', index)
+      end
+      buf = vim.api.nvim_create_buf(true, false)
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      workspace.load_sizes = { first = 4, chunk = 2 }
+      workspace.timing = { tick_ns = 0, publish_ns = 0 }
+      vim.notify = function(msg)
+        if msg:find("load", 1, true) then
+          messages[#messages + 1] = msg
+        end
+      end
+
+      ws = assert(workspace.open({ bufnr = buf }))
+      assert.is_true(vim.wait(2000, function()
+        return not ws.loading
+      end))
+      vim.notify = notify
+      workspace.timing = timing
+      assert.are.same({ "jlog: loading…", "jlog: loaded 30 entries" }, messages)
       ws:close()
     end)
 

@@ -48,7 +48,7 @@ background.
 | `:JLog filter` | Clear all filter clauses. |
 | `:JLog group {field}` | Group entries by a field. |
 | `:JLog group` | Clear grouping. |
-| `:JLog raw` | Open the source in a buffer. |
+| `:JLog raw` | Open the source in a new tab. |
 | `:JLog close` | Close the workspace. |
 
 ### Keymaps

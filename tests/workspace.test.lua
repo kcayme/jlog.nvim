@@ -163,6 +163,15 @@ describe("workspace", function()
     end)
   end)
 
+  it("should tune the garbage collector only while a workspace is open", function()
+    -- setstepmul returns the previous value, so setting it reads it
+    collectgarbage("setstepmul", 200)
+    local ws = assert(workspace.open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") }))
+    assert.are.equal(400, collectgarbage("setstepmul", 400))
+    ws:close()
+    assert.are.equal(200, collectgarbage("setstepmul", 200))
+  end)
+
   it("should apply in chunks and let a newer apply supersede an in-flight one", function()
     local lines = {}
     for i = 1, 25000 do

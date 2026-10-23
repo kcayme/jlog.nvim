@@ -38,9 +38,10 @@ element first) alike; `R` toggles the order and `view.sort = "asc"` makes oldest
 entries also run newest first.
 
 The view reloads automatically when the file changes: appended lines are streamed in, and atomic saves (write to a
-temp file, then rename) are followed. Large JSONL files and Grafana exports show the first screen immediately and
-finish loading in the background; meanwhile FIELDS adds newly found fields as they appear, marked `loading N%` until
-the counts are final.
+temp file, then rename) are followed. Large JSONL files, and newest-first Grafana exports shown in the default order,
+show the first screen immediately and finish loading in the background; meanwhile FIELDS adds newly found fields as
+they appear, marked `loading N%` until the counts are final. An oldest-first Grafana export, or any Grafana export
+with `view.sort = "asc"`, appears once loading finishes.
 
 A search or group shows its lines first; FIELDS counts arrive afterwards. Until they do, FIELDS keeps the previous
 counts, dimmed with `JLogFieldStale` and marked `counting…`. With the sidebar closed nothing is counted.

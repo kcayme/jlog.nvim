@@ -14,6 +14,63 @@ local function now_ms()
   return vim.uv.hrtime() / 1e6
 end
 
+---Run `action`, wait until `is_done`, and return the longest gap between main-loop ticks meanwhile.
+---@param action fun()
+---@param is_done fun(): boolean
+---@return number worst_ms
+local function worst_tick(action, is_done)
+  local monitor = vim.uv.new_timer()
+  local worst, last = 0, vim.uv.hrtime()
+
+  monitor:start(0, 1, function()
+    local now = vim.uv.hrtime()
+
+    worst = math.max(worst, (now - last) / 1e6)
+    last = now
+  end)
+  action()
+  assert.is_true(vim.wait(60000, is_done, 1))
+  -- work queued once it is done (cursor restore, folds, counting) runs after it
+  vim.wait(200)
+  monitor:stop()
+  monitor:close()
+
+  return worst
+end
+
+---Write a generated log to a temp file; the generator's garbage is collected so the plugin is not timed paying it.
+---@param lines string[]
+---@param extension string
+---@return string path
+local function write_log(lines, extension)
+  local path = vim.fn.tempname() .. extension
+
+  vim.fn.writefile(lines, path)
+  collectgarbage("collect")
+
+  return path
+end
+
+---@param ws JLogWorkspace
+---@return fun(): boolean
+local function settled(ws)
+  return function()
+    return not ws.loading and ws.rendered == ws.generation
+  end
+end
+
+---@param ws JLogWorkspace
+---@param action fun()
+---@return number elapsed_ms
+local function time_apply(ws, action)
+  local start = now_ms()
+
+  action()
+  assert.is_true(vim.wait(60000, settled(ws), 1))
+
+  return now_ms() - start
+end
+
 if vim.env.JLOG_PERF ~= "1" then
   return
 end
@@ -118,8 +175,7 @@ for _, count in ipairs(SIZES) do
     it("should show the first screen before the whole log is parsed", function()
       local start, elapsed
 
-      path = vim.fn.tempname() .. ".jsonl"
-      vim.fn.writefile(gen.jsonl_lines(count), path)
+      path = write_log(gen.jsonl_lines(count), ".jsonl")
       start = now_ms()
       ws = workspace.open({ path = path })
       elapsed = now_ms() - start
@@ -130,53 +186,80 @@ for _, count in ipairs(SIZES) do
     end)
 
     it("should keep every main-loop tick short while a filter or group applies", function()
-      local monitor = vim.uv.new_timer()
-      local worst, last
+      local filter_tick, group_tick
 
-      ---Run `action`, wait for its apply to render, and return the longest gap between ticks meanwhile.
-      local function worst_tick(action)
-        worst, last = 0, vim.uv.hrtime()
-        monitor:start(0, 1, function()
-          local now = vim.uv.hrtime()
-
-          worst = math.max(worst, (now - last) / 1e6)
-          last = now
-        end)
-        action()
-        assert.is_true(vim.wait(60000, function()
-          return ws.rendered == ws.generation
-        end, 1))
-        -- work queued by the render (cursor restore, folds) runs after it is marked done
-        vim.wait(200)
-        monitor:stop()
-
-        return worst
-      end
-
-      path = vim.fn.tempname() .. ".jsonl"
-      vim.fn.writefile(gen.jsonl_lines(count), path)
+      path = write_log(gen.jsonl_lines(count), ".jsonl")
       ws = workspace.open({ path = path })
-      assert.is_true(vim.wait(30000, function()
-        return not ws.loading and ws.rendered == ws.generation
-      end, 50))
+      assert.is_true(vim.wait(30000, settled(ws), 50))
 
-      local filter_tick = worst_tick(function()
+      filter_tick = worst_tick(function()
         ws:add_filter("status>=200")
-      end)
-      local group_tick = worst_tick(function()
+      end, settled(ws))
+      group_tick = worst_tick(function()
         ws:set_group("path")
+      end, settled(ws))
+      print(string.format("worst tick: filter apply %.0fms, group apply %.0fms (budget 100)", filter_tick, group_tick))
+      assert.is_true(filter_tick < 100)
+      assert.is_true(group_tick < 100)
+    end)
+
+    it("should search a 100k page in under a second", function()
+      local elapsed
+
+      path = write_log(gen.jsonl_lines(count), ".jsonl")
+      ws = workspace.open({ path = path })
+      assert.is_true(vim.wait(30000, settled(ws), 50))
+
+      elapsed = time_apply(ws, function()
+        ws:add_filter("licence")
       end)
-      monitor:close()
-      print(string.format("worst tick: filter apply %.0fms, group apply %.0fms (budget 50)", filter_tick, group_tick))
-      assert.is_true(filter_tick < 50)
-      assert.is_true(group_tick < 50)
+      print(string.format("search licence (%d shown of %d): %.0fms (budget 1000)", ws.shown, #ws.entries, elapsed))
+      assert.is_true(elapsed < 1000)
+    end)
+
+    it("should group a 100k page by request_id in under a second", function()
+      local elapsed
+
+      path = write_log(gen.jsonl_lines(count), ".jsonl")
+      ws = workspace.open({ path = path })
+      assert.is_true(vim.wait(30000, settled(ws), 50))
+
+      elapsed = time_apply(ws, function()
+        ws:set_group("request_id")
+      end)
+      print(string.format("group request_id (%d entries): %.0fms (budget 1000)", #ws.entries, elapsed))
+      assert.is_true(elapsed < 1000)
+    end)
+
+    it("should show a grafana export's first screen quickly", function()
+      local start, elapsed
+
+      path = write_log({ gen.loki_text(count, true) }, ".json")
+      start = now_ms()
+      ws = workspace.open({ path = path })
+      elapsed = now_ms() - start
+      print(string.format("grafana export open -> first lines in view: %.0fms (budget 300)", elapsed))
+      assert.is_true(#vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false) > 1)
+      assert.is_true(elapsed < 300)
+    end)
+
+    it("should keep every tick short while a grafana export loads", function()
+      local tick
+
+      path = write_log({ gen.loki_text(count, true) }, ".json")
+      -- open itself is the first screen, checked above; the ticks after it must stay short
+      ws = workspace.open({ path = path })
+      tick = worst_tick(function() end, function()
+        return settled(ws)() and ws.indexing == nil
+      end)
+      print(string.format("worst tick: grafana export load %.0fms (budget 100)", tick))
+      assert.is_true(tick < 100)
     end)
 
     it("should show appended lines quickly in an ungrouped workspace", function()
       local start, elapsed, extra, before
 
-      path = vim.fn.tempname() .. ".jsonl"
-      vim.fn.writefile(gen.jsonl_lines(count), path)
+      path = write_log(gen.jsonl_lines(count), ".jsonl")
       ws = workspace.open({ path = path })
       assert.is_true(vim.wait(30000, function()
         return not ws.loading and ws.rendered == ws.generation
@@ -192,6 +275,63 @@ for _, count in ipairs(SIZES) do
       print(string.format("append 100 lines -> view: %.1fms (budget 50)", elapsed))
       assert.are.equal(before + #extra, vim.api.nvim_buf_line_count(ws.view.bufnr))
       assert.is_true(elapsed < 50)
+    end)
+
+    -- page changes only exist past one page
+    if count <= 100000 then
+      return
+    end
+
+    it("should keep every tick short while changing pages", function()
+      local step_tick, switch_tick
+
+      path = write_log(gen.jsonl_lines(count), ".jsonl")
+      ws = workspace.open({ path = path })
+      assert.is_true(vim.wait(30000, function()
+        return settled(ws)() and ws.indexing == nil
+      end, 50))
+
+      step_tick = worst_tick(function()
+        ws:goto_page(2)
+      end, function()
+        return settled(ws)() and ws.page == 2
+      end)
+      -- a page asked for while another still loads drops the partial one
+      switch_tick = worst_tick(function()
+        ws:goto_page(3)
+        vim.wait(300)
+        ws:goto_page(4)
+      end, function()
+        return settled(ws)() and ws.page == 4
+      end)
+      print(
+        string.format(
+          "worst tick: page change %.0fms, page switch mid-load %.0fms (budget 100)",
+          step_tick,
+          switch_tick
+        )
+      )
+      assert.is_true(step_tick < 100)
+      assert.is_true(switch_tick < 100)
+    end)
+
+    it("should keep every tick short while appended lines are shown and the pages indexed again", function()
+      local tick
+
+      path = write_log(gen.jsonl_lines(count), ".jsonl")
+      ws = workspace.open({ path = path })
+      assert.is_true(vim.wait(30000, function()
+        return settled(ws)() and ws.indexing == nil
+      end, 50))
+
+      vim.fn.writefile(gen.jsonl_lines(100), path, "a")
+      tick = worst_tick(function()
+        ws:reload()
+      end, function()
+        return settled(ws)() and ws.appended == nil and ws.indexing == nil
+      end)
+      print(string.format("worst tick: append on page 1 + re-index %.0fms (budget 100)", tick))
+      assert.is_true(tick < 100)
     end)
   end)
 end

@@ -4,6 +4,7 @@ local source = require("jlog.parse.source")
 local entry_model = require("jlog.parse.entry")
 local render = require("jlog.ui.render")
 local config = require("jlog.config")
+local workspace = require("jlog.workspace")
 
 local RUNS = 5
 local DATA_DIR = "bench/data"
@@ -44,16 +45,16 @@ local function now_ms()
   return vim.uv.hrtime() / 1e6
 end
 
----Median wall time in ms over RUNS runs after one warm-up.
+---Median wall time in ms over RUNS runs after one warm-up; `fn` may return the ms it measured itself instead.
 local function median(fn)
   local times = {}
 
   fn()
   for run = 1, RUNS do
     local start = now_ms()
+    local measured = fn()
 
-    fn()
-    times[run] = now_ms() - start
+    times[run] = measured or now_ms() - start
   end
   table.sort(times)
 
@@ -65,7 +66,7 @@ local function add_row(input, contender, count, ms, memory_mb)
     input,
     contender,
     string.format("%.0f", ms),
-    string.format("%.0f", count / (ms / 1000)),
+    count and string.format("%.0f", count / (ms / 1000)) or "-",
     memory_mb and string.format("%.0f", memory_mb) or "-",
   }
 end
@@ -132,6 +133,79 @@ local function jq_row(input, contender, count, args, path)
   )
 end
 
+---@param ws JLogWorkspace
+local function wait_settled(ws)
+  assert(vim.wait(120000, function()
+    return not ws.loading and ws.indexing == nil and ws.rendered == ws.generation
+  end, 1))
+end
+
+---Median ms from `action` to its apply rendered, after `reset` puts the workspace back each time.
+local function apply_median(ws, reset, action)
+  return median(function()
+    local start
+
+    reset()
+    wait_settled(ws)
+    collectgarbage("collect")
+    start = now_ms()
+
+    action()
+    wait_settled(ws)
+
+    return now_ms() - start
+  end)
+end
+
+---Rows for the workspace: open to first screen, then a search and a group on the page it opens.
+local function workspace_rows(input, path)
+  local ws
+
+  add_row(
+    input,
+    "workspace open -> first screen",
+    nil,
+    median(function()
+      local start, elapsed
+
+      collectgarbage("collect")
+      start = now_ms()
+
+      ws = assert(workspace.open({ path = path }))
+      elapsed = now_ms() - start
+      wait_settled(ws)
+      ws:close()
+
+      return elapsed
+    end)
+  )
+  ws = assert(workspace.open({ path = path }))
+  wait_settled(ws)
+  add_row(
+    input,
+    "workspace search licence (page)",
+    #ws.entries,
+    apply_median(ws, function()
+      ws:clear_filters()
+    end, function()
+      ws:add_filter("licence")
+    end)
+  )
+  add_row(
+    input,
+    "workspace group by request_id (page)",
+    #ws.entries,
+    apply_median(ws, function()
+      ws:clear_filters()
+      ws:set_group(nil)
+    end, function()
+      ws:set_group("request_id")
+    end)
+  )
+  ws:close()
+  collectgarbage("collect")
+end
+
 local function bench_jsonl(size)
   local input = string.format("jsonl %dk", size / 1000)
   local path = ensure("app-" .. size .. ".jsonl", function()
@@ -142,6 +216,8 @@ local function bench_jsonl(size)
   end)
   local pure_lines = vim.split(read_file(pure_path), "\n", { plain = true, trimempty = true })
   local count = jlog_rows(input, read_file(path), "jsonl")
+
+  workspace_rows(input, path)
 
   add_row(
     input,
@@ -164,10 +240,12 @@ end
 local function bench_loki(size)
   local input = string.format("loki %dk", size / 1000)
   local path = ensure("loki-" .. size .. ".json", function()
-    return gen.loki_text(size)
+    return gen.loki_text(size, true)
   end)
   local text = read_file(path)
   local count = jlog_rows(input, text, "loki")
+
+  workspace_rows(input, path)
 
   add_row(
     input,
@@ -222,6 +300,8 @@ for _, row in ipairs(rows) do
 end
 out[#out + 1] = ""
 out[#out + 1] = "jq does not build jlog's entry model or continuation lines."
+out[#out + 1] = "Workspace rows run on the page a file opens on (page 1, the newest; at most paging.size plus overlap)."
+out[#out + 1] = "Their entries/s is entries on that page per second; open is to the first screen, not the whole load."
 out[#out + 1] =
   "jq and `vim.json.decode` rows read a prefix-free copy of the same lines, since they cannot parse prefixed or continuation lines."
 out[#out + 1] =

@@ -33,9 +33,17 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 Open a log file and run `:JLog` in its buffer, or run `:JLog {path}`. jlog never writes to the source file.
 
+The newest entries come first by default, for JSONL files (oldest line at the top) and Grafana exports (newest
+element first) alike; `R` toggles the order and `view.sort = "asc"` makes oldest first the default. Within a group,
+entries also run newest first.
+
 The view reloads automatically when the file changes: appended lines are streamed in, and atomic saves (write to a
-temp file, then rename) are followed. Large JSONL files show the first screen immediately and finish loading in the
-background; meanwhile FIELDS adds newly found fields as they appear, marked `loading N%` until the counts are final.
+temp file, then rename) are followed. Large JSONL files and Grafana exports show the first screen immediately and
+finish loading in the background; meanwhile FIELDS adds newly found fields as they appear, marked `loading N%` until
+the counts are final.
+
+A search or group shows its lines first; FIELDS counts arrive afterwards. Until they do, FIELDS keeps the previous
+counts, dimmed with `JLogFieldStale` and marked `counting…`. With the sidebar closed nothing is counted.
 
 A log larger than `paging.size` (100k lines or array elements by default) is shown one page at a time, so only the
 current page is parsed and held. Page 1 holds the newest entries (the oldest with `view.sort = "asc"`). The winbar

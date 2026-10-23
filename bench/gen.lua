@@ -57,12 +57,13 @@ end
 
 ---Loki export (JSON array of {line, timestamp, fields}); `line` is a JSON log, every 10th a plain text line.
 ---@param count integer
+---@param newest_first boolean|nil list the newest element first, as Grafana exports do
 ---@return string
-M.loki_text = function(count)
+M.loki_text = function(count, newest_first)
   local items = {}
 
   for index = 1, count do
-    items[index] = {
+    items[newest_first and count - index + 1 or index] = {
       line = index % 10 == 0 and "redis: connection pool: unhealthy\n" or json_line(index),
       -- a string: past 2^53 a Lua number would lose the nanoseconds
       timestamp = "1792157405" .. string.format("%09d", index * 1000),

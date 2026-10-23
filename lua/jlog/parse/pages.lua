@@ -3,8 +3,11 @@ local json = require("jlog.parse.json")
 ---@class JLogPageRange
 ---@field first integer first byte of the page's text, overlap included
 ---@field last integer last byte of the page's text, overlap included
----@field core_first integer ordinal, among the entries read from `first..last`, of the page's first own entry
----@field core_last integer ordinal of the page's last own entry
+---@field first_src integer source line (jsonl) or element ordinal (arrays) at `first`, to number entries read from it
+---@field core_first_line integer|nil jsonl: source line of the page's first own entry
+---@field core_last_line integer|nil jsonl: last source line of the page's own entries
+---@field core_first_element integer|nil arrays: ordinal of the page's first own element
+---@field core_last_element integer|nil arrays: ordinal of the page's last own element
 
 ---@class JLogPageIndex
 ---@field text string
@@ -12,7 +15,8 @@ local json = require("jlog.parse.json")
 ---@field size integer
 ---@field overlap integer
 ---@field from_end boolean page 1 holds the end of the text
----@field starts integer[] jsonl: core start bytes in page order; arrays: core start elements in file order
+---@field ranges JLogPageRange[] jsonl: ranges of the pages found so far, in page order
+---@field starts integer[] arrays: core start elements in file order
 ---@field offsets table<integer, integer> arrays: start byte of the elements a range needs
 ---@field seps table<integer, integer> arrays: byte of the `,` or `]` after the elements a range needs
 ---@field scanned integer arrays: elements scanned so far
@@ -75,15 +79,15 @@ local function next_newline(text, pos)
   return (find(text, "\n", pos, true)) or #text + 1
 end
 
+---A line starts an entry wherever it falls when it holds a JSON object, as `source.append_lines` reads it.
 ---@param text string
 ---@param first integer
 ---@param last integer
----@return boolean blank
----@return boolean json
-local function classify(text, first, last)
+---@return boolean
+local function is_entry(text, first, last)
   local line = sub(text, first, last):gsub("\r$", "")
 
-  return not find(line, "%S"), json.object_at(line) ~= nil
+  return json.object_at(line) ~= nil
 end
 
 ---@param text string
@@ -139,62 +143,118 @@ end
 ---@param index JLogPageIndex
 ---@param units integer units scanned so far
 local function checkpoint(index, units)
-  -- an array paged from its end knows no page before the scan ends, so it need not wait for one
-  local waits = index:known() < 1 and (index.format == "jsonl" or not index.from_end)
-
-  if units % CHECK_EVERY == 0 and not waits and vim.uv.hrtime() >= index.deadline then
+  if units % CHECK_EVERY == 0 and vim.uv.hrtime() >= index.deadline then
     coroutine.yield()
   end
 end
 
----Core starts from the end: every `size`-th line back, moved further back to a line that starts an entry.
+---Start byte and line of the line `overlap` lines before `pos`, moved further back to a line that starts an entry.
+---@param index JLogPageIndex
+---@param pos integer first byte of line `line`
+---@param line integer
+---@return integer pos
+---@return integer line
+local function lead_start(index, pos, line)
+  local text = index.text
+
+  for _ = 1, index.overlap do
+    if line == 1 then
+      return 1, 1
+    end
+    pos, line = prev_newline(text, pos - 2) + 1, line - 1
+  end
+  while line > 1 and not is_entry(text, pos, next_newline(text, pos) - 1) do
+    pos, line = prev_newline(text, pos - 2) + 1, line - 1
+  end
+
+  return pos, line
+end
+
+---Last byte of the `overlap` lines from `pos`, moved further on to the end of the entry they end in.
+---@param index JLogPageIndex
+---@param pos integer first byte of a line, or `#text + 1`
+---@return integer last
+local function trail_end(index, pos)
+  local text = index.text
+
+  for _ = 1, index.overlap do
+    pos = pos <= #text and next_newline(text, pos) + 1 or pos
+  end
+  while pos <= #text and not is_entry(text, pos, next_newline(text, pos) - 1) do
+    pos = next_newline(text, pos) + 1
+  end
+
+  return pos > #text and #text or pos - 2
+end
+
+---Record the page whose core is lines `line..stop_line - 1`, starting at byte `pos` and stopping at `stop`.
+---@param index JLogPageIndex
+---@param pos integer
+---@param line integer
+---@param stop integer
+---@param stop_line integer
+local function add_page(index, pos, line, stop, stop_line)
+  local first, first_src = lead_start(index, pos, line)
+
+  index.ranges[#index.ranges + 1] = {
+    first = first,
+    last = trail_end(index, stop),
+    first_src = first_src,
+    core_first_line = line,
+    core_last_line = stop_line - 1,
+  }
+end
+
+---Pages from the end: every `size`-th line back, moved further back to a line that starts an entry.
 ---@param index JLogPageIndex
 local function scan_lines_back(index)
   local text = index.text
   local last = byte(text, #text) == BYTE_NEWLINE and #text - 1 or #text
-  local count, units = 0, 0
-  local newline, blank, is_json
+  local line, count, pos = 0, 0, 1
+  local stop, stop_line, newline
 
+  -- absolute line numbers need the line count first
+  while pos <= #text do
+    pos, line = next_newline(text, pos) + 1, line + 1
+    checkpoint(index, line)
+  end
+  stop, stop_line = #text + 1, line + 1
   while last >= 0 do
     newline = prev_newline(text, last)
-    count, units = count + 1, units + 1
-    if count >= index.size and newline > 0 then
-      blank, is_json = classify(text, newline + 1, last)
-      if not blank and is_json then
-        index.starts[#index.starts + 1] = newline + 1
-        count = 0
-      end
+    count = count + 1
+    if count >= index.size and newline > 0 and is_entry(text, newline + 1, last) then
+      add_page(index, newline + 1, line, stop, stop_line)
+      stop, stop_line, count = newline + 1, line, 0
     end
     if newline == 0 then
       break
     end
-    last = newline - 1
-    checkpoint(index, units)
+    last, line = newline - 1, line - 1
+    checkpoint(index, line)
   end
-  index.starts[#index.starts + 1] = 1
+  add_page(index, 1, 1, stop, stop_line)
 end
 
----Core starts from the start: every `size`-th line on, moved further on to a line that starts an entry.
+---Pages from the start: every `size`-th line on, moved further on to a line that starts an entry.
 ---@param index JLogPageIndex
 local function scan_lines_forward(index)
   local text = index.text
-  local pos, count, units = 1, 0, 0
-  local newline, blank, is_json
+  local pos, line, count = 1, 0, 0
+  local start, start_line = 1, 1
+  local newline
 
-  index.starts[1] = 1
   while pos <= #text do
     newline = next_newline(text, pos)
-    if count >= index.size then
-      blank, is_json = classify(text, pos, newline - 1)
-      if not blank and is_json then
-        index.starts[#index.starts + 1] = pos
-        count = 0
-      end
+    line = line + 1
+    if count >= index.size and is_entry(text, pos, newline - 1) then
+      add_page(index, start, start_line, pos, line)
+      start, start_line, count = pos, line, 0
     end
-    count, units = count + 1, units + 1
+    count = count + 1
     pos = newline + 1
-    checkpoint(index, units)
+    checkpoint(index, line)
   end
+  add_page(index, start, start_line, #text + 1, line + 1)
 end
 
 ---Walk the array's elements, calling `visit(element, start, sep)` for each.
@@ -259,93 +319,6 @@ end
 
 ---@param index JLogPageIndex
 ---@param page integer
----@return integer first core's first byte
----@return integer stop byte after the core
-local function line_core(index, page)
-  local starts = index.starts
-
-  if index.from_end then
-    return starts[page], page == 1 and #index.text + 1 or starts[page - 1]
-  end
-
-  return starts[page], starts[page + 1] or #index.text + 1
-end
-
----Entries in lines `first..stop - 1` read on their own, by the rule `source.append_lines` follows.
----@param text string
----@param first integer
----@param stop integer
----@return integer
-local function count_entries(text, first, stop)
-  local count, last_json = 0, false
-  local newline, blank, is_json
-
-  while first < stop do
-    newline = math.min(next_newline(text, first), stop)
-    blank, is_json = classify(text, first, newline - 1)
-    if not blank and (is_json or not last_json) then
-      count, last_json = count + 1, is_json
-    end
-    first = newline + 1
-  end
-
-  return count
-end
-
----@param index JLogPageIndex
----@param page integer
----@return JLogPageRange
-local function line_range(index, page)
-  local text, overlap = index.text, index.overlap
-  local core_start, core_stop = line_core(index, page)
-  local first, last = core_start, #text
-  local found = 0
-  local line_end, newline, pos, blank, is_json, lead
-
-  line_end = core_start - 2
-  while overlap > 0 and line_end >= 0 do
-    newline = prev_newline(text, line_end)
-    blank, is_json = classify(text, newline + 1, line_end)
-    if not blank and is_json then
-      found, first = found + 1, newline + 1
-    end
-    if found == overlap then
-      break
-    end
-    if newline == 0 then
-      first = 1
-      break
-    end
-    line_end = newline - 1
-  end
-
-  found, pos = 0, core_stop
-  while pos <= #text do
-    newline = next_newline(text, pos)
-    blank, is_json = classify(text, pos, newline - 1)
-    if not blank and is_json then
-      found = found + 1
-      if found > overlap then
-        last = pos - 2
-        break
-      end
-    end
-    pos = newline + 1
-  end
-
-  -- the core starts on a JSON line or at the file start, so it counts the same read on its own
-  lead = count_entries(text, first, core_start)
-
-  return {
-    first = first,
-    last = last,
-    core_first = lead + 1,
-    core_last = lead + count_entries(text, core_start, core_stop),
-  }
-end
-
----@param index JLogPageIndex
----@param page integer
 ---@return JLogPageRange
 local function element_range(index, page)
   local starts, total = index.starts, index.total or index.scanned
@@ -356,18 +329,19 @@ local function element_range(index, page)
   local trail = math.min(total, core_last + index.overlap)
 
   if total == 0 then
-    return { first = 1, last = 0, core_first = 1, core_last = 0 }
+    return { first = 1, last = 0, first_src = 1, core_first_element = 1, core_last_element = 0 }
   end
 
   return {
     first = index.offsets[lead],
     last = trim_back(index.text, index.seps[trail] - 1),
-    core_first = core_first - lead + 1,
-    core_last = core_last - lead + 1,
+    first_src = lead,
+    core_first_element = core_first,
+    core_last_element = core_last,
   }
 end
 
----Advance boundary finding until `deadline`, a `vim.uv.hrtime()`; the first call always finds page 1.
+---Advance boundary finding until `deadline`, a `vim.uv.hrtime()`.
 ---@param deadline number
 ---@return boolean done
 Index.scan = function(self, deadline)
@@ -388,16 +362,20 @@ end
 
 ---@return integer|nil count once the scan is done
 Index.count = function(self)
-  return self.done and #self.starts or nil
+  if not self.done then
+    return nil
+  end
+
+  return self.format == "jsonl" and #self.ranges or #self.starts
 end
 
 ---@return integer known pages whose ranges are known so far
 Index.known = function(self)
+  if self.format == "jsonl" then
+    return #self.ranges
+  end
   if self.done then
     return #self.starts
-  end
-  if self.format == "jsonl" then
-    return self.from_end and #self.starts or #self.starts - 1
   end
   if self.from_end then
     return 0
@@ -406,6 +384,7 @@ Index.known = function(self)
   return math.max(0, math.floor((self.scanned - math.max(1, self.overlap)) / self.size))
 end
 
+---Entries read from `first..last` numbered from `first_src` are the page's own when their `src` is in its core.
 ---@param page integer 1 holds the newest entries
 ---@return JLogPageRange|nil
 Index.range = function(self, page)
@@ -413,7 +392,7 @@ Index.range = function(self, page)
     return nil
   end
   if self.format == "jsonl" then
-    return line_range(self, page)
+    return self.ranges[page]
   end
 
   return element_range(self, page)
@@ -432,6 +411,7 @@ M.new = function(text, format, opts, from_end)
     size = opts.size,
     overlap = opts.overlap,
     from_end = from_end,
+    ranges = {},
     starts = {},
     offsets = {},
     seps = {},

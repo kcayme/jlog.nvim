@@ -263,6 +263,18 @@ describe("compact styles", function()
     assert.are.same({ { 0, 8, highlights.badge_of("DiagnosticHint"), "DiagnosticHint" } }, spans[1])
   end)
 
+  it("should take no space for a field whose format returns an empty string", function()
+    local hide = function()
+      return ""
+    end
+    local config = styled({ fields = { a = { format = hide } } })
+    local lines = render.compact(one('{"x":1,"a":1,"b":2}'), config)
+
+    assert.are.equal("x=1 b=2", lines[1])
+    lines = render.compact(one('{"a":1,"b":2}'), config)
+    assert.are.equal("b=2", lines[1])
+  end)
+
   it("should color a formatted plain field by its key when the format gives no group", function()
     local format = function(ctx)
       return "HTTP " .. ctx.value

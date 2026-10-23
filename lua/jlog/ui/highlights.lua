@@ -106,8 +106,8 @@ M.cap_of = function(group)
   end
   name = "JLogCap" .. group
   colors = vim.api.nvim_get_hl(0, { name = group, link = false })
-  fg = colors.reverse and colors.fg or colors.bg
-  ctermfg = colors.reverse and colors.ctermfg or colors.ctermbg
+  fg = colors.reverse and colors.fg or colors.bg or colors.fg
+  ctermfg = colors.reverse and colors.ctermfg or colors.ctermbg or colors.ctermfg
   if fg or ctermfg then
     vim.api.nvim_set_hl(0, name, { fg = fg, ctermfg = ctermfg })
   else

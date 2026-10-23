@@ -50,6 +50,15 @@ describe("highlights", function()
     highlights.setup()
   end)
 
+  it("should draw pill caps in the fg of a foreground-only level override", function()
+    vim.cmd("hi clear")
+    highlights.setup()
+    vim.api.nvim_set_hl(0, "JLogLevelError", { fg = "#ff0000" })
+    assert.are.equal(0xff0000, vim.api.nvim_get_hl(0, { name = highlights.cap_of("JLogLevelError"), link = false }).fg)
+    vim.cmd("hi clear")
+    highlights.setup()
+  end)
+
   it("should give fields colors in first-seen order and cycle after the last", function()
     local seen = {}
     local first = highlights.field_group("cycle_0")

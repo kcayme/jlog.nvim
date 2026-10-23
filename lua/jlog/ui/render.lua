@@ -295,6 +295,10 @@ local function push_styled(line, key, role, value, role_group)
   local text, format_group = compact.format(resolved, key, role, value, line.entry)
   local start_col, color, body
 
+  -- a hidden field takes no space, so the separator waits for the next field
+  if text == "" then
+    return
+  end
   if line.sep then
     push(line, line.sep)
   end

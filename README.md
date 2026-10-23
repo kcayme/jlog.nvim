@@ -37,6 +37,15 @@ The view reloads automatically when the file changes: appended lines are streame
 temp file, then rename) are followed. Large JSONL files show the first screen immediately and finish loading in the
 background; meanwhile FIELDS adds newly found fields as they appear, marked `loading N%` until the counts are final.
 
+A log larger than `paging.size` (100k lines or array elements by default) is shown one page at a time, so only the
+current page is parsed and held. Page 1 holds the newest entries (the oldest with `view.sort = "asc"`). The winbar
+shows `page 2/5`, or `page 1/…` while the page boundaries are still being found. Each page also shows
+`paging.overlap` lines or elements of its neighbours, dimmed with `JLogOverlap`, so a request at a page edge stays
+whole; filters, groups and FIELDS counts include them. Filters, group and mode carry over to another page; the cursor
+and expanded entries reset. Appended lines show on the page that holds the end of the file; on any other page only
+the page count updates. A rewritten file returns to the page holding the cursor entry. A Grafana export whose
+timestamps are not in order is not paged.
+
 ### Commands
 
 | Command | Action |
@@ -47,6 +56,7 @@ background; meanwhile FIELDS adds newly found fields as they appear, marked `loa
 | `:JLog filter` | Clear all filter clauses. |
 | `:JLog group {field}` | Group entries by a field. |
 | `:JLog group` | Clear grouping. |
+| `:JLog page {n}` | Go to page `n` of a paged log. |
 | `:JLog raw` | Open the source in a new tab. |
 | `:JLog close` | Close the workspace. |
 
@@ -62,6 +72,7 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
 | `R` | log view | Reverse order |
 | `]]` / `[[` | log view | Next / previous entry |
 | `]e` / `[e` | log view | Next / previous ERROR-level entry |
+| `]p` / `[p` | log view | Next / previous page of a paged log |
 | `s` | log view | Focus the sidebar |
 | `S` | log view | Toggle the sidebar |
 | `q` | log view, sidebar | Close the workspace (closes the float in the raw popup) |
@@ -115,6 +126,7 @@ require("jlog").setup({
   unwrap = { enable = true, max_depth = 4 },
   sidebar = { width = 40, position = "right" },
   facets = { top_values = 10 },
+  paging = { size = 100000, overlap = 2000 }, -- source lines (JSONL) or array elements
   keymaps = {
     toggle_entry = "<Tab>",
     toggle_mode = "E",
@@ -124,6 +136,8 @@ require("jlog").setup({
     prev_entry = "[[",
     next_error = "]e",
     prev_error = "[e",
+    next_page = "]p",
+    prev_page = "[p",
     focus_sidebar = "s",
     toggle_sidebar = "S",
     close = "q",
@@ -164,6 +178,7 @@ linked group's color, reversed and bold, so the level reads as a colored label i
 | `JLogFieldCount` | counts in the FIELDS section | `Comment` |
 | `JLogFieldStale` | FIELDS counts kept from the last apply while new ones are counted | `NonText` |
 | `JLogWinbar` | jlog winbar text | `WinBar` |
+| `JLogOverlap` | entries a page shares with its neighbours | `Comment` |
 
 ## Benchmark
 

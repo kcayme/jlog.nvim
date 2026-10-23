@@ -37,6 +37,8 @@
 ---@field prev_entry string|false
 ---@field next_error string|false
 ---@field prev_error string|false
+---@field next_page string|false
+---@field prev_page string|false
 ---@field focus_sidebar string|false
 ---@field toggle_sidebar string|false
 ---@field close string|false
@@ -75,6 +77,8 @@ M.defaults = {
     prev_entry = "[[",
     next_error = "]e",
     prev_error = "[e",
+    next_page = "]p",
+    prev_page = "[p",
     focus_sidebar = "s",
     toggle_sidebar = "S",
     close = "q",

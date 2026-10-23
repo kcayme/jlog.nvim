@@ -323,14 +323,29 @@ end
 local function on_line(_, _winid, bufnr, row)
   local view = views[bufnr]
   local item_index = view and view.line_item[row + 1]
-  local spans, _
+  local core = view and view.ws.core
+  local item, src, spans, _
 
-  if not item_index then
+  -- entries swapped in for an apply that has not rendered yet do not match the lines shown
+  if not item_index or view.rendered_entries ~= view.ws.entries then
+    return
+  end
+  item = view.items[item_index]
+  src = core and item.kind == "entry" and view.ws.entries[item.idx].src
+  -- entries outside the page's own range are overlap with its neighbours: dimmed whole
+  if src and (src < core[1] or src > core[2]) then
+    vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, {
+      end_row = row + 1,
+      end_col = 0,
+      hl_group = "JLogOverlap",
+      ephemeral = true,
+    })
+
     return
   end
   spans = view.redraw_spans[item_index]
   if not spans then
-    _, spans = item_lines(view, view.items[item_index], false)
+    _, spans = item_lines(view, item, false)
     view.redraw_spans[item_index] = spans
   end
   for _, span in ipairs(spans[row + 2 - view.item_line[item_index]] or {}) do

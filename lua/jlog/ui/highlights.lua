@@ -29,6 +29,7 @@ M.GROUPS = {
   { name = "JLogFieldCount", link = "Comment" },
   { name = "JLogFieldStale", link = "NonText" },
   { name = "JLogWinbar", link = "WinBar" },
+  { name = "JLogOverlap", link = "Comment" },
 }
 
 ---The badge style of `group`, or nil when its link has no color to reverse.

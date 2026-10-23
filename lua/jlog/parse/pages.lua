@@ -8,6 +8,7 @@ local json = require("jlog.parse.json")
 ---@field core_last_line integer|nil jsonl: last source line of the page's own entries
 ---@field core_first_element integer|nil arrays: ordinal of the page's first own element
 ---@field core_last_element integer|nil arrays: ordinal of the page's last own element
+---@field last_src integer|nil arrays: ordinal of the last element in `first..last`
 
 ---@class JLogPageIndex
 ---@field text string
@@ -349,13 +350,14 @@ local function element_range(index, page)
   local trail = math.min(total, core_last + index.overlap)
 
   if total == 0 then
-    return { first = 1, last = 0, first_src = 1, core_first_element = 1, core_last_element = 0 }
+    return { first = 1, last = 0, first_src = 1, core_first_element = 1, core_last_element = 0, last_src = 0 }
   end
 
   return {
     first = index.offsets[lead],
     last = trim_back(index.text, index.seps[trail] - 1),
     first_src = lead,
+    last_src = trail,
     core_first_element = core_first,
     core_last_element = core_last,
   }

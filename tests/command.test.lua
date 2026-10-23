@@ -44,6 +44,26 @@ describe(":JLog", function()
     assert.are.equal(path, vim.api.nvim_buf_get_name(0))
   end)
 
+  it("should move to a page with :JLog page", function()
+    local path = vim.fn.tempname() .. ".jsonl"
+    local lines = {}
+    local ws
+
+    for index = 1, 35 do
+      lines[index] = string.format('{"msg":"m%d"}', index)
+    end
+    vim.fn.writefile(lines, path)
+    require("jlog").setup({ paging = { size = 10, overlap = 2 } })
+    vim.cmd("JLog " .. path)
+    ws = require("jlog.workspace").find(path)
+    vim.cmd("JLog page 2")
+    assert.is_true(vim.wait(2000, function()
+      return ws.page == 2 and not ws.loading
+    end, 20))
+    ws:close()
+    vim.fn.delete(path)
+  end)
+
   it("should warn when the tab has no workspace", function()
     local original_notify = vim.notify
     local level

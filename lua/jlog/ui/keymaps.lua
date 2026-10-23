@@ -38,6 +38,16 @@ local SCOPES = {
     prev_error = function(ws)
       ws.view:move("error", -1)
     end,
+    next_page = function(ws)
+      if ws.page then
+        ws:goto_page(ws.page + 1)
+      end
+    end,
+    prev_page = function(ws)
+      if ws.page then
+        ws:goto_page(ws.page - 1)
+      end
+    end,
     focus_sidebar = function(ws)
       ws:focus_sidebar()
     end,

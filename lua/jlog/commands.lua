@@ -2,7 +2,7 @@ local workspace = require("jlog.workspace")
 
 local M = {}
 
-local SUBCOMMANDS = { "filter", "group", "raw", "close" }
+local SUBCOMMANDS = { "filter", "group", "page", "raw", "close" }
 
 ---Subcommand -> handler(ws, args), where args is the rest of the command line.
 local ACTIONS = {
@@ -16,6 +16,16 @@ local ACTIONS = {
   end,
   group = function(ws, args)
     ws:set_group(args ~= "" and args or nil)
+  end,
+  page = function(ws, args)
+    local page = tonumber(args)
+
+    if not page then
+      vim.notify("jlog: :JLog page needs a page number", vim.log.levels.WARN)
+
+      return
+    end
+    ws:goto_page(page)
   end,
   raw = function(ws)
     ws:open_raw(nil)
@@ -34,7 +44,7 @@ local function open(target)
   end
 end
 
----`:JLog [path] | filter [clause] | group [field] | raw | close`.
+---`:JLog [path] | filter [clause] | group [field] | page N | raw | close`.
 ---@param fargs string[]
 M.run = function(fargs)
   local action = ACTIONS[fargs[1]]

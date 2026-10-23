@@ -24,6 +24,8 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `keymaps.prev_entry` | `string\|false` | `"[["` | Previous entry. |
 | `keymaps.next_error` | `string\|false` | `"]e"` | Next ERROR-level entry. |
 | `keymaps.prev_error` | `string\|false` | `"[e"` | Previous ERROR-level entry. |
+| `keymaps.next_page` | `string\|false` | `"]p"` | Next page of a paged log. |
+| `keymaps.prev_page` | `string\|false` | `"[p"` | Previous page of a paged log. |
 | `keymaps.focus_sidebar` | `string\|false` | `"s"` | Focus the sidebar. |
 | `keymaps.toggle_sidebar` | `string\|false` | `"S"` | Show/hide the sidebar. |
 | `keymaps.close` | `string\|false` | `"q"` | Close the workspace (in the sidebar and log view). |

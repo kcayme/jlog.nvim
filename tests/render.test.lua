@@ -263,6 +263,30 @@ describe("compact styles", function()
     assert.are.same({ { 0, 8, highlights.badge_of("DiagnosticHint"), "DiagnosticHint" } }, spans[1])
   end)
 
+  it("should color a formatted plain field by its key when the format gives no group", function()
+    local format = function(ctx)
+      return "HTTP " .. ctx.value
+    end
+    local _, spans = render.compact(
+      one('{"level":"ERROR","msg":"x","status":500}'),
+      styled({ fields = { status = { style = "plain", format = format } } })
+    )
+
+    assert.are.same(
+      { { 9, 17, highlights.field_group("status") } },
+      spans_of(spans[1], highlights.field_group("status"))
+    )
+  end)
+
+  it("should escape newlines in a format's text", function()
+    local format = function()
+      return "a\nb"
+    end
+    local lines = render.compact(one('{"a":1}'), styled({ fields = { a = { format = format } } }))
+
+    assert.are.equal("a\\nb", lines[1])
+  end)
+
   it("should style nested and collapsed values", function()
     local lines = render.compact(
       one('{"req":{"host":"h"},"list":[1,2]}'),

@@ -305,13 +305,17 @@ local function push_styled(line, key, role, value, role_group)
 
     return
   end
-  push(line, text or value)
+  push(line, text and escape_newlines(text) or value)
   if not line.with_spans or line.col == start_col then
     return
   end
 
   color = type(format_group) == "string" and format_group or color_of(line, key, role, value, role_group)
   if style == "plain" then
+    -- a formatted plain field with no group of its own takes its key's color
+    if text and type(format_group) ~= "string" then
+      color = line.field_colors and highlights.field_group(key) or "JLogKey"
+    end
     add_span(line, start_col, line.col, color)
 
     return

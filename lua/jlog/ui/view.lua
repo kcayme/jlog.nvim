@@ -53,6 +53,7 @@ local BATCH = 64
 local ERROR_LEVELS = { error = true, fatal = true, panic = true }
 
 local ns = vim.api.nvim_create_namespace("jlog.view")
+local ns_anchor = vim.api.nvim_create_namespace("jlog.view.anchor")
 
 ---@type table<integer, JLogView>
 local views = {}
@@ -363,7 +364,37 @@ local function on_line(_, _winid, bufnr, row)
       hl_group = span[3],
       ephemeral = true,
     })
+    for _, cap in ipairs(M.cap_marks(span, view.ws.opts.compact.pill)) do
+      vim.api.nvim_buf_set_extmark(bufnr, ns, row, cap.col, cap.opts)
+    end
   end
+end
+
+---The inline virtual text marks (left, right) that draw a pill span's caps; none without a cap group or glyph.
+---@param span JLogSpan
+---@param pill JLogPillOptions
+---@return { col: integer, opts: table }[]
+M.cap_marks = function(span, pill)
+  local marks = {}
+  local group = span[4]
+
+  if not group then
+    return marks
+  end
+  if pill.left ~= "" then
+    marks[#marks + 1] = {
+      col = span[1],
+      opts = { virt_text = { { pill.left, group } }, virt_text_pos = "inline", ephemeral = true },
+    }
+  end
+  if pill.right ~= "" then
+    marks[#marks + 1] = {
+      col = span[2],
+      opts = { virt_text = { { pill.right, group } }, virt_text_pos = "inline", ephemeral = true },
+    }
+  end
+
+  return marks
 end
 
 vim.api.nvim_set_decoration_provider(ns, { on_win = on_win, on_line = on_line })
@@ -386,6 +417,9 @@ local function create_buffer(view)
   if not pcall(vim.api.nvim_buf_set_name, bufnr, name) then
     vim.api.nvim_buf_set_name(bufnr, name .. " (" .. bufnr .. ")")
   end
+
+  -- ephemeral inline text only lays out in a buffer that already holds a persistent inline mark
+  vim.api.nvim_buf_set_extmark(bufnr, ns_anchor, 0, 0, { virt_text = { { "" } }, virt_text_pos = "inline" })
 
   views[bufnr] = view
   vim.api.nvim_create_autocmd("BufWinEnter", {

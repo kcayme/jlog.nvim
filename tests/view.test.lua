@@ -477,4 +477,48 @@ describe("view", function()
       assert.are.equal(300, vim.api.nvim_buf_line_count(v.bufnr))
     end)
   end)
+
+  describe("pill caps", function()
+    local function inline_marks(bufnr)
+      local anchor_ns = vim.api.nvim_get_namespaces()["jlog.view.anchor"]
+      local marks = vim.api.nvim_buf_get_extmarks(bufnr, anchor_ns, 0, -1, { details = true })
+
+      return vim.tbl_filter(function(mark)
+        return mark[4].virt_text_pos == "inline"
+      end, marks)
+    end
+
+    it("should keep one empty inline mark in every view buffer", function()
+      local v = view.new(make_ws('{"msg":"m1"}\n{"msg":"m2"}'))
+      local cached
+
+      vim.api.nvim_win_set_buf(0, v.bufnr)
+      assert.are.equal(1, #inline_marks(v.bufnr))
+      v:render(all({ 1, 2 }))
+      assert.is_true(vim.wait(2000, function()
+        return v.complete
+      end, 1))
+      assert.are.equal(1, #inline_marks(v.bufnr))
+
+      v:toggle_mode()
+      assert.is_true(vim.wait(2000, function()
+        return v.complete
+      end, 1))
+      cached = v.cache.bufnr
+      assert.are.equal(1, #inline_marks(v.bufnr))
+      assert.are.equal(1, #inline_marks(cached))
+    end)
+
+    it("should place caps around a pill span", function()
+      assert.are.same({
+        { col = 4, opts = { virt_text = { { "L", "C" } }, virt_text_pos = "inline", ephemeral = true } },
+        { col = 7, opts = { virt_text = { { "R", "C" } }, virt_text_pos = "inline", ephemeral = true } },
+      }, view.cap_marks({ 4, 7, "B", "C" }, { left = "L", right = "R" }))
+    end)
+
+    it("should draw no caps for blank glyphs or non-pill spans", function()
+      assert.are.same({}, view.cap_marks({ 4, 7, "B", "C" }, { left = "", right = "" }))
+      assert.are.same({}, view.cap_marks({ 4, 7, "B" }, { left = "L", right = "R" }))
+    end)
+  end)
 end)

@@ -30,7 +30,7 @@ describe("perf (100k lines)", function()
       return
     end
 
-    require("jlog").setup({ auto_open = { enable = false } })
+    require("jlog").setup()
     opts = require("jlog.config").options
     -- LuaJIT interns strings, so the baseline is taken before the input exists: the input text is counted too
     collectgarbage("collect")

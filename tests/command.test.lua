@@ -1,6 +1,6 @@
 describe(":JLog", function()
   before_each(function()
-    require("jlog").setup({ auto_open = { enable = false } })
+    require("jlog").setup()
   end)
   after_each(function()
     pcall(vim.cmd, "silent! tabonly")

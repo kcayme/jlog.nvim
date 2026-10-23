@@ -8,7 +8,7 @@ describe("sidebar", function()
   end)
 
   it("should apply edited filters on write and flag bad lines", function()
-    require("jlog.config").setup({ auto_open = { enable = false } })
+    require("jlog.config").setup()
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
     local sb = ws.sidebar.bufnr
     vim.api.nvim_buf_set_lines(sb, 1, 1, false, { "level=ERROR", 'msg="oops' })

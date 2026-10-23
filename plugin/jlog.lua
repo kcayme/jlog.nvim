@@ -8,6 +8,6 @@ end, {
   end,
 })
 
--- setup() is optional: auto-open and highlights work with the defaults, and a later setup() re-registers
+-- setup() is optional: highlights work with the defaults
 require("jlog.ui.highlights").setup()
-require("jlog.hooks").register(require("jlog.config").options)
+require("jlog.hooks").register()

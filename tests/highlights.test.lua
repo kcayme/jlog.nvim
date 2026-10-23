@@ -1,6 +1,24 @@
 local highlights = require("jlog.ui.highlights")
 
 describe("highlights", function()
+  it("should be defined by the plugin file when setup is never called", function()
+    local result = vim
+      .system({
+        "nvim",
+        "--headless",
+        "--clean",
+        "--cmd",
+        "set rtp^=.",
+        "-c",
+        "lua io.stdout:write(tostring(next(vim.api.nvim_get_hl(0, { name = 'JLogTime' })) ~= nil))",
+        "-c",
+        "qa!",
+      }, { text = true })
+      :wait(10000)
+
+    assert.are.equal("true", vim.trim(result.stdout))
+  end)
+
   it("should define every group from the spec as a default link", function()
     highlights.setup()
     assert.are.equal(20, #highlights.GROUPS)

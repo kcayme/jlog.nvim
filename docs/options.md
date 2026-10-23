@@ -4,8 +4,6 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `auto_open.enable` | `boolean` | `true` | Auto-open a workspace when a matching file is read and its format is recognized. Unrecognized files open as usual. |
-| `auto_open.patterns` | `string[]` | `{ "*.json", "*.jsonl", "*.ndjson", "*.log", "*.txt" }` | File patterns checked for auto-open. |
 | `fields.time` | `string[]` | `{ "time", "ts", "timestamp", "@timestamp" }` | Keys tried in order for the `time` field. |
 | `fields.level` | `string[]` | `{ "level", "lvl", "severity" }` | Keys tried in order for the `level` field. |
 | `fields.message` | `string[]` | `{ "msg", "message" }` | Keys tried in order for the `msg` field. |

@@ -10,7 +10,7 @@ describe("reload", function()
   local ws
 
   before_each(function()
-    require("jlog").setup({ auto_open = { enable = false } })
+    require("jlog").setup()
     path = vim.fn.tempname() .. ".jsonl"
     vim.fn.writefile({ '{"msg":"a","level":"INFO"}', '{"msg":"b","level":"ERROR"}' }, path)
   end)

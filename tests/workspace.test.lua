@@ -3,7 +3,7 @@ local workspace = require("jlog.workspace")
 
 describe("workspace", function()
   before_each(function()
-    config.setup({ auto_open = { enable = false } })
+    config.setup()
   end)
   after_each(function()
     pcall(vim.cmd, "silent! tabonly")
@@ -125,18 +125,17 @@ describe("workspace", function()
   end)
 
   describe("open_raw", function()
-    local tmp, size, group
+    local tmp, size
+
+    -- an empty buffer named after the file, from `:edit` before the file existed (e.g. before a download finished)
+    local function edit_then_create()
+      vim.cmd("edit " .. vim.fn.fnameescape(tmp))
+      vim.fn.writefile(vim.fn.readfile("tests/fixtures/app.jsonl", "b"), tmp, "b")
+      size = vim.fn.getfsize(tmp)
+    end
 
     before_each(function()
       tmp = vim.fn.tempname() .. ".jsonl"
-      vim.fn.writefile(vim.fn.readfile("tests/fixtures/app.jsonl", "b"), tmp, "b")
-      size = vim.fn.getfsize(tmp)
-      -- stands in for auto-open: the buffer for the file is created but never read
-      group = vim.api.nvim_create_augroup("jlog.test.placeholder", { clear = true })
-      vim.api.nvim_create_autocmd("BufReadCmd", { group = group, pattern = tmp, callback = function() end })
-    end)
-    after_each(function()
-      pcall(vim.api.nvim_del_augroup_by_id, group)
     end)
 
     local function assert_raw_and_write()
@@ -146,18 +145,19 @@ describe("workspace", function()
       assert.are.equal(size, vim.fn.getfsize(tmp))
     end
 
-    it("should read the file after the workspace replaced its placeholder", function()
+    it("should read the file after the workspace replaced an empty buffer for it", function()
       vim.cmd("tabnew")
-      vim.cmd("edit " .. vim.fn.fnameescape(tmp))
+      edit_then_create()
       local ws = assert(workspace.open({ path = tmp }))
       ws:open_raw(2)
       assert_raw_and_write()
     end)
 
     it("should read the file when an empty unread buffer for it exists elsewhere", function()
-      local ws = assert(workspace.open({ path = tmp }))
       vim.cmd("tabnew")
-      vim.cmd("edit " .. vim.fn.fnameescape(tmp))
+      edit_then_create()
+      vim.cmd("tabnew")
+      local ws = assert(workspace.open({ path = tmp }))
       ws:open_raw(2)
       assert_raw_and_write()
     end)

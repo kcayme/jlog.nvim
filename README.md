@@ -12,7 +12,7 @@ double-encoded; jlog makes them readable, filterable and groupable without leavi
 - Group by any field (request id, status, route, ...).
 - Native `/` search, `n`, `N` and `:g` work on the rendered text.
 - Workspace in its own tab with a sidebar for filters, group-by and field browsing.
-- Auto-opens recognized log files; `:JLog` opens anything else.
+- `:JLog` opens the current buffer or a file path as a workspace.
 - Re-renders when the source file changes.
 - Stays fast on huge files; key order and number literals are never altered, nothing in the source is dropped.
 
@@ -31,8 +31,7 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ## Usage
 
-Open a log file: if its format is recognized the workspace opens automatically. Otherwise run `:JLog` in the
-buffer. jlog never writes to the source file.
+Open a log file and run `:JLog` in its buffer, or run `:JLog {path}`. jlog never writes to the source file.
 
 The view reloads automatically when the file changes: appended lines are streamed in, and atomic saves (write to a
 temp file, then rename) are followed. Large JSONL files show the first screen immediately and finish loading in the
@@ -107,7 +106,6 @@ Defaults (all optional):
 
 ```lua
 require("jlog").setup({
-  auto_open = { enable = true, patterns = { "*.json", "*.jsonl", "*.ndjson", "*.log", "*.txt" } },
   fields = {
     time = { "time", "ts", "timestamp", "@timestamp" },
     level = { "level", "lvl", "severity" },

@@ -2,10 +2,9 @@ local M = {}
 
 ---@param opts table|nil partial `JLogOptions`
 M.setup = function(opts)
-  local options = require("jlog.config").setup(opts)
-
+  require("jlog.config").setup(opts)
   require("jlog.ui.highlights").setup()
-  require("jlog.hooks").register(options)
+  require("jlog.hooks").register()
 end
 
 ---Open (or focus) a workspace, even when detection fails.

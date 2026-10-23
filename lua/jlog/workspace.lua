@@ -102,7 +102,7 @@ local function read_source(path, bufnr)
   return table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
 end
 
----An empty, unmodified buffer, unnamed or named after the file (auto-open's stand-in for the raw file).
+---An empty, unmodified buffer, unnamed or named after the file (e.g. a buffer for a file that did not exist yet).
 ---@param bufnr integer
 ---@param path string|nil
 ---@return boolean
@@ -115,8 +115,8 @@ local function is_placeholder(bufnr, path)
     and vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] == ""
 end
 
----Wipe empty, unmodified buffers named `path` (e.g. auto-open's placeholder): `:tabedit` would reuse such a
----buffer without reading the file, and a `:w` there would truncate it.
+---Wipe empty, unmodified buffers named `path`: `:tabedit` would reuse such a buffer without reading the file,
+---and a `:w` there would truncate it.
 ---@param path string
 local function wipe_placeholders(path)
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
@@ -804,19 +804,11 @@ end
 ---Open the source as a normal buffer in a new tab, at `lnum`. The only way jlog opens a raw file.
 ---@param lnum integer|nil
 Workspace.open_raw = function(self, lnum)
-  local saved = vim.o.eventignore
   local ok, err
 
   if self.path then
     wipe_placeholders(self.path)
-    -- keep auto-open from claiming the file again
-    vim.opt.eventignore:append("BufReadCmd")
     ok, err = pcall(vim.cmd.tabedit, vim.fn.fnameescape(self.path))
-    vim.o.eventignore = saved
-    if ok then
-      -- auto-open leaves buffers marked raw alone, also on `:edit!`
-      vim.b.jlog_raw = true
-    end
   else
     ok, err = pcall(vim.cmd, "tab sbuffer " .. self.bufnr)
   end

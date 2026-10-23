@@ -1,7 +1,3 @@
----@class JLogAutoOpenOptions
----@field enable boolean
----@field patterns string[]
-
 ---@class JLogFieldsOptions
 ---@field time string[]
 ---@field level string[]
@@ -44,7 +40,6 @@
 ---@field group_by string|false
 
 ---@class JLogOptions
----@field auto_open JLogAutoOpenOptions
 ---@field fields JLogFieldsOptions
 ---@field view JLogViewOptions
 ---@field unwrap JLogUnwrapOptions
@@ -56,7 +51,6 @@ local M = {}
 
 ---@type JLogOptions
 M.defaults = {
-  auto_open = { enable = true, patterns = { "*.json", "*.jsonl", "*.ndjson", "*.log", "*.txt" } },
   fields = {
     time = { "time", "ts", "timestamp", "@timestamp" },
     level = { "level", "lvl", "severity" },

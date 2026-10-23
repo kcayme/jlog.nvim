@@ -190,8 +190,8 @@ overrides that. The global style never applies to `time` or `message`; style the
 Colors: a level takes its `JLogLevel*` color; a field in `fields.status` whose value is `200`-`599` takes its class
 color (`JLogStatus2xx` ... `JLogStatus5xx`) when its style is `inverted` or `pill`, e.g.
 `compact.fields.status = { style = "inverted" }` (a plain status field keeps its key's field color, unless a format
-returns a group); any other field takes its key's field color. Inverted and pill styles
-draw that color reversed through derived `JLogBadge*` groups.
+returns a group); a styled `time` or `message` takes `JLogTime` or `JLogMessage`; any other field takes its key's
+field color. Inverted and pill styles draw that color reversed through derived `JLogBadge*` groups.
 
 `compact.order` lists top-level keys to show first, in that order. Dotted names are ignored; `time`, `level`,
 `message` and `status` match their role whatever the key is called; role fields not listed stay at the front, and
@@ -201,8 +201,9 @@ item.
 `compact.fields[key].format(ctx)` replaces a field's text. `ctx` has `value`, `key` and `entry`; return the text and,
 optionally, a highlight group for it. Newlines in the text are escaped. A formatted `plain` field with no returned
 group uses the key's field color. If `format` errors or returns a non-string, the default text is used and jlog warns
-once per field. `ctx` is reused between calls, so do not keep it. `format` runs on every rendered line, so its cost
-scales with the page.
+once per field, as does a returned group name that is not a valid highlight name. `ctx` is reused between calls, so do
+not keep it, and treat `ctx.entry` as read-only. `format` runs on every rendered line, so its cost scales
+with the page.
 
 ```lua
 compact = {
@@ -212,7 +213,7 @@ compact = {
     status = { style = "inverted" },
     duration_ms = {
       format = function(ctx)
-        return ctx.value .. "ms", tonumber(ctx.value) > 500 and "DiagnosticError" or nil
+        return ctx.value .. "ms", (tonumber(ctx.value) or 0) > 500 and "DiagnosticError" or nil
       end,
     },
   },

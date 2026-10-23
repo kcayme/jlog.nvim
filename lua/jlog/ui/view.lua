@@ -21,11 +21,14 @@ local M = {}
 -- buffer lines above which group folds are created once, by hand: a foldexpr is re-evaluated per line on
 -- every fold update (opening the view, moving the cursor), costing seconds on 100k+ lines
 M.fold_expr_limit = 50000
+-- a chunked render yields to the event loop after this much work, keeping every tick within ~16ms
+M.tick_ns = 12e6
+-- old lines deleted per call while a render replaces them: deleting just below the new lines costs ~4ms per 50k,
+-- where replacing a 500k-line buffer at once costs ~50ms
+M.trim_slice = 50000
 
 -- items built between checks of the tick's time budget (expanded entries are slower, but 64 stay well within it)
 local BATCH = 64
--- a chunked render yields to the event loop after this much work, keeping every tick within ~16ms
-local TICK_NS = 12e6
 local ERROR_LEVELS = { error = true, fatal = true, panic = true }
 
 local ns = vim.api.nvim_create_namespace("jlog.view")
@@ -128,13 +131,14 @@ end
 ---@param last integer
 ---@param replace boolean replace the whole buffer instead of appending
 ---@param deadline number|nil `vim.uv.hrtime()` to stop at
+---@param keep_tail boolean|nil insert above the old lines below the new ones (a render trims them later)
 ---@return integer last item index appended
-local function append_items(view, first, last, replace, deadline)
+local function append_items(view, first, last, replace, deadline, keep_tail)
   local items, line_item, item_line, entry_item = view.items, view.line_item, view.item_line, view.entry_item
   local buffer_lines = {}
   local line_count = #line_item
   local done = last
-  local lines
+  local lines, start
 
   for item_index = first, last do
     if deadline and (item_index - first) % BATCH == BATCH - 1 and vim.uv.hrtime() >= deadline then
@@ -156,9 +160,35 @@ local function append_items(view, first, last, replace, deadline)
       break
     end
   end
-  write_lines(view, replace and 0 or #line_item - #buffer_lines, -1, buffer_lines)
+  start = replace and 0 or #line_item - #buffer_lines
+  write_lines(view, start, keep_tail and start or -1, buffer_lines)
 
   return done
+end
+
+---Delete the old lines left below the rendered ones, a slice at a time until `deadline`.
+---@param view JLogView
+---@param deadline number `vim.uv.hrtime()` to stop at
+---@return boolean done
+local function trim_stale(view, deadline)
+  local keep = #view.line_item
+  local count = vim.api.nvim_buf_line_count(view.bufnr)
+
+  -- read from the buffer each time, never stored: View.append may have changed it meanwhile
+  while count > keep do
+    -- an empty buffer still holds one blank line
+    if keep == 0 and count == 1 and vim.api.nvim_buf_get_lines(view.bufnr, 0, 1, false)[1] == "" then
+      return true
+    end
+    -- one slice per call at least, so every tick makes progress
+    write_lines(view, keep, math.min(count, keep + M.trim_slice), {})
+    count = vim.api.nvim_buf_line_count(view.bufnr)
+    if count > keep and vim.uv.hrtime() >= deadline then
+      return false
+    end
+  end
+
+  return true
 end
 
 ---@param view JLogView
@@ -263,38 +293,52 @@ View.render = function(self, items, on_done)
     end
   end
 
-  if total == 0 then
-    write_lines(self, 0, -1, {})
-    finish()
+  ---Insert the next chunk above the old lines and trim those, within one tick.
+  ---@param first_tick boolean the first screen comes before trimming; later ticks trim first
+  ---@return boolean done
+  local function work(first_tick)
+    local deadline = vim.uv.hrtime() + M.tick_ns
+    local trimmed
 
-    return
-  end
-  -- the first chunk is synchronous so the first screen shows at once; a view that fits in it is done
-  next_item = append_items(self, 1, total, true, vim.uv.hrtime() + TICK_NS) + 1
-  if next_item > total then
-    finish()
+    if not first_tick then
+      trimmed = trim_stale(self, deadline)
+    end
+    if next_item <= total then
+      next_item = append_items(self, next_item, total, next_item == 1, deadline, true) + 1
+    end
+    if first_tick or not trimmed then
+      trimmed = trim_stale(self, deadline)
+    end
 
-    return
+    return trimmed and next_item > total
   end
 
   local function step()
-    local last
-
     if self.generation ~= generation or not vim.api.nvim_buf_is_valid(self.bufnr) then
       return
     end
-    last = append_items(self, next_item, total, false, vim.uv.hrtime() + TICK_NS)
-    next_item = last + 1
-    if next_item > total then
+    if work(false) then
       finish()
 
       return
     end
-    apply_winbar(self, "jlog · rendering " .. math.floor(last * 100 / total) .. "%")
+    apply_winbar(self, "jlog · rendering " .. math.floor((next_item - 1) * 100 / math.max(total, 1)) .. "%")
     vim.defer_fn(step, 0)
   end
 
-  apply_winbar(self, "jlog · rendering " .. math.floor((next_item - 1) * 100 / total) .. "%")
+  -- the old buffer is not replaced at once (~50ms at 500k lines): new lines go in above it and it is trimmed
+  for _, winid in ipairs(vim.fn.win_findbuf(self.bufnr)) do
+    -- a foldexpr would be re-evaluated on every insert and delete; finish sets the fold method again
+    vim.wo[winid][0].foldmethod = "manual"
+  end
+  next_item = 1
+  -- the first chunk is synchronous so the first screen shows at once; a view that fits in it is done
+  if work(true) then
+    finish()
+
+    return
+  end
+  apply_winbar(self, "jlog · rendering " .. math.floor((next_item - 1) * 100 / math.max(total, 1)) .. "%")
   -- a timer, not vim.schedule: chained scheduled callbacks run back to back without handling input or redraw
   vim.defer_fn(step, 0)
 end

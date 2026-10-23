@@ -61,4 +61,37 @@ describe("group.build", function()
     })
     assert.are.equal("(no request_id)", list[#list - 1].group.label)
   end)
+
+  it("should build the same items when a checkpoint is given, and call it", function()
+    local many = {}
+    for i = 1, 10000 do
+      many[i] = { request_id = tostring(i % 7), status = i }
+    end
+    local calls = 0
+    local function args(field, reverse, checkpoint)
+      return {
+        pred = function(i)
+          return i % 3 ~= 0
+        end,
+        field = field,
+        reverse = reverse,
+        get = function(i, path)
+          return many[i][path]
+        end,
+        checkpoint = checkpoint,
+      }
+    end
+    local function count_calls()
+      calls = calls + 1
+    end
+
+    for _, field in ipairs({ false, "request_id" }) do
+      for _, reverse in ipairs({ false, true }) do
+        local plain = { group.build(#many, args(field or nil, reverse)) }
+        local checked = { group.build(#many, args(field or nil, reverse, count_calls)) }
+        assert.are.same(plain, checked)
+      end
+    end
+    assert.is_true(calls > 0)
+  end)
 end)

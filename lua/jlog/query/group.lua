@@ -8,12 +8,14 @@
 ---@field field string|nil
 ---@field get fun(i: integer, path: string): any
 ---@field reverse boolean|nil
+---@field checkpoint fun()|nil called every CHECKPOINT_EVERY entries, so a caller can yield a long build
 
 local entry_model = require("jlog.parse.entry")
 
 local M = {}
 
 local SUMMARY_FIELDS = { "status", "method", "path" }
+local CHECKPOINT_EVERY = 4096
 
 -- fields a group header summarizes, read through `args.get`
 M.SUMMARY_FIELDS = SUMMARY_FIELDS
@@ -55,6 +57,9 @@ local function build_flat(count, args)
   end
 
   for i = first, last, step do
+    if args.checkpoint and i % CHECKPOINT_EVERY == 0 then
+      args.checkpoint()
+    end
     if args.pred(i) then
       size = size + 1
       items[size] = { kind = "entry", idx = i }
@@ -79,6 +84,9 @@ local function build_grouped(count, args)
     local value = args.get(i, field)
     local bucket
 
+    if args.checkpoint and i % CHECKPOINT_EVERY == 0 then
+      args.checkpoint()
+    end
     if value == nil then
       if not missing then
         missing = { label = "(no " .. field .. ")", idxs = {} }
@@ -127,6 +135,9 @@ local function build_grouped(count, args)
       for index = from, to, direction do
         size = size + 1
         items[size] = { kind = "entry", idx = idxs[index] }
+        if args.checkpoint and size % CHECKPOINT_EVERY == 0 then
+          args.checkpoint()
+        end
       end
       shown = shown + #idxs
     end

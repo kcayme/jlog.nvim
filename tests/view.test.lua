@@ -22,6 +22,65 @@ describe("view", function()
     assert.are.equal(-1, vim.bo[v.bufnr].undolevels)
   end)
 
+  describe("chunked re-render", function()
+    local tick_ns, trim_slice = view.tick_ns, view.trim_slice
+    local function lines_of(count)
+      local out = {}
+      for i = 1, count do
+        out[i] = string.format('{"msg":"m%d"}', i)
+      end
+      return table.concat(out, "\n")
+    end
+    local function render_and_wait(v, items)
+      local done = false
+      v:render(items, function()
+        done = true
+      end)
+      assert.is_true(vim.wait(2000, function()
+        return done
+      end, 1))
+    end
+
+    before_each(function()
+      -- every batch ends its tick, and stale lines go 7 at a time, so both span many ticks
+      view.tick_ns, view.trim_slice = 0, 7
+    end)
+    after_each(function()
+      view.tick_ns, view.trim_slice = tick_ns, trim_slice
+    end)
+
+    it("should drop the old lines when re-rendering fewer items", function()
+      local v = view.new(make_ws(lines_of(300)))
+      local ids = {}
+      for i = 1, 300 do
+        ids[i] = i
+      end
+      render_and_wait(v, all(ids))
+      assert.are.equal(300, vim.api.nvim_buf_line_count(v.bufnr))
+
+      render_and_wait(v, all({ 5, 6, 7 }))
+      assert.are.same({ "m5", "m6", "m7" }, vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+      assert.are.same({ 1, 2, 3 }, v.line_item)
+
+      render_and_wait(v, {})
+      assert.are.same({ "" }, vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+    end)
+
+    it("should keep lines and maps consistent when a newer render supersedes a chunked one", function()
+      local v = view.new(make_ws(lines_of(300)))
+      local ids = {}
+      for i = 1, 300 do
+        ids[i] = i
+      end
+      render_and_wait(v, all(ids))
+      v:render(all(vim.list_slice(ids, 1, 200)))
+      render_and_wait(v, all({ 9, 10 }))
+      vim.wait(50)
+      assert.are.same({ "m9", "m10" }, vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+      assert.are.equal(#v.line_item, vim.api.nvim_buf_line_count(v.bufnr))
+    end)
+  end)
+
   it("should expand and collapse the entry under the cursor in place", function()
     local ws = make_ws('{"msg":"a","n":1}\n{"msg":"b"}')
     local v = view.new(ws)

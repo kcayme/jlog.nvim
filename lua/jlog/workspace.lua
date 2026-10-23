@@ -272,6 +272,7 @@ Workspace.apply = function(self, on_done, counted)
   local entry, decoded, decoded_done
   local next_index = 1
   local prefilled, collected
+  local cursor_entry
 
   self.generation = generation
   for _, name in ipairs(group.SUMMARY_FIELDS) do
@@ -330,19 +331,7 @@ Workspace.apply = function(self, on_done, counted)
     entry, decoded = nil, nil
   end
 
-  local function finish()
-    local cursor_entry = self.view:entry_at_cursor()
-    local items, shown = group.build(count, {
-      pred = function(index)
-        return matched[index] == true
-      end,
-      field = field,
-      reverse = state.reverse,
-      get = function(index, path)
-        return (path == field and group_values or summary_values[path])[index]
-      end,
-    })
-
+  local function publish(items, shown)
     if counter then
       publish_facets(self, counter)
     end
@@ -357,6 +346,63 @@ Workspace.apply = function(self, on_done, counted)
         on_done()
       end
     end)
+  end
+
+  -- group.build in a coroutine that yields at its checkpoints once the tick's time is up, so a 500k-entry build
+  -- spreads over ticks; results that took more than one tick are published in a tick of their own
+  local function finish()
+    local build_deadline
+    local build = coroutine.create(function()
+      return group.build(count, {
+        pred = function(index)
+          return matched[index] == true
+        end,
+        field = field,
+        reverse = state.reverse,
+        get = function(index, path)
+          return (path == field and group_values or summary_values[path])[index]
+        end,
+        checkpoint = function()
+          if vim.uv.hrtime() >= build_deadline then
+            coroutine.yield()
+          end
+        end,
+      })
+    end)
+    local yielded = false
+
+    cursor_entry = self.view:entry_at_cursor()
+
+    local function resume()
+      local ok, items, shown
+
+      if self.generation ~= generation or self.closed then
+        return
+      end
+      build_deadline = vim.uv.hrtime() + M.timing.tick_ns
+      ok, items, shown = coroutine.resume(build)
+      if not ok then
+        error(items, 0)
+      end
+      if coroutine.status(build) ~= "dead" then
+        yielded = true
+        vim.defer_fn(resume, 0)
+
+        return
+      end
+      if not yielded then
+        publish(items, shown)
+
+        return
+      end
+      vim.defer_fn(function()
+        if self.generation == generation and not self.closed then
+          publish(items, shown)
+        end
+      end, 0)
+    end
+
+    resume()
   end
 
   ---@param sync boolean|nil the first tick, run by apply itself: work that fits in it finishes at once

@@ -71,21 +71,11 @@ local function each_tree(entries)
   end
 end
 
----Median ms for jlog to parse `text` into entries with their field trees, and the Lua MB they hold.
+---Median ms for jlog to parse `text` into entries with their field trees.
 local function jlog_parse(text, format)
-  local baseline, memory_mb, entries
-
-  collectgarbage("collect")
-  baseline = collectgarbage("count")
-  -- held in a local so the collect below measures what the entries keep alive
-  entries = source.build(text, format)
-  each_tree(entries)
-  collectgarbage("collect")
-  memory_mb = (collectgarbage("count") - baseline) / 1024
-
   return median(function()
     each_tree(source.build(text, format))
-  end), memory_mb
+  end)
 end
 
 ---Median ms for `jq args path`, or "-" when jq is not on PATH.
@@ -180,7 +170,7 @@ local function bench_jsonl(size)
     return table.concat(gen.jsonl_lines(size, true), "\n") .. "\n"
   end)
   local pure_lines = vim.split(read_file(pure_path), "\n", { plain = true, trimempty = true })
-  local jlog_ms, memory_mb = jlog_parse(read_file(path), "jsonl")
+  local jlog_ms = jlog_parse(read_file(path), "jsonl")
 
   workspace_rows(input, path)
 
@@ -193,7 +183,6 @@ local function bench_jsonl(size)
       end
     end)),
     jq_cell("-c .", pure_path),
-    string.format("%.0f", memory_mb),
   }
 end
 
@@ -203,7 +192,7 @@ local function bench_array(size)
     return gen.array_text(size)
   end)
   local text = read_file(path)
-  local jlog_ms, memory_mb = jlog_parse(text, "array")
+  local jlog_ms = jlog_parse(text, "array")
 
   workspace_rows(input, path)
 
@@ -214,7 +203,6 @@ local function bench_array(size)
       vim.json.decode(text)
     end)),
     jq_cell("-c '.[]'", path),
-    string.format("%.0f", memory_mb),
   }
 end
 
@@ -255,7 +243,7 @@ local out = {
   "",
 }
 
-table_lines(out, "| input | jlog | vim.json.decode | jq | jlog Lua MB |", "|---|---:|---:|---:|---:|", rows.parsing)
+table_lines(out, "| input | jlog | vim.json.decode | jq |", "|---|---:|---:|---:|", rows.parsing)
 out[#out + 1] =
   "jlog builds its entries and each entry's field tree; it keeps key order and number literals as written."
 out[#out + 1] =
@@ -263,8 +251,6 @@ out[#out + 1] =
 out[#out + 1] = "jq does not build jlog's entry model or continuation lines."
 out[#out + 1] =
   "For jsonl, vim.json.decode and jq read a prefix-free copy of the same lines, since they cannot parse prefixed or continuation lines."
-out[#out + 1] =
-  "jlog Lua MB is approximate: LuaJIT interns strings, so entry strings that equal the input text add nothing."
 if not has_jq then
   out[#out + 1] = "Notice: jq is not on PATH, the jq column was skipped."
 end

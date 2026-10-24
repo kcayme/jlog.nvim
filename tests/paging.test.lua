@@ -1,3 +1,4 @@
+local reader = require("jlog.parse.reader")
 local store = require("jlog.query.store")
 local workspace = require("jlog.workspace")
 
@@ -23,6 +24,7 @@ describe("paging", function()
   local timing = vim.deepcopy(workspace.timing)
   local store_timing = vim.deepcopy(store.timing)
   local load_sizes = vim.deepcopy(workspace.load_sizes)
+  local chunk_size = reader.chunk_size
   local open_index_ns = workspace.open_index_ns
   local path
   local ws
@@ -42,6 +44,7 @@ describe("paging", function()
     workspace.timing = vim.deepcopy(timing)
     store.timing = vim.deepcopy(store_timing)
     workspace.load_sizes = vim.deepcopy(load_sizes)
+    reader.chunk_size = chunk_size
     workspace.open_index_ns = open_index_ns
     if ws then
       ws:close()
@@ -109,13 +112,13 @@ describe("paging", function()
     vim.fn.writefile(log_lines(7000), path)
     workspace.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
     store.timing = { tick_ns = 0 }
-    workspace.load_sizes.chunk = 10
+    reader.chunk_size = 10
     ws = workspace.open({ path = path })
     wait(function()
       return ws.pages:known() >= 2
     end)
     assert.is_true(ws.loading)
-    workspace.load_sizes.chunk = load_sizes.chunk
+    reader.chunk_size = chunk_size
     assert.is_true(ws:goto_page(2))
     wait(function()
       return settled() and ws.page == 2
@@ -237,7 +240,8 @@ describe("paging", function()
     vim.fn.writefile(vim.split("[" .. table.concat(elements, ",\n") .. "]", "\n"), path)
     workspace.timing.tick_ns = 0
     store.timing.tick_ns = 0
-    workspace.load_sizes = { first = 3, chunk = 3 }
+    workspace.load_sizes.first = 3
+    reader.chunk_size = 3
     ws = workspace.open({ path = path })
 
     assert.is_nil(ws.page)
@@ -269,12 +273,12 @@ describe("paging", function()
     wait(function()
       return settled() and ws.pages:count() == 4
     end)
-    workspace.load_sizes.chunk = 10
+    reader.chunk_size = 10
     vim.api.nvim_set_current_win(vim.fn.bufwinid(ws.view.bufnr))
     vim.api.nvim_feedkeys("]p", "mx", false)
     assert.is_true(ws.loading)
     vim.api.nvim_feedkeys("]p", "mx", false)
-    workspace.load_sizes.chunk = load_sizes.chunk
+    reader.chunk_size = chunk_size
     wait(function()
       return settled() and ws.page == 3
     end)

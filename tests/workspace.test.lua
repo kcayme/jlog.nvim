@@ -1,5 +1,6 @@
 local config = require("jlog.config")
 local parallel = require("jlog.parse.parallel")
+local reader = require("jlog.parse.reader")
 local store = require("jlog.query.store")
 local view = require("jlog.ui.view")
 local workers = require("jlog.workers")
@@ -399,9 +400,11 @@ describe("workspace", function()
 
   describe("chunked jsonl loading", function()
     local sizes = vim.deepcopy(workspace.load_sizes)
+    local chunk_size = reader.chunk_size
 
     after_each(function()
       workspace.load_sizes = sizes
+      reader.chunk_size = chunk_size
     end)
 
     it("should load every entry in order, with continuation lines across chunk boundaries", function()
@@ -418,7 +421,8 @@ describe("workspace", function()
       buf = vim.api.nvim_create_buf(true, false)
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
       -- chunks of 3 lines split entries from their continuation lines
-      workspace.load_sizes = { first = 4, chunk = 3 }
+      workspace.load_sizes = { first = 4 }
+      reader.chunk_size = 3
 
       ws = assert(workspace.open({ bufnr = buf }))
       assert.is_true(ws.loading)
@@ -451,7 +455,8 @@ describe("workspace", function()
       end
       buf = vim.api.nvim_create_buf(true, false)
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-      workspace.load_sizes = { first = 4, chunk = 2 }
+      workspace.load_sizes = { first = 4 }
+      reader.chunk_size = 2
       workspace.timing = { tick_ns = 0, publish_ns = 0 }
       store.timing = { tick_ns = 0 }
 
@@ -515,7 +520,8 @@ describe("workspace", function()
       end
       buf = vim.api.nvim_create_buf(true, false)
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-      workspace.load_sizes = { first = 4, chunk = 2 }
+      workspace.load_sizes = { first = 4 }
+      reader.chunk_size = 2
       workspace.timing = { tick_ns = 0, publish_ns = 0 }
       store.timing = { tick_ns = 0 }
       vim.notify = function(msg)
@@ -545,7 +551,8 @@ describe("workspace", function()
       end
       buf = vim.api.nvim_create_buf(true, false)
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-      workspace.load_sizes = { first = 4, chunk = 3 }
+      workspace.load_sizes = { first = 4 }
+      reader.chunk_size = 3
       entry_model.decode = function(...)
         decodes = decodes + 1
         return decode(...)
@@ -579,7 +586,8 @@ describe("workspace", function()
       end
       buf = vim.api.nvim_create_buf(true, false)
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-      workspace.load_sizes = { first = 2, chunk = 2 }
+      workspace.load_sizes = { first = 2 }
+      reader.chunk_size = 2
 
       ws = assert(workspace.open({ bufnr = buf }))
       ws:close()
@@ -589,9 +597,11 @@ describe("workspace", function()
   end)
   describe("chunked element loading", function()
     local sizes = vim.deepcopy(workspace.load_sizes)
+    local chunk_size = reader.chunk_size
 
     after_each(function()
       workspace.load_sizes = sizes
+      reader.chunk_size = chunk_size
     end)
 
     local function write_loki(elements)
@@ -609,7 +619,8 @@ describe("workspace", function()
       local path = write_loki(elements)
       local ws
 
-      workspace.load_sizes = { first = 50, chunk = 50 }
+      workspace.load_sizes = { first = 50 }
+      reader.chunk_size = 50
       ws = assert(workspace.open({ path = path }))
 
       assert.is_true(ws.loading)
@@ -636,7 +647,8 @@ describe("workspace", function()
         elements[index] = { line = '{"msg":"m' .. index .. '"}', timestamp = stamp, fields = { app = "a" } }
       end
       path = write_loki(elements)
-      workspace.load_sizes = { first = 2, chunk = 2 }
+      workspace.load_sizes = { first = 2 }
+      reader.chunk_size = 2
       ws = assert(workspace.open({ path = path }))
 
       assert.is_true(ws.loading)
@@ -763,7 +775,8 @@ describe("workspace", function()
         elements[#elements + 1] = loki_line(stamp)
       end
       vim.fn.writefile({ "[" .. table.concat(elements, ",") .. ',{"line', "tail one", "tail two" }, path)
-      workspace.load_sizes = { first = 2, chunk = 2 }
+      workspace.load_sizes = { first = 2 }
+      reader.chunk_size = 2
       ws = assert(workspace.open({ path = path }))
       done = function()
         return not ws.loading and ws.rendered == ws.store.generation
@@ -854,7 +867,8 @@ describe("workspace", function()
         lines[index] = '{"msg":"m' .. index .. '"}'
       end
       vim.fn.writefile({ "[" .. table.concat(lines, ",") .. "]" }, path)
-      workspace.load_sizes = { first = 2, chunk = 2 }
+      workspace.load_sizes = { first = 2 }
+      reader.chunk_size = 2
       ws = assert(workspace.open({ path = path }))
 
       assert.is_true(ws.loading)

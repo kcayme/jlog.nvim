@@ -32,6 +32,8 @@ local M = {}
 local SCAN_BATCH = 500
 -- entries looked at between checks of the tick's time budget while counting facets
 local COUNT_BATCH = 100
+-- ms between checks for a worker result while every job slot is busy
+local COUNT_WAIT_MS = 2
 
 -- tick_ns: work per tick before yielding (keeps ticks ~16ms)
 M.timing = { tick_ns = 12e6 }
@@ -361,7 +363,8 @@ Store.count = function(self, on_done)
       end
     until not complete or vim.uv.hrtime() >= deadline
     if counting.next_index <= #entries or building[1] or own[1] then
-      vim.defer_fn(tick_threaded, 0)
+      -- stopped short of the deadline with jobs out: wait for a result instead of spinning
+      vim.defer_fn(tick_threaded, own[1] and vim.uv.hrtime() < deadline and COUNT_WAIT_MS or 0)
 
       return
     end

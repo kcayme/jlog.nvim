@@ -60,20 +60,29 @@ local function append_slice(entries, text, chunk, pos, lnum, max_lines)
   local positions = chunk.positions
   local first_line = chunk.next_line
   local last_line = math.min(#positions, first_line + max_lines - 1)
-  local line_end, line, last, json_at
+  local total = #positions
+  local line_end, line, last, json_at, count
 
+  count = #entries
   for index = first_line, last_line do
-    line_end = index < #positions and text:find("\n", pos, true) - 1 or chunk.last
-    line = text:sub(pos, line_end):gsub("\r$", "")
+    line_end = index < total and text:find("\n", pos, true) - 1 or chunk.last
+    line = text:sub(pos, line_end)
     pos = line_end + 2
-    if line:find("%S") then
-      last = entries[#entries]
-      json_at = positions[index] ~= 0 and positions[index] or nil
-      if not json_at and last and last.json_at then
+    json_at = positions[index]
+    if text:byte(line_end) == 13 then
+      line = line:sub(1, -2)
+    end
+    if json_at ~= 0 then
+      count = count + 1
+      entries[count] = { src = lnum + index - first_line, raw = line, body = line, json_at = json_at }
+    elseif line:find("%S") then
+      last = entries[count]
+      if last and last.json_at then
         last.cont = last.cont or {}
         last.cont[#last.cont + 1] = line
       else
-        entries[#entries + 1] = { src = lnum + index - first_line, raw = line, body = line, json_at = json_at }
+        count = count + 1
+        entries[count] = { src = lnum + index - first_line, raw = line, body = line }
       end
     end
   end

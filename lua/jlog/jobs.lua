@@ -17,7 +17,9 @@ M.parse_lines = function(payload)
 
   for index, line in ipairs(lines) do
     json_at = nil
-    line = line:gsub("\r$", "")
+    if line:byte(-1) == 13 then
+      line = line:sub(1, -2)
+    end
     if line:find("%S") then
       json_at, decoded = json.object_at(line)
       if json_at then

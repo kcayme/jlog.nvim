@@ -513,12 +513,14 @@ local function create_buffer(view)
       end)
     end,
   })
-  -- reaching line 1 (`gg`, `k`) scrolls to the line, not to the header above it
-  vim.api.nvim_create_autocmd("CursorMoved", {
+  -- reaching line 1 (`k`) or scrolling with the cursor on it (`zz`, `<C-u>`) leaves the header above it hidden
+  vim.api.nvim_create_autocmd({ "CursorMoved", "WinScrolled" }, {
     buffer = bufnr,
-    callback = function()
-      if vim.fn.line(".") == 1 then
-        show_first_header(view, vim.api.nvim_get_current_win())
+    callback = function(args)
+      local winid = args.event == "WinScrolled" and tonumber(args.match) or vim.api.nvim_get_current_win()
+
+      if vim.api.nvim_win_get_buf(winid) == bufnr and vim.fn.line(".", winid) == 1 then
+        show_first_header(view, winid)
       end
     end,
   })

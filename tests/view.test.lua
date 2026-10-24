@@ -307,6 +307,22 @@ describe("view", function()
     assert.are.equal("▾ g  2 entries", vim.fn.foldtextresult(1))
   end)
 
+  it("should show the first header again when a scroll hides it with the cursor on line 1", function()
+    local ws = make_ws('{"msg":"a"}\n{"msg":"b"}')
+    local v = view.new(ws)
+    v:render({ { kind = "header", group = { label = "g", idxs = { 1, 2 } } }, unpack(all({ 1, 2 })) })
+    vim.api.nvim_win_set_buf(0, v.bufnr)
+    assert.is_true(vim.wait(100, function()
+      return vim.fn.winsaveview().topfill == 1
+    end))
+    -- scrolls the header away without moving the cursor, as `zz` does at the top under scrolloff=999
+    vim.api.nvim_feedkeys(vim.keycode("<C-e>"), "x", false)
+    assert.are.equal(0, vim.fn.winsaveview().topfill)
+    -- headless Neovim has no main loop to fire WinScrolled
+    vim.api.nvim_exec_autocmds("WinScrolled", { pattern = tostring(vim.api.nvim_get_current_win()) })
+    assert.are.equal(1, vim.fn.winsaveview().topfill)
+  end)
+
   it("should keep the header when the group's first entry is expanded in place", function()
     local ws = make_ws('{"msg":"a"}')
     local v = view.new(ws)

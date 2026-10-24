@@ -51,7 +51,7 @@ estimates, marked `~`.
 Work that outlasts the first screen (loading, indexing pages, applying a filter or group, rendering) reports its
 progress: one message when it starts and one when it is done. On Neovim 0.12+ these are progress messages, so a UI that
 draws progress (such as a notification plugin) can show a spinner while the work runs; on older versions, or with
-`progress = "notify"`, they go through `vim.notify`.
+`progress = "notify"`, they go through `vim.notify`; `progress = "off"` turns them off.
 
 While a large page is still filling in the background, `/` may match the raw text of rows not yet rendered, and
 miss text that only exists in the compact form (formatted times, flattened nested keys); it is exact once rendering is
@@ -161,7 +161,7 @@ require("jlog").setup({
   sidebar = { width = 40, position = "right" },
   facets = { top_values = 10 },
   paging = { size = 100000, overlap = 2000 }, -- source lines (JSONL) or array elements
-  progress = "auto", -- "auto": progress messages on Neovim 0.12+, else vim.notify; "notify": always vim.notify
+  progress = "auto", -- "auto" (progress messages on Neovim 0.12+), "notify" (always vim.notify) or "off"
   keymaps = {
     toggle_entry = "<CR>",
     toggle_mode = "E",

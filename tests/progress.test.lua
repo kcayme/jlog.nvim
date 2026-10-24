@@ -60,6 +60,17 @@ describe("progress", function()
     assert.are.same({}, events)
   end)
 
+  it("should report nothing when the progress option is off", function()
+    require("jlog.config").setup({ progress = "off" })
+    progress.begin("ws", "render", "rendering…")
+    progress.finish("ws", "render", "rendering done")
+    progress.cancel("ws")
+    require("jlog.config").setup()
+
+    assert.are.same({}, notes)
+    assert.are.same({}, events)
+  end)
+
   it("should not report done for work that never reported its start", function()
     progress.finish("ws", "render", "rendering done")
 

@@ -43,6 +43,10 @@ end
 M.begin = function(ws_key, kind, message)
   local id = id_of(ws_key, kind)
 
+  -- untracked, so its finish and cancel report nothing either
+  if config.options.progress == "off" then
+    return
+  end
   running[id] = ws_key
   if not use_progress() then
     vim.notify("jlog: " .. message, vim.log.levels.INFO)

@@ -69,7 +69,7 @@
 ---@field group_by string|false
 ---@field help string|false
 
----@alias JLogProgress "auto"|"notify"
+---@alias JLogProgress "auto"|"notify"|"off"
 
 ---@class JLogOptions
 ---@field fields JLogFieldsOptions
@@ -80,7 +80,7 @@
 ---@field paging JLogPagingOptions
 ---@field keymaps JLogKeymapsOptions
 ---@field compact JLogCompactOptions
----@field progress JLogProgress how long work reports: `auto` uses progress messages on Neovim 0.12+, else `vim.notify`
+---@field progress JLogProgress `auto` (Neovim 0.12+ progress messages, else `vim.notify`), `notify` or `off`
 
 local M = {}
 

@@ -11,15 +11,12 @@ Each contender reads the whole input into records.
 | jsonl 10k | jlog parse only | 69 | 145728 | 0 |
 | jsonl 10k | vim.json.decode per line (pure lines) | 11 | 885630 | - |
 | jsonl 10k | jq -c . (pure lines) | 53 | 187642 | - |
-| jsonl 10k | jq . (pure lines) | 58 | 173391 | - |
 | jsonl 100k | jlog parse only | 1087 | 92029 | 4 |
 | jsonl 100k | vim.json.decode per line (pure lines) | 132 | 758754 | - |
 | jsonl 100k | jq -c . (pure lines) | 495 | 201901 | - |
-| jsonl 100k | jq . (pure lines) | 534 | 187251 | - |
 | jsonl 500k | jlog parse only | 5380 | 92932 | 38 |
 | jsonl 500k | vim.json.decode per line (pure lines) | 848 | 589812 | - |
 | jsonl 500k | jq -c . (pure lines) | 2464 | 202959 | - |
-| jsonl 500k | jq . (pure lines) | 2637 | 189581 | - |
 | array 10k | jlog parse only | 49 | 203859 | -1 |
 | array 10k | vim.json.decode array | 11 | 916557 | - |
 | array 10k | jq -c '.[]' | 64 | 156668 | - |

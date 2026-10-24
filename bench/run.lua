@@ -220,7 +220,6 @@ local function bench_jsonl(size)
   )
   if has_jq then
     jq_row(input, "jq -c . (pure lines)", #pure_lines, "-c .", pure_path)
-    jq_row(input, "jq . (pure lines)", #pure_lines, ".", pure_path)
   end
 
   return count

@@ -3,6 +3,7 @@ local detect = require("jlog.parse.detect")
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")
+local layout = require("jlog.workspace.layout")
 local pages = require("jlog.parse.pages")
 local reader = require("jlog.parse.reader")
 local sidebar_mod = require("jlog.ui.sidebar")
@@ -62,6 +63,9 @@ local utils = require("jlog.utils")
 ---@field shown integer entries shown by the last apply, for the winbar
 local Workspace = {}
 Workspace.__index = Workspace
+Workspace.focus_sidebar = layout.focus_sidebar
+Workspace.toggle_sidebar = layout.toggle_sidebar
+Workspace.open_raw = layout.open_raw
 
 local M = {}
 
@@ -134,86 +138,6 @@ local function read_source(path, bufnr)
   end
 
   return table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
-end
-
----An empty, unmodified buffer, unnamed or named after the file (e.g. a buffer for a file that did not exist yet).
----@param bufnr integer
----@param path string|nil
----@return boolean
-local function is_placeholder(bufnr, path)
-  local name = vim.api.nvim_buf_get_name(bufnr)
-
-  return (name == "" or name == path)
-    and not vim.bo[bufnr].modified
-    and vim.api.nvim_buf_line_count(bufnr) == 1
-    and vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] == ""
-end
-
----Wipe empty, unmodified buffers named `path`: `:tabedit` would reuse one unread and `:w` would truncate the file.
----@param path string
-local function wipe_placeholders(path)
-  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-    if
-      vim.api.nvim_buf_get_name(bufnr) == path
-      and vim.api.nvim_buf_is_loaded(bufnr)
-      and is_placeholder(bufnr, path)
-    then
-      pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
-    end
-  end
-end
-
----@param ws JLogWorkspace
----@param bufnr integer
----@return integer|nil
-local function window_in_tab(ws, bufnr)
-  if not vim.api.nvim_tabpage_is_valid(ws.tab) then
-    return nil
-  end
-  for _, winid in ipairs(vim.api.nvim_tabpage_list_wins(ws.tab)) do
-    if vim.api.nvim_win_get_buf(winid) == bufnr then
-      return winid
-    end
-  end
-
-  return nil
-end
-
----@param ws JLogWorkspace
----@return integer winid
-local function open_sidebar_window(ws)
-  local winid = vim.api.nvim_open_win(ws.sidebar.bufnr, false, {
-    split = ws.opts.sidebar.position,
-    win = window_in_tab(ws, ws.view.bufnr) or vim.api.nvim_tabpage_get_win(ws.tab),
-    width = ws.opts.sidebar.width,
-  })
-  local wo = vim.wo[winid][0]
-
-  wo.number = false
-  wo.relativenumber = false
-  wo.wrap = false
-  wo.winfixwidth = true
-
-  return winid
-end
-
----@param ws JLogWorkspace
----@param path string|nil
-local function create_layout(ws, path)
-  local current_win = vim.api.nvim_get_current_win()
-  local reuse = #vim.api.nvim_tabpage_list_wins(0) == 1 and is_placeholder(vim.api.nvim_win_get_buf(current_win), path)
-  local view_win
-
-  if not reuse then
-    vim.cmd("tabnew")
-  end
-  -- wipe the empty buffer once the view replaces it: a kept one would let `:tabedit` then `:w` truncate the file
-  vim.bo.bufhidden = "wipe"
-  ws.tab = vim.api.nvim_get_current_tabpage()
-  view_win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(view_win, ws.view.bufnr)
-  open_sidebar_window(ws)
-  vim.api.nvim_set_current_win(view_win)
 end
 
 ---@param lines string[]
@@ -293,7 +217,7 @@ local function publish_partial(ws, counter, progress)
   if #counter.names <= ws.published.names or now - ws.published.at < M.timing.publish_ns then
     return
   end
-  if not window_in_tab(ws, ws.sidebar.bufnr) or vim.bo[ws.sidebar.bufnr].modified then
+  if not layout.window_in_tab(ws, ws.sidebar.bufnr) or vim.bo[ws.sidebar.bufnr].modified then
     return
   end
   ws.published.at = now
@@ -307,7 +231,7 @@ end
 Workspace.apply = function(self, on_done, counted)
   local state = self.state
   local field = state.group and filter.unescape_field(state.group)
-  local counts = window_in_tab(self, self.sidebar.bufnr) ~= nil
+  local counts = layout.window_in_tab(self, self.sidebar.bufnr) ~= nil
   local lines = vim.deepcopy(state.filters)
   local pred, errors, invalid
   local prefilled
@@ -390,29 +314,6 @@ end
 Workspace.toggle_reverse = function(self)
   self.state.reverse = not self.state.reverse
   self:apply()
-end
-
-Workspace.focus_sidebar = function(self)
-  local winid = window_in_tab(self, self.sidebar.bufnr)
-
-  if not winid then
-    winid = open_sidebar_window(self)
-    -- facets are skipped while the sidebar is hidden
-    self:apply()
-  end
-  vim.api.nvim_set_current_win(winid)
-end
-
-Workspace.toggle_sidebar = function(self)
-  local winid = window_in_tab(self, self.sidebar.bufnr)
-
-  if not winid then
-    open_sidebar_window(self)
-    self:apply()
-
-    return
-  end
-  pcall(vim.api.nvim_win_close, winid, false)
 end
 
 ---Show the new entries `from..` in a flat view without a full apply. Returns false when an apply is needed.
@@ -914,27 +815,6 @@ Workspace.field_names = function(self)
   return names
 end
 
----Open the source as a normal buffer in a new tab, at `lnum`. The only way jlog opens a raw file.
----@param lnum integer|nil
-Workspace.open_raw = function(self, lnum)
-  local ok, err
-
-  if self.path then
-    wipe_placeholders(self.path)
-    ok, err = pcall(vim.cmd.tabedit, vim.fn.fnameescape(self.path))
-  else
-    ok, err = pcall(vim.cmd, "tab sbuffer " .. self.bufnr)
-  end
-  if not ok then
-    vim.notify("jlog: " .. tostring(err), vim.log.levels.ERROR)
-
-    return
-  end
-  if lnum then
-    pcall(vim.api.nvim_win_set_cursor, 0, { lnum, 0 })
-  end
-end
-
 ---@param key string
 ---@return JLogWorkspace|nil
 M.find = function(key)
@@ -1063,7 +943,7 @@ M.open = function(target)
   ws.store = store_mod.new(ws)
   ws.view = view_mod.new(ws)
   ws.sidebar = sidebar_mod.new(ws)
-  create_layout(ws, path)
+  layout.create(ws, path)
 
   registry[key] = ws
   tune_gc()

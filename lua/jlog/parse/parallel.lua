@@ -1,4 +1,3 @@
-local facets = require("jlog.query.facets")
 local source = require("jlog.parse.source")
 local workers = require("jlog.workers")
 
@@ -124,7 +123,7 @@ M.line_reader = function(text, pos, lnum, stop)
     return true
   end
 
-  return function(entries, on_json, count, counter)
+  return function(entries, on_json, count, on_fields)
     local lines, chunk, decoded, appended, gave_up
 
     -- chunks already out still report, as a result or an error
@@ -173,8 +172,8 @@ M.line_reader = function(text, pos, lnum, stop)
     if chunk.next_line > #chunk.positions then
       table.remove(chunks, 1)
       pos = chunk.next_pos
-      if counter then
-        facets.merge(counter, chunk.fields)
+      if on_fields then
+        on_fields(chunk.fields)
       end
     end
 

@@ -15,12 +15,15 @@ local function load(text, threaded)
   local function count_entry(entry, decoded)
     facets.add(counter, entry_model.flatten(entry, decoded))
   end
+  local function merge_fields(fields)
+    facets.merge(counter, fields)
+  end
 
   workers.disabled = not threaded or nil
   fraction = read(entries, count_entry, 200)
   -- bounded, so a load that never finishes fails instead of hanging
   while fraction and vim.uv.now() < give_up do
-    fraction, waiting = read(entries, count_entry, nil, counter)
+    fraction, waiting = read(entries, count_entry, nil, merge_fields)
     if waiting then
       vim.wait(10)
     end
@@ -165,7 +168,7 @@ describe("parallel", function()
     workers.in_flight = function()
       return 99
     end
-    fraction, waiting = read(entries, nil, nil, facets.counter())
+    fraction, waiting = read(entries, nil, nil)
 
     assert.is_true(waiting)
     assert.is_not_nil(fraction)
@@ -189,7 +192,7 @@ describe("parallel", function()
     end
     fraction = read(entries, nil, 200)
     while fraction and vim.uv.now() < give_up do
-      fraction, waiting = read(entries, nil, nil, facets.counter())
+      fraction, waiting = read(entries, nil, nil)
       if waiting then
         vim.wait(10)
       end
@@ -198,7 +201,7 @@ describe("parallel", function()
     for _, deliver in ipairs(late) do
       deliver()
     end
-    read(entries, nil, nil, facets.counter())
+    read(entries, nil, nil)
 
     assert.is_nil(fraction)
     assert.is_true(#late > 0)

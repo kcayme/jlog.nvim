@@ -85,12 +85,16 @@ local function load_rest(ws, entries, read, on_done, counter, token, notified)
     and function(entry, decoded)
       facets.add(counter, entry_model.flatten(entry, decoded))
     end
+  -- field counts a worker thread found for a chunk it parsed
+  local merge_fields = counter and function(fields)
+    facets.merge(counter, fields)
+  end
 
   if ws.closed or (token and ws.load_token ~= token) then
     return
   end
   repeat
-    fraction, waiting = read(entries, count_entry, nil, counter)
+    fraction, waiting = read(entries, count_entry, nil, merge_fields)
   until not fraction or waiting or vim.uv.hrtime() >= deadline
   if fraction then
     progress = "loading " .. math.floor(fraction * 100) .. "%"

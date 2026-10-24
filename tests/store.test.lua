@@ -304,5 +304,39 @@ describe("store", function()
       assert.are.same(exact(expected), exact(before))
       assert.are.same(before, facets.result(counter, 5))
     end)
+
+    it("should release a stalled batch's entries while its worker never answers", function()
+      local pending = {}
+      local done = false
+
+      store_mod.count_batch_bytes = 4096
+      store.source.entries = source.build(build_lines(), "jsonl")
+      workers.stall_ms = 50
+      -- the transport keeps every callback until its worker answers, as `workers.run` does
+      workers.run = function(_, _, on_result)
+        pending[#pending + 1] = on_result
+      end
+      workers.disabled = nil
+      store:query(function()
+        return true
+      end, nil, function() end)
+      store:count(function()
+        done = true
+      end)
+      assert.is_true(vim.wait(5000, function()
+        return done
+      end, 10))
+
+      assert.is_true(#pending > 0)
+      for _, on_result in ipairs(pending) do
+        local index, name, batch = 1, nil, nil
+
+        repeat
+          name, batch = debug.getupvalue(on_result, index)
+          index = index + 1
+        until name == nil or name == "batch"
+        assert.is_nil(batch.entries)
+      end
+    end)
   end)
 end)

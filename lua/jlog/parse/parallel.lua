@@ -125,7 +125,7 @@ M.line_reader = function(text, pos, lnum, stop)
   end
 
   return function(entries, on_json, count, counter)
-    local lines, chunk, decoded, appended
+    local lines, chunk, decoded, appended, gave_up
 
     -- chunks already out still report, as a result or an error
     fallback = fallback or (not chunks[1] and not workers.available())
@@ -146,12 +146,14 @@ M.line_reader = function(text, pos, lnum, stop)
       progress.at = vim.uv.now()
     end
     chunk = chunks[1]
-    if not chunk then
-      -- no chunk out and work remains: the cap is full of other jobs
-      return fraction(), cut <= stop and not stalled() or nil
+    if not chunk and cut > stop then
+      return fraction()
     end
-    if not chunk.done then
-      return fraction(), not stalled() or nil
+    -- no chunk out means the cap is full of other jobs; either way this call waits on workers
+    if not chunk or not chunk.done then
+      gave_up = stalled()
+
+      return fraction(), not gave_up or nil
     end
     if chunk.err then
       -- the chunks still out are dropped; their lines are parsed here from `pos` on

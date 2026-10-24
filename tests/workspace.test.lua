@@ -885,6 +885,8 @@ describe("workspace", function()
     local run = workers.run
     local stall_ms = workers.stall_ms
     local path
+    -- a workspace a test leaves open when an assertion fails before its own close
+    local opened
 
     before_each(function()
       parallel.min_bytes = 0
@@ -893,6 +895,10 @@ describe("workspace", function()
       vim.fn.writefile(gen.nested_lines(20000), path)
     end)
     after_each(function()
+      if opened then
+        opened:close()
+        opened = nil
+      end
       parallel.chunk_bytes = chunk_bytes
       parallel.min_bytes = min_bytes
       parallel.line_reader = line_reader
@@ -1026,6 +1032,7 @@ describe("workspace", function()
       workers.run = function() end
       lists = spy_readers()
       ws = assert(workspace.open({ path = path }))
+      opened = ws
       assert.is_true(vim.wait(5000, function()
         return lists[#lists]
       end, 1))

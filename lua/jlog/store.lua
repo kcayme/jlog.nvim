@@ -346,6 +346,8 @@ Store.count = function(self, on_done)
       stalled = true
       for _, out in ipairs(own) do
         count_here(counting.counter, out.entries)
+        -- the transport keeps the batch until its worker answers, which may be never
+        out.entries = nil
       end
       own = {}
     end

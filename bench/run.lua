@@ -1,8 +1,7 @@
--- Benchmark: jlog parse/render vs vim.json.decode and jq. Dev-only. Run with `make bench > bench/results.md`.
+-- Benchmark: jlog parsing vs vim.json.decode and jq, plus workspace actions. Run with `make bench > bench/results.md`.
 local gen = dofile("bench/gen.lua")
 local source = require("jlog.parse.source")
 local entry_model = require("jlog.parse.entry")
-local render = require("jlog.ui.render")
 local config = require("jlog.config")
 local workspace = require("jlog.workspace")
 
@@ -105,26 +104,6 @@ local function jlog_rows(input, text, format)
       each_tree(source.build(text, format))
     end),
     memory_mb
-  )
-  add_row(
-    input,
-    "jlog parse + compact render",
-    #entries,
-    median(function()
-      for _, entry in ipairs(source.build(text, format)) do
-        render.compact(entry, opts, true)
-      end
-    end)
-  )
-  add_row(
-    input,
-    "jlog parse + expanded render",
-    #entries,
-    median(function()
-      for _, entry in ipairs(source.build(text, format)) do
-        render.expanded(entry, opts)
-      end
-    end)
   )
 
   return #entries
@@ -247,12 +226,38 @@ local function bench_jsonl(size)
   return count
 end
 
+local function bench_array(size)
+  local input = string.format("array %dk", size / 1000)
+  local path = ensure("array-" .. size .. ".json", function()
+    return gen.array_text(size)
+  end)
+  local text = read_file(path)
+  local count = jlog_rows(input, text, "array")
+
+  workspace_rows(input, path)
+
+  add_row(
+    input,
+    "vim.json.decode array",
+    count,
+    median(function()
+      vim.json.decode(text)
+    end)
+  )
+  if has_jq then
+    jq_row(input, "jq -c '.[]'", count, "-c '.[]'", path)
+  end
+end
+
 vim.fn.mkdir(DATA_DIR, "p")
 require("jlog").setup()
 opts = config.options
 
 for _, size in ipairs(SIZES) do
   bench_jsonl(size)
+end
+for _, size in ipairs(SIZES) do
+  bench_array(size)
 end
 
 ---Append a Markdown table of `list` to `out`, with its header and alignment rows.

@@ -128,6 +128,13 @@ M.nested_lines = function(count, pure)
   return lines_of(count, pure, nested_json_line)
 end
 
+---A plain JSON array of the bare JSON lines, one element per line.
+---@param count integer
+---@return string
+M.array_text = function(count)
+  return "[\n" .. table.concat(M.jsonl_lines(count, true), ",\n") .. "\n]\n"
+end
+
 ---Loki export (JSON array of {line, timestamp, fields}); `line` is a JSON log, every 10th a plain text line.
 ---@param count integer
 ---@param newest_first boolean|nil list the newest element first, as Grafana exports do

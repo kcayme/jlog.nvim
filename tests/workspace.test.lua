@@ -3,7 +3,7 @@ local parallel = require("jlog.parse.parallel")
 local reader = require("jlog.parse.reader")
 local store = require("jlog.query.store")
 local view = require("jlog.ui.view")
-local workers = require("jlog.workers")
+local workers = require("jlog.worker")
 local workspace = require("jlog.workspace")
 local loader = require("jlog.workspace.loader")
 

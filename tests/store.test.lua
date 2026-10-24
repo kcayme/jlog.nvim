@@ -4,7 +4,7 @@ local filter = require("jlog.query.filter")
 local source = require("jlog.parse.source")
 local facets = require("jlog.query.facets")
 local store_mod = require("jlog.query.store")
-local workers = require("jlog.workers")
+local workers = require("jlog.worker")
 
 local TEXT = table.concat({
   '{"status":200,"request_id":"a"}',
@@ -279,7 +279,7 @@ describe("store", function()
       workers.stall_ms = 50
       workers.run = function(job, payload, on_result)
         late[#late + 1] = function()
-          on_result(nil, require("jlog.jobs")[job](payload))
+          on_result(nil, require("jlog.worker.jobs")[job](payload))
         end
       end
       workers.disabled = nil

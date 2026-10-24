@@ -1,4 +1,4 @@
-local workers = require("jlog.workers")
+local workers = require("jlog.worker")
 
 local function wait_for(callback_args)
   vim.wait(2000, function()
@@ -14,15 +14,15 @@ describe("workers", function()
     workers.disabled = nil
     vim.uv.new_work = real_new_work
     package.path = real_path
-    package.loaded["jlog.workers"] = nil
-    workers = require("jlog.workers")
+    package.loaded["jlog.worker"] = nil
+    workers = require("jlog.worker")
   end)
 
   it("should report an error and release the slot when queueing raises", function()
     local got = {}
 
-    package.loaded["jlog.workers"] = nil
-    workers = require("jlog.workers")
+    package.loaded["jlog.worker"] = nil
+    workers = require("jlog.worker")
     workers.run("parse_lines", {}, function(err)
       got.err, got.done = err, true
     end)
@@ -42,8 +42,8 @@ describe("workers", function()
         end,
       }
     end
-    package.loaded["jlog.workers"] = nil
-    workers = require("jlog.workers")
+    package.loaded["jlog.worker"] = nil
+    workers = require("jlog.worker")
     workers.run("parse_lines", "x", function(err)
       got.err, got.done = err, true
     end)
@@ -59,8 +59,8 @@ describe("workers", function()
     vim.uv.new_work = function()
       error("no threads")
     end
-    package.loaded["jlog.workers"] = nil
-    workers = require("jlog.workers")
+    package.loaded["jlog.worker"] = nil
+    workers = require("jlog.worker")
     workers.run("parse_lines", "x", function(err)
       got.err, got.done = err, true
     end)
@@ -75,15 +75,15 @@ describe("workers", function()
     local script = dir .. "/run.lua"
     local result
 
-    -- a child process keeps the fake jlog.jobs out of this process's cached pool threads
-    vim.fn.mkdir(dir .. "/jlog", "p")
-    vim.fn.writefile({ "return { bad = function() return {} end }" }, dir .. "/jlog/jobs.lua")
+    -- a child process keeps the fake jlog.worker.jobs out of this process's cached pool threads
+    vim.fn.mkdir(dir .. "/jlog/worker", "p")
+    vim.fn.writefile({ "return { bad = function() return {} end }" }, dir .. "/jlog/worker/jobs.lua")
     vim.fn.writefile({
       "package.path = '" .. dir .. "/?.lua;' .. package.path",
-      -- no rtp: the thread's own rtp loader would find the real jlog.jobs first
+      -- no rtp: the thread's own rtp loader would find the real jlog.worker.jobs first
       "package.path = package.path .. ';" .. vim.fn.getcwd() .. "/lua/?.lua;" .. vim.fn.getcwd() .. "/lua/?/init.lua'",
       "local done",
-      "require('jlog.workers').run('bad', 'x', function(err, res)",
+      "require('jlog.worker').run('bad', 'x', function(err, res)",
       "  io.stdout:write(tostring(err) .. '|' .. tostring(res))",
       "  done = true",
       "end)",
@@ -157,7 +157,7 @@ describe("workers", function()
 
   it("should fall back when the plugin path cannot be resolved", function()
     local got = {}
-    local source = table.concat(vim.fn.readfile("lua/jlog/workers.lua"), "\n")
+    local source = table.concat(vim.fn.readfile("lua/jlog/worker/init.lua"), "\n")
     local unresolved = load(source, "=unresolvable")()
 
     unresolved.run("parse_lines", "x", function(err)

@@ -1,5 +1,5 @@
 local source = require("jlog.parse.source")
-local workers = require("jlog.workers")
+local workers = require("jlog.worker")
 
 ---@class JLogChunk
 ---@field first integer first byte

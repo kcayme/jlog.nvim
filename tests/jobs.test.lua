@@ -1,4 +1,4 @@
-local jobs = require("jlog.jobs")
+local jobs = require("jlog.worker.jobs")
 local json = require("jlog.parse.json")
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")

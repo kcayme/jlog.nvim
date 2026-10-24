@@ -424,7 +424,7 @@ for _, count in ipairs(SIZES) do
       end)
 
       describe("on workers", function()
-        local workers = require("jlog.workers")
+        local workers = require("jlog.worker")
         local config = require("jlog.config")
         local saved_options
 

@@ -1,7 +1,7 @@
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local parallel = require("jlog.parse.parallel")
-local workers = require("jlog.workers")
+local workers = require("jlog.worker")
 
 local gen = dofile("bench/gen.lua")
 
@@ -187,7 +187,7 @@ describe("parallel", function()
     workers.stall_ms = 50
     workers.run = function(job, payload, on_result)
       late[#late + 1] = function()
-        on_result(nil, require("jlog.jobs")[job](payload))
+        on_result(nil, require("jlog.worker.jobs")[job](payload))
       end
     end
     fraction = read(entries, nil, 200)

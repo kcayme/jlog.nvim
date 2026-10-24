@@ -2,7 +2,7 @@ local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local group = require("jlog.query.group")
 local utils = require("jlog.utils")
-local workers = require("jlog.workers")
+local workers = require("jlog.worker")
 
 ---@class JLogStoreSource
 ---@field entries JLogEntry[]

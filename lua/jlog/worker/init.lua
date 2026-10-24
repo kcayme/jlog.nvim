@@ -6,7 +6,7 @@ local next_id = 0
 local callbacks = {}
 local pending = 0
 
-local plugin_lua = debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]jlog[/\\]workers%.lua$")
+local plugin_lua = debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]jlog[/\\]worker[/\\]init%.lua$")
 
 -- The work function is string.dump-ed to the thread: no upvalues, everything arrives as arguments.
 local function work_fn(path, job, payload, id)
@@ -14,7 +14,7 @@ local function work_fn(path, job, payload, id)
 
   package.path = path
   ok, result = pcall(function()
-    return require("jlog.jobs")[job](payload)
+    return require("jlog.worker.jobs")[job](payload)
   end)
   if ok and type(result) ~= "string" then
     ok, result = false, "job returned " .. type(result) .. ", expected a string"
@@ -59,7 +59,7 @@ M.in_flight = function()
   return pending
 end
 
----Runs a job from jlog.jobs on a worker thread; on_result runs on the main loop.
+---Runs a job from jlog.worker.jobs on a worker thread; on_result runs on the main loop.
 ---@param job string
 ---@param payload string
 ---@param on_result fun(err: string|nil, result: string|nil)

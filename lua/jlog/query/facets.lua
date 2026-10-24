@@ -33,8 +33,14 @@ local function by_count(left, right)
   return left.value < right.value
 end
 
+---@class JLogFacetField
+---@field counts table<string, integer>
+---@field distinct integer
+---@field capped boolean
+---@field estimated boolean|nil
+
 ---@class JLogFacetCounter
----@field fields table<string, {counts: table<string, integer>, distinct: integer, capped: boolean, estimated: boolean|nil}>
+---@field fields table<string, JLogFacetField>
 ---@field names string[]
 
 ---Incremental counting, so a caller can feed flattened entries as it produces them.

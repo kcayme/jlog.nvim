@@ -557,8 +557,10 @@ local function replace_entries(ws, entries)
   end)
 end
 
----Reads `count` more units (default `load_sizes.chunk`) into `entries`; returns the fraction read (nil when done) and true while waiting on workers.
----@alias JLogReader fun(entries: JLogEntry[], on_json: function|nil, count: integer|nil, counter: JLogFacetCounter|nil): number|nil, boolean|nil
+---Reads `count` more units (default `load_sizes.chunk`) into `entries`; returns the fraction read (nil when done)
+---and true while waiting on workers.
+---@alias JLogReader fun(entries: JLogEntry[], on_json: function|nil, count: integer|nil,
+---counter: JLogFacetCounter|nil): number|nil, boolean|nil
 
 ---@param text string
 ---@param pos integer byte position of the next unparsed line

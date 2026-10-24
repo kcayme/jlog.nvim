@@ -68,6 +68,29 @@ local function is_expanded(view, item)
   return (state.mode == "expanded") ~= (state.expanded[item.idx] == true)
 end
 
+---An entry expanded in a compact view: its compact line, then the indented view, unless both read the same.
+---@param view JLogView
+---@param entry JLogEntry
+---@param lines_only boolean
+---@return string[] lines
+---@return JLogSpan[][] spans
+local function expanded_in_compact(view, entry, lines_only)
+  local lines, spans = render.expanded(entry, view.ws.opts)
+  local compact, compact_spans = render.compact(entry, view.ws.opts, lines_only)
+  -- the compact line without its continuation lines, which the indented view repeats
+  local head_count = #compact - #(entry.cont or {})
+
+  if vim.deep_equal(compact, lines) then
+    return lines, spans
+  end
+  for index = head_count, 1, -1 do
+    table.insert(lines, 1, compact[index])
+    table.insert(spans, 1, compact_spans and compact_spans[index] or {})
+  end
+
+  return lines, spans
+end
+
 ---@param view JLogView
 ---@param item JLogItem
 ---@param lines_only boolean
@@ -77,6 +100,9 @@ local function item_lines(view, item, lines_only)
   -- a group header takes no line: it is a virtual line above the group's first entry
   if item.kind == "header" then
     return {}, {}
+  end
+  if is_expanded(view, item) and view.ws.state.mode == "compact" then
+    return expanded_in_compact(view, view.ws.entries[item.idx], lines_only)
   end
   if is_expanded(view, item) then
     return render.expanded(view.ws.entries[item.idx], view.ws.opts)

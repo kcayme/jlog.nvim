@@ -82,7 +82,7 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
 
 | Key | Where | Action |
 |-----|-------|--------|
-| `<CR>` | log view | Expand/collapse the entry under the cursor |
+| `<CR>` | log view | Expand/collapse the entry under the cursor, keeping its compact line on top |
 | `E` | log view | Toggle the whole view between compact and expanded |
 | `gf` | log view | Show the entry's raw source text in a float (press again in the float to jump to the source line, JSONL only) |
 | `R` | log view | Reverse order |

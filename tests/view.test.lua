@@ -549,7 +549,7 @@ describe("view", function()
 
   describe("placeholder layout", function()
     local render = require("jlog.ui.render")
-    local placeholder_min, fold_expr_limit = view.placeholder_min, view.fold_expr_limit
+    local placeholder_min, fold_expr_limit, tick_ns = view.placeholder_min, view.fold_expr_limit, view.tick_ns
     local function json_lines(count)
       local out = {}
       for i = 1, count do
@@ -576,7 +576,7 @@ describe("view", function()
       view.placeholder_min = 0
     end)
     after_each(function()
-      view.placeholder_min, view.fold_expr_limit = placeholder_min, fold_expr_limit
+      view.placeholder_min, view.fold_expr_limit, view.tick_ns = placeholder_min, fold_expr_limit, tick_ns
     end)
 
     it("should lay out placeholders and fill them to the full compact render", function()
@@ -662,6 +662,68 @@ describe("view", function()
       end
       assert.is_true(found)
       wait_complete(v)
+    end)
+
+    it("should stop a fill when a newer render replaces it", function()
+      local v = view.new(make_ws(table.concat(json_lines(2000), "\n")))
+
+      view.tick_ns = 0
+      v:render(all(vim.fn.range(1, 2000)))
+      v:render(all(vim.fn.range(2000, 1001, -1)))
+      view.tick_ns = tick_ns
+      wait_complete(v)
+      vim.wait(50)
+      assert.are.same(compact_lines(v), vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+    end)
+
+    it("should lay out a row still pending again instead of reusing it", function()
+      local v = view.new(make_ws(table.concat(json_lines(2000), "\n")))
+
+      view.tick_ns = 0
+      v:render(all(vim.fn.range(1, 2000)))
+      assert.is_true(vim.wait(2000, function()
+        return v.pending[10] == nil
+      end, 1))
+      assert.is_true(v.pending[2000])
+      v:render(all(vim.fn.range(1, 2000)))
+      -- the fill starts once the layout ends: rows already filled are reused, placeholders laid out again
+      assert.is_true(vim.wait(2000, function()
+        return v.entry_item[30] ~= nil
+      end, 1))
+      assert.is_nil(v.pending[1])
+      assert.is_true(v.pending[20])
+      view.tick_ns = tick_ns
+      wait_complete(v)
+      assert.are.same(compact_lines(v), vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+    end)
+
+    it("should fill an entry forgotten during the fill", function()
+      local v = view.new(make_ws(table.concat(json_lines(3000), "\n")))
+
+      v:render(all(vim.fn.range(1, 3000)))
+      v:forget(3000)
+      wait_complete(v)
+      assert.is_false(vim.bo[v.bufnr].modifiable)
+      assert.are.same(compact_lines(v), vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+    end)
+
+    it("should stop a fill when the entries are swapped before the next render", function()
+      local ws = make_ws(table.concat(json_lines(2000), "\n"))
+      local v = view.new(ws)
+      local before
+
+      v:render(all(vim.fn.range(1, 2000)))
+      view.tick_ns = 0
+      ws.entries = source.build('{"msg":"other"}', "jsonl")
+      before = vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false)
+      vim.wait(50)
+      assert.are.same(before, vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+      assert.is_false(v.complete)
+      assert.is_false(vim.bo[v.bufnr].modifiable)
+      view.tick_ns = tick_ns
+      v:render(all({ 1 }))
+      wait_complete(v)
+      assert.are.same({ "other" }, vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
     end)
 
     it("should not highlight a placeholder row", function()

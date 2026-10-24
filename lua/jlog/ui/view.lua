@@ -242,12 +242,13 @@ local function apply_window_options(view, winid)
   view.folded[winid] = true
 end
 
----Replace pending entry `idx`'s placeholder row with its compact line; the caller makes the buffer modifiable.
+---Replace pending item `item_index`'s placeholder row with its compact line; the caller makes the buffer modifiable.
 ---@param view JLogView
----@param idx integer entry index
-local function render_pending(view, idx)
+---@param item_index integer
+local function render_pending(view, item_index)
+  local idx = view.items[item_index].idx
   local entry = view.ws.entries[idx]
-  local row = view.item_line[view.entry_item[idx]] - 1
+  local row = view.item_line[item_index] - 1
   local line = render.compact(entry, view.ws.opts, true)[1]
 
   -- one-row set_text keeps the row's header mark and manual folds, which set_lines would drop or shrink
@@ -657,28 +658,42 @@ View.render = function(self, items, on_done)
     end
   end
 
-  ---Render pending rows in item order within one tick.
-  local function fill_step()
-    local deadline = vim.uv.hrtime() + M.tick_ns
+  ---Render pending rows in item order until `deadline`.
+  ---@param deadline number
+  local function fill_rows(deadline)
     local item
 
-    if self.generation ~= generation or not vim.api.nvim_buf_is_valid(self.bufnr) then
-      return
-    end
-    vim.bo[self.bufnr].modifiable = true
     -- read `self.items` each tick: View.prepend moves the unfilled items down, View.append adds rendered ones
     while fill_next <= #self.items do
       item = self.items[fill_next]
       fill_next = fill_next + 1
       if item.kind == "entry" and self.pending[item.idx] then
-        render_pending(self, item.idx)
+        render_pending(self, fill_next - 1)
         -- at least one row per tick, so every tick makes progress
         if vim.uv.hrtime() >= deadline then
-          break
+          return
         end
       end
     end
+  end
+
+  local function fill_step()
+    local ok, err
+
+    -- entries swapped in for an apply that has not rendered yet do not match the lines shown
+    if
+      self.generation ~= generation
+      or not vim.api.nvim_buf_is_valid(self.bufnr)
+      or self.rendered_entries ~= self.ws.entries
+    then
+      return
+    end
+    vim.bo[self.bufnr].modifiable = true
+    ok, err = pcall(fill_rows, vim.uv.hrtime() + M.tick_ns)
     vim.bo[self.bufnr].modifiable = false
+    if not ok then
+      error(err, 0)
+    end
     if fill_next > #self.items then
       done()
 

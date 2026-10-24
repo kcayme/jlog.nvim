@@ -359,7 +359,6 @@ Workspace.apply = function(self, on_done, counted)
   local counts = window_in_tab(self, self.sidebar.bufnr) ~= nil
   local matched = {}
   local group_values = {}
-  local summary_values = {}
   local lines = vim.deepcopy(state.filters)
   local pred, errors, invalid
   local entry, decoded, decoded_done
@@ -369,9 +368,6 @@ Workspace.apply = function(self, on_done, counted)
   local notified = false
 
   self.generation = generation
-  for _, name in ipairs(group.SUMMARY_FIELDS) do
-    summary_values[name] = {}
-  end
   -- lines that failed before stay pending until edited, so re-validate them with the rest
   for _, err in ipairs(self.sidebar.errors) do
     lines[#lines + 1] = err.text
@@ -417,11 +413,8 @@ Workspace.apply = function(self, on_done, counted)
         matched[index] = true
       end
       if field then
-        group_values[index] = read(field)
         -- read now, in the time-boxed scan: decoding again while building groups is one long tick
-        for name, values in pairs(summary_values) do
-          values[index] = read(name)
-        end
+        group_values[index] = read(field)
       end
     end
     entry, decoded = nil, nil
@@ -471,8 +464,8 @@ Workspace.apply = function(self, on_done, counted)
         field = field,
         reverse = state.reverse,
         newest_first = self.stored_newest_first,
-        get = function(index, path)
-          return (path == field and group_values or summary_values[path])[index]
+        get = function(index)
+          return group_values[index]
         end,
         checkpoint = function()
           if vim.uv.hrtime() >= build_deadline then

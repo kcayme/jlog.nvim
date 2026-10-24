@@ -108,7 +108,7 @@ describe("workspace", function()
     )
     ws:set_group("id")
     lines = vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false)
-    assert.is_truthy(lines[1]:find("12345678…", 1, true))
+    assert.is_truthy(lines[1]:find("^▾ 123456789012345[67]  1 entry$"))
     assert.are.equal(3, #vim.tbl_filter(function(line)
       return line:find("^▾") ~= nil
     end, lines))
@@ -785,9 +785,9 @@ describe("workspace", function()
         local expected = grouped(jsonl)
 
         assert.are.same(expected, grouped(loki))
-        -- the request that failed shows its final status, and groups follow time like the entries do
+        -- groups follow time like the entries do
         assert.are.equal(1, #vim.tbl_filter(function(line)
-          return line:find("A  2 entries · 500", 1, true) ~= nil
+          return line:find("A  2 entries", 1, true) ~= nil
         end, expected))
         assert.is_truthy(expected[1]:find(sort == "desc" and "B" or "A", 1, true))
       end

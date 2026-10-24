@@ -8,9 +8,6 @@ local highlights = require("jlog.ui.highlights")
 ---@class JLogGroup
 ---@field label string value as text, or `"(no <field>)"`
 ---@field idxs integer[]
----@field status any
----@field method any
----@field path any
 
 local M = {}
 
@@ -746,34 +743,13 @@ M.expanded = function(entry, opts)
   return lines, spans
 end
 
----`▾ <label>  <n> entries · <status> · <method> <path>`; nil parts are omitted.
+---`▾ <label>  <n> entries`; the label is shown in full, it is the value the group is keyed by.
 ---@param group JLogGroup
 ---@return string line
 ---@return JLogSpan[] spans
 M.header = function(group)
-  local label = escape_newlines(group.label)
   local count = #group.idxs
-  local parts = {}
-  local request = {}
-  local line
-
-  if vim.fn.strchars(label) > 8 then
-    label = vim.fn.strcharpart(label, 0, 8) .. "…"
-  end
-  parts[1] = "▾ " .. label .. "  " .. count .. (count == 1 and " entry" or " entries")
-  if group.status ~= nil then
-    parts[#parts + 1] = escape_newlines(entry_model.text(group.status))
-  end
-  if group.method ~= nil then
-    request[#request + 1] = escape_newlines(entry_model.text(group.method))
-  end
-  if group.path ~= nil then
-    request[#request + 1] = escape_newlines(entry_model.text(group.path))
-  end
-  if #request > 0 then
-    parts[#parts + 1] = concat(request, " ")
-  end
-  line = concat(parts, " · ")
+  local line = "▾ " .. escape_newlines(group.label) .. "  " .. count .. (count == 1 and " entry" or " entries")
 
   return line, { { 0, #line, "JLogGroupHeader" } }
 end

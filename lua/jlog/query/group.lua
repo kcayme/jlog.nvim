@@ -15,11 +15,7 @@ local entry_model = require("jlog.parse.entry")
 
 local M = {}
 
-local SUMMARY_FIELDS = { "status", "method", "path" }
 local CHECKPOINT_EVERY = 4096
-
--- fields a group header summarizes, read through `args.get`
-M.SUMMARY_FIELDS = SUMMARY_FIELDS
 
 local function key_of(value)
   if type(value) == "table" then
@@ -27,25 +23,6 @@ local function key_of(value)
   end
 
   return entry_model.text(value)
-end
-
--- Last non-nil value in time wins: a request's final status beats an earlier log line's.
-local function summarize(group, get)
-  local idxs = group.idxs
-  local pending = #SUMMARY_FIELDS
-  local index = #idxs
-
-  while index >= 1 and pending > 0 do
-    for _, name in ipairs(SUMMARY_FIELDS) do
-      if group[name] == nil then
-        group[name] = get(idxs[index], name)
-        if group[name] ~= nil then
-          pending = pending - 1
-        end
-      end
-    end
-    index = index - 1
-  end
 end
 
 local function build_flat(count, args)
@@ -132,7 +109,6 @@ local function build_grouped(count, args)
       local idxs = group.idxs
       local from, to, direction = 1, #idxs, 1
 
-      summarize(group, args.get)
       size = size + 1
       items[size] = { kind = "header", group = group }
 

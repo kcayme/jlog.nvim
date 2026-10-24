@@ -47,7 +47,6 @@ describe("group.build", function()
     })
     assert.are.equal("header", list[1].kind)
     assert.are.same({ 1, 3 }, list[1].group.idxs)
-    assert.are.equal(500, list[1].group.status)
     assert.are.equal(3, #list) -- header + 2 entries; groups b and (no request_id) have no match
   end)
 

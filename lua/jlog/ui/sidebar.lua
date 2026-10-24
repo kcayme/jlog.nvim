@@ -69,9 +69,17 @@ local function truncate(text, width)
   return text .. "…"
 end
 
+---The count as shown, with `~` ahead of an estimate.
+---@param facet JLogFacet
+---@param count integer
+---@return string
+local function count_text(facet, count)
+  return (facet.estimated and "~" or "") .. count
+end
+
 ---`value (count)`, the value cut so the whole fits in `width` cells.
 ---@param value string
----@param count integer
+---@param count string
 ---@param width integer
 ---@return string
 local function counted(value, count, width)
@@ -89,11 +97,11 @@ local function summary(facet, width)
   local text
 
   if facet.distinct == 1 then
-    return counted(facet.top[1].value, facet.top[1].count, width)
+    return counted(facet.top[1].value, count_text(facet, facet.top[1].count), width)
   end
   if facet.distinct <= INLINE_VALUES then
     for _, top in ipairs(facet.top) do
-      parts[#parts + 1] = display(top.value) .. " (" .. top.count .. ")"
+      parts[#parts + 1] = display(top.value) .. " (" .. count_text(facet, top.count) .. ")"
     end
     text = table.concat(parts, "  ")
     if vim.fn.strdisplaywidth(text) <= width then
@@ -139,6 +147,7 @@ local function add_fields(sidebar, lines, highlights, width)
   local colors = sidebar.ws.opts.view.field_colors
   local name
   local head
+  local count
 
   for _, facet in ipairs(sidebar.facets) do
     name = filter.escape_field(facet.name)
@@ -157,9 +166,10 @@ local function add_fields(sidebar, lines, highlights, width)
 
     if sidebar.expanded[facet.name] then
       for _, top in ipairs(facet.top) do
-        lines[#lines + 1] = "  " .. counted(top.value, top.count, width - 2)
+        count = count_text(facet, top.count)
+        lines[#lines + 1] = "  " .. counted(top.value, count, width - 2)
         sidebar.rows[#lines] = { name = facet.name, value = top.value }
-        highlights[#highlights + 1] = { #lines - 1, #lines[#lines] - #tostring(top.count) - 2, -1, count_group }
+        highlights[#highlights + 1] = { #lines - 1, #lines[#lines] - #count - 2, -1, count_group }
       end
     end
   end

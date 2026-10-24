@@ -339,4 +339,34 @@ describe("sidebar", function()
     assert.are.equal("JLogFieldName", name_groups().request_id)
     require("jlog.config").setup()
   end)
+
+  it("should mark the counts of an estimated field with ~", function()
+    local lines
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/loki.json", ":p") })
+    ws.sidebar.facets = {
+      { name = "request_id", distinct = 1000, capped = true, estimated = true, top = { { value = "r0", count = 20 } } },
+    }
+    ws.sidebar:expand_field("request_id")
+    lines = table.concat(vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, -1, false), "\n")
+    assert.is_truthy(lines:find("1000+ values", 1, true))
+    assert.is_truthy(lines:find("r0 (~20)", 1, true))
+  end)
+
+  it("should show exact counts without ~", function()
+    local lines
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/loki.json", ":p") })
+    ws.sidebar.facets = {
+      {
+        name = "request_id",
+        distinct = 1000,
+        capped = true,
+        estimated = false,
+        top = { { value = "r0", count = 20 } },
+      },
+    }
+    ws.sidebar:expand_field("request_id")
+    lines = table.concat(vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, -1, false), "\n")
+    assert.is_truthy(lines:find("r0 (20)", 1, true))
+    assert.is_falsy(lines:find("~", 1, true))
+  end)
 end)

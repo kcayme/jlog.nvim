@@ -4,6 +4,7 @@ local entry_model = require("jlog.parse.entry")
 ---@field name string
 ---@field distinct integer
 ---@field capped boolean
+---@field estimated boolean counts may be low because values were dropped by a capped merge
 ---@field top {value: string, count: integer}[]
 
 local M = {}
@@ -33,7 +34,7 @@ local function by_count(left, right)
 end
 
 ---@class JLogFacetCounter
----@field fields table<string, {counts: table<string, integer>, distinct: integer, capped: boolean}>
+---@field fields table<string, {counts: table<string, integer>, distinct: integer, capped: boolean, estimated: boolean|nil}>
 ---@field names string[]
 
 ---Incremental counting, so a caller can feed flattened entries as it produces them.
@@ -68,6 +69,41 @@ M.add = function(counter, flat)
   end
 end
 
+---Adds another counter's fields into `counter`, keeping at most MAX_DISTINCT values per field.
+---@param counter JLogFacetCounter
+---@param fields table<string, {counts: table<string, integer>, distinct: integer, capped: boolean}>
+M.merge = function(counter, fields)
+  local field
+  local dropped
+
+  for name, incoming in pairs(fields) do
+    field = counter.fields[name]
+    dropped = false
+
+    if not field then
+      field = { counts = {}, distinct = 0, capped = false }
+      counter.fields[name] = field
+      counter.names[#counter.names + 1] = name
+    end
+
+    for value, count in pairs(incoming.counts) do
+      if field.counts[value] then
+        field.counts[value] = field.counts[value] + count
+      elseif field.distinct < MAX_DISTINCT then
+        field.counts[value] = count
+        field.distinct = field.distinct + 1
+      else
+        dropped = true
+      end
+    end
+
+    if dropped or incoming.capped or field.capped then
+      field.estimated = true
+    end
+    field.capped = field.capped or incoming.capped or dropped
+  end
+end
+
 ---@param counter JLogFacetCounter
 ---@param top_n integer
 ---@return JLogFacet[]
@@ -89,7 +125,13 @@ M.result = function(counter, top_n)
       top[index] = nil
     end
 
-    facets[#facets + 1] = { name = name, distinct = field.distinct, capped = field.capped, top = top }
+    facets[#facets + 1] = {
+      name = name,
+      distinct = field.distinct,
+      capped = field.capped,
+      estimated = field.estimated == true,
+      top = top,
+    }
   end
 
   return facets

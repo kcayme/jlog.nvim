@@ -12,10 +12,17 @@ local function header_texts(bufnr)
 end
 
 describe("workspace", function()
+  local timing = vim.deepcopy(workspace.timing)
+  local store_timing = vim.deepcopy(store.timing)
+  local view_tick_ns = view.tick_ns
+
   before_each(function()
     config.setup()
   end)
   after_each(function()
+    workspace.timing = vim.deepcopy(timing)
+    store.timing = vim.deepcopy(store_timing)
+    view.tick_ns = view_tick_ns
     pcall(vim.cmd, "silent! tabonly")
   end)
 
@@ -219,7 +226,6 @@ describe("workspace", function()
     local done = 0
     local notify = vim.notify
     local messages = {}
-    local store_timing = vim.deepcopy(store.timing)
     assert.is_true(vim.wait(10000, function()
       return not ws.loading
     end))
@@ -238,7 +244,7 @@ describe("workspace", function()
     ws:apply(function()
       done = done + 10
     end)
-    store.timing = store_timing
+    store.timing = vim.deepcopy(store_timing)
     assert.is_true(vim.wait(10000, function()
       return done > 0
     end))
@@ -255,9 +261,6 @@ describe("workspace", function()
   end)
 
   it("should not report a superseded apply as done when its scan finished in one tick", function()
-    local timing = vim.deepcopy(workspace.timing)
-    local store_timing = vim.deepcopy(store.timing)
-    local tick_ns = view.tick_ns
     local lines = {}
     local done = 0
     local buf, ws
@@ -279,8 +282,8 @@ describe("workspace", function()
     ws:apply(function()
       done = done + 1
     end)
-    view.tick_ns = tick_ns
-    workspace.timing = timing
+    view.tick_ns = view_tick_ns
+    workspace.timing = vim.deepcopy(timing)
     store.timing = vim.deepcopy(store_timing)
     ws.state.filters = { "status=200" }
     ws:apply(function()
@@ -296,8 +299,6 @@ describe("workspace", function()
 
   it("should mark the counts stale while a chunked scan runs", function()
     local lines = {}
-    local timing = vim.deepcopy(workspace.timing)
-    local store_timing = vim.deepcopy(store.timing)
     local buf, ws, marks
 
     for index = 1, 25000 do
@@ -314,8 +315,6 @@ describe("workspace", function()
     store.timing = { tick_ns = 0 }
 
     ws:add_filter("level=ERROR")
-    workspace.timing = timing
-    store.timing = vim.deepcopy(store_timing)
     marks = vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, -1, 0, -1, { details = true })
 
     assert.are_not.equal(ws.store.generation, ws.rendered)
@@ -331,8 +330,6 @@ describe("workspace", function()
 
   it("should finish counting when the render is replaced before it ends", function()
     local lines = {}
-    local view = require("jlog.ui.view")
-    local view_tick_ns = view.tick_ns
     local buf, ws
 
     for index = 1, 25000 do
@@ -362,8 +359,6 @@ describe("workspace", function()
 
   it("should render a filter before counting fields, then publish the counts", function()
     local lines = {}
-    local timing = vim.deepcopy(workspace.timing)
-    local store_timing = vim.deepcopy(store.timing)
     local buf, ws, stale_at_render, level
 
     for index = 1, 25000 do
@@ -386,8 +381,6 @@ describe("workspace", function()
     assert.is_true(vim.wait(10000, function()
       return ws.sidebar.stale == false
     end))
-    workspace.timing = timing
-    store.timing = vim.deepcopy(store_timing)
 
     assert.is_true(stale_at_render)
     for _, facet in ipairs(ws.sidebar.facets) do
@@ -446,8 +439,6 @@ describe("workspace", function()
     it("should show fields in the sidebar as they are found while loading", function()
       local lines = {}
       local buf, ws, header_marks
-      local timing = vim.deepcopy(workspace.timing)
-      local store_timing = vim.deepcopy(store.timing)
       local partial = {}
 
       for index = 1, 30 do
@@ -476,8 +467,6 @@ describe("workspace", function()
       assert.is_true(vim.wait(2000, function()
         return not ws.loading and ws.rendered == ws.store.generation
       end))
-      workspace.timing = timing
-      store.timing = vim.deepcopy(store_timing)
 
       assert.is_true(#partial > 0)
       assert.is_truthy(vim.tbl_contains(partial[#partial], "late"))
@@ -513,8 +502,6 @@ describe("workspace", function()
 
     it("should notify when loading takes more than one tick and when it is done", function()
       local notify = vim.notify
-      local timing = vim.deepcopy(workspace.timing)
-      local store_timing = vim.deepcopy(store.timing)
       local messages = {}
       local lines = {}
       local buf, ws
@@ -538,8 +525,6 @@ describe("workspace", function()
         return not ws.loading
       end))
       vim.notify = notify
-      workspace.timing = timing
-      store.timing = vim.deepcopy(store_timing)
       assert.are.same({ "jlog: loading…", "jlog: loaded 30 entries" }, messages)
       ws:close()
     end)
@@ -700,8 +685,6 @@ describe("workspace", function()
     end
 
     it("should sort a large unordered export across ticks", function()
-      local timing = vim.deepcopy(workspace.timing)
-      local store_timing = vim.deepcopy(store.timing)
       local elements = {}
       local path, ws, ok
 
@@ -716,8 +699,6 @@ describe("workspace", function()
       ok = vim.wait(10000, function()
         return not ws.loading and ws.rendered == ws.store.generation
       end)
-      workspace.timing = timing
-      store.timing = vim.deepcopy(store_timing)
 
       assert.is_true(ok)
       assert.are.equal(9000, #ws.entries)

@@ -1,4 +1,5 @@
 local store = require("jlog.store")
+local view = require("jlog.ui.view")
 local workspace = require("jlog.workspace")
 
 local function wait(cond)
@@ -7,6 +8,9 @@ end
 
 describe("reload", function()
   local notify = vim.notify
+  local timing = vim.deepcopy(workspace.timing)
+  local store_timing = vim.deepcopy(store.timing)
+  local view_tick_ns = view.tick_ns
   local path
   local ws
 
@@ -18,6 +22,9 @@ describe("reload", function()
 
   after_each(function()
     vim.notify = notify
+    workspace.timing = vim.deepcopy(timing)
+    store.timing = vim.deepcopy(store_timing)
+    view.tick_ns = view_tick_ns
     if ws then
       ws:close()
       ws = nil
@@ -55,8 +62,6 @@ describe("reload", function()
   end)
 
   it("should count entries appended while the sidebar is still counting", function()
-    local timing = vim.deepcopy(workspace.timing)
-    local store_timing = vim.deepcopy(store.timing)
     local lines = {}
     local generation, level
 
@@ -81,9 +86,6 @@ describe("reload", function()
     wait(function()
       return not ws.sidebar.stale
     end)
-    workspace.timing = timing
-    store.timing = vim.deepcopy(store_timing)
-
     assert.are.equal(generation, ws.store.generation)
     for _, facet in ipairs(ws.sidebar.facets) do
       if facet.name == "level" then
@@ -218,10 +220,8 @@ describe("reload", function()
   for _, sort in ipairs({ "desc", "asc" }) do
     it("should extend a filling " .. sort .. " view without writing onto the wrong rows", function()
       local render = require("jlog.ui.render")
-      local view_module = require("jlog.ui.view")
-      local tick_ns = view_module.tick_ns
       local lines, appended = {}, {}
-      local pending_on_extend, generation, ok, err
+      local pending_on_extend, generation
 
       for index = 1, 3000 do
         lines[index] = string.format('{"msg":"m%d","level":"INFO","n":%d}', index, index)
@@ -232,29 +232,25 @@ describe("reload", function()
       vim.fn.writefile(lines, path)
       require("jlog").setup({ view = { sort = sort } })
       -- one row per tick, so the fill outlasts the file watcher
-      view_module.tick_ns = 0
-      ok, err = pcall(function()
-        ws = workspace.open({ path = path })
-        wait(function()
-          return ws.rendered == ws.store.generation and #ws.entries == 3000
-        end)
-        assert.is_true(next(ws.view.pending) ~= nil)
-        -- reload by hand: the watcher can arrive after the fill, and a later re-render would hide bad rows
-        ws.watcher:stop()
-        vim.fn.writefile(appended, path, "a")
-        generation = ws.view.generation
-        ws:reload()
-        assert.are.equal(3005, #ws.entries)
-        pending_on_extend = next(ws.view.pending) ~= nil
-        view_module.tick_ns = tick_ns
-        assert.is_true(vim.wait(10000, function()
-          return ws.view.complete
-        end, 20))
-        -- extended and filled in place, never rendered again
-        assert.are.equal(generation, ws.view.generation)
+      view.tick_ns = 0
+      ws = workspace.open({ path = path })
+      wait(function()
+        return ws.rendered == ws.store.generation and #ws.entries == 3000
       end)
-      view_module.tick_ns = tick_ns
-      assert(ok, err)
+      assert.is_true(next(ws.view.pending) ~= nil)
+      -- reload by hand: the watcher can arrive after the fill, and a later re-render would hide bad rows
+      ws.watcher:stop()
+      vim.fn.writefile(appended, path, "a")
+      generation = ws.view.generation
+      ws:reload()
+      assert.are.equal(3005, #ws.entries)
+      pending_on_extend = next(ws.view.pending) ~= nil
+      view.tick_ns = view_tick_ns
+      assert.is_true(vim.wait(10000, function()
+        return ws.view.complete
+      end, 20))
+      -- extended and filled in place, never rendered again
+      assert.are.equal(generation, ws.view.generation)
       -- the extension landed mid-fill
       assert.is_true(pending_on_extend)
       assert.are.equal(3005, #ws.view.items)

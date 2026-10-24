@@ -9,6 +9,7 @@ local sidebar_mod = require("jlog.ui.sidebar")
 local source = require("jlog.parse.source")
 local store_mod = require("jlog.query.store")
 local view_mod = require("jlog.ui.view")
+local watcher = require("jlog.watcher")
 local utils = require("jlog.utils")
 
 ---@class JLogOpenTarget
@@ -65,9 +66,6 @@ Workspace.__index = Workspace
 local M = {}
 
 local HEAD_LIMIT = 65536
-local DEBOUNCE_MS = 200
-local TAIL_CHECK = 256
-local POLL_MS = 500
 -- how long a load waiting on worker threads sleeps before it checks again
 local WAIT_MS = 2
 -- the default (200) pays collection debt in one 50-80ms tick at 500k lines; 400 keeps ticks under ~35ms
@@ -415,50 +413,6 @@ Workspace.toggle_sidebar = function(self)
     return
   end
   pcall(vim.api.nvim_win_close, winid, false)
-end
-
----@param ws JLogWorkspace
----@param text string
-local function snapshot(ws, text)
-  local newlines, pos = 0, 0
-
-  ws.size = #text
-  ws.complete = text == "" or text:sub(-1) == "\n"
-  ws.check = text:sub(-TAIL_CHECK)
-  while true do
-    pos = text:find("\n", pos + 1, true)
-    if not pos then
-      break
-    end
-    newlines = newlines + 1
-  end
-  ws.next_lnum = newlines + 1
-end
-
----The new complete lines of a jsonl file that only grew, or nil when it must be rebuilt; a partial last line waits.
----@param ws JLogWorkspace
----@return string|nil
-local function read_appended(ws)
-  local fd = vim.uv.fs_open(ws.path, "r", 438)
-  local stat, check_len, tail, last_newline
-
-  if not fd then
-    return nil
-  end
-  stat = vim.uv.fs_fstat(fd)
-  if stat and stat.size > ws.size and ws.complete then
-    check_len = math.min(TAIL_CHECK, ws.size)
-    if vim.uv.fs_read(fd, check_len, ws.size - check_len) == ws.check then
-      tail = vim.uv.fs_read(fd, stat.size - ws.size, ws.size)
-    end
-  end
-  vim.uv.fs_close(fd)
-  if not tail then
-    return nil
-  end
-  last_newline = tail:match(".*()\n")
-
-  return last_newline and tail:sub(1, last_newline) or ""
 end
 
 ---Show the new entries `from..` in a flat view without a full apply. Returns false when an apply is needed.
@@ -829,7 +783,7 @@ local function rebuild(ws)
     return
   end
   if ws.path then
-    snapshot(ws, text)
+    watcher.snapshot(ws, text)
   end
   order = source.element_order(text, ws.format)
   index = new_index(text, ws.format, order, ws.opts)
@@ -877,7 +831,7 @@ Workspace.reload = function(self)
 
     return
   end
-  tail = self.path and self.format == "jsonl" and read_appended(self) or nil
+  tail = self.path and self.format == "jsonl" and watcher.read_appended(self) or nil
   if not tail then
     rebuild(self)
 
@@ -890,9 +844,7 @@ Workspace.reload = function(self)
   if shown then
     source.append_lines(self.entries, vim.split(tail:sub(1, -2), "\n", { plain = true }), self.next_lnum)
   end
-  self.size = self.size + #tail
-  self.check = (self.check .. tail):sub(-TAIL_CHECK)
-  self.next_lnum = self.next_lnum + select(2, tail:gsub("\n", ""))
+  watcher.advance(self, tail)
   if tail == "" then
     return
   end
@@ -920,95 +872,6 @@ Workspace.reload = function(self)
     end
     self:apply()
   end
-end
-
----@param ws JLogWorkspace
-local function debounce(ws)
-  ws.timer:stop()
-  ws.timer:start(
-    DEBOUNCE_MS,
-    0,
-    vim.schedule_wrap(function()
-      ws:reload()
-    end)
-  )
-end
-
----@param ws JLogWorkspace
-local function watch_file(ws)
-  local on_event, wait_for_file
-
-  -- watch `ws.path`; while it is missing, poll until it comes back
-  local function arm()
-    local ok, err = ws.watcher:start(ws.path, {}, vim.schedule_wrap(on_event))
-
-    if ok then
-      return
-    end
-    if vim.uv.fs_stat(ws.path) then
-      vim.notify("jlog: cannot watch " .. ws.path .. ": " .. tostring(err), vim.log.levels.WARN)
-
-      return
-    end
-    wait_for_file()
-  end
-
-  wait_for_file = function()
-    ws.poll:start(
-      POLL_MS,
-      POLL_MS,
-      vim.schedule_wrap(function()
-        if ws.closed or not vim.uv.fs_stat(ws.path) then
-          return
-        end
-        ws.poll:stop()
-        arm()
-        debounce(ws)
-      end)
-    )
-  end
-
-  on_event = function(_, _, events)
-    -- events queued before the watcher stopped can still arrive while waiting for the file
-    if ws.closed or ws.poll:is_active() then
-      return
-    end
-    -- an atomic save, a rotation or a delete: the handle still watches the old file
-    if events and events.rename then
-      ws.watcher:stop()
-      if not vim.uv.fs_stat(ws.path) then
-        vim.notify("jlog: " .. ws.path .. " is gone, waiting for it to come back", vim.log.levels.WARN)
-        wait_for_file()
-
-        return
-      end
-      arm()
-    end
-    debounce(ws)
-  end
-
-  ws.watcher = vim.uv.new_fs_event()
-  ws.poll = vim.uv.new_timer()
-  arm()
-end
-
----@param ws JLogWorkspace
-local function watch_buffer(ws)
-  vim.api.nvim_buf_attach(ws.bufnr, false, {
-    on_lines = function()
-      if ws.closed then
-        return true
-      end
-      debounce(ws)
-    end,
-  })
-  vim.api.nvim_create_autocmd("BufWritePost", {
-    group = ws.augroup,
-    buffer = ws.bufnr,
-    callback = function()
-      debounce(ws)
-    end,
-  })
 end
 
 ---Close the workspace tab, wipe its buffers and forget it. Also runs when its tab is closed some other way.
@@ -1221,10 +1084,10 @@ M.open = function(target)
     end)
   end
   if path then
-    snapshot(ws, text)
-    watch_file(ws)
+    watcher.snapshot(ws, text)
+    watcher.file(ws)
   else
-    watch_buffer(ws)
+    watcher.buffer(ws)
   end
   -- the first slice was counted as it was parsed; the load goes on counting into the same counter
   ws:apply(nil, early and counter or nil)

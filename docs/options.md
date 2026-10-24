@@ -23,8 +23,8 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `sidebar.width` | `integer` | `40` | Sidebar width in columns. |
 | `sidebar.position` | `JLogSidebarPosition` | `"right"` | Sidebar side: `"left"` or `"right"`. |
 | `facets.top_values` | `integer` | `10` | Number of top values listed per field in the sidebar. |
-| `paging.size` | `integer` | `100000` | Page size: source lines for JSONL, array elements for JSON arrays and Loki exports. A JSONL page boundary moves on up to `size / 10` lines to the next line that starts an entry, so an entry does not split; a longer run of plain lines is split there. |
-| `paging.overlap` | `integer` | `2000` | How much of each neighbouring page is also shown on a page, so a request at a page edge stays whole: source lines for JSONL (extended so an entry is never cut), elements for JSON arrays and Loki exports. |
+| `paging.size` | `integer` | `100000` | Page size: source lines for JSONL, array elements for JSON arrays and timestamped exports. A JSONL page boundary moves on up to `size / 10` lines to the next line that starts an entry, so an entry does not split; a longer run of plain lines is split there. |
+| `paging.overlap` | `integer` | `2000` | How much of each neighbouring page is also shown on a page, so a request at a page edge stays whole: source lines for JSONL (extended so an entry is never cut), elements for JSON arrays and timestamped exports. |
 | `keymaps.toggle_entry` | `string\|false` | `"<Tab>"` | Expand/collapse the entry under the cursor. |
 | `keymaps.toggle_mode` | `string\|false` | `"E"` | Toggle compact/expanded for the whole view. |
 | `keymaps.raw` | `string\|false` | `"gf"` | Show the entry's raw text in a float; inside the float, jump to the source line (JSONL only). |

@@ -1,11 +1,12 @@
 # jlog.nvim
 
-Read JSON server logs in Neovim. Logs pulled from CI and Grafana are often unformatted, one giant line, and
-double-encoded; jlog makes them readable, filterable and groupable without leaving the editor.
+Read JSON server and container logs in Neovim. Logs pulled from servers, containers and CI are often unformatted, one
+giant line, and double-encoded; jlog makes them readable, filterable and groupable without leaving the editor.
 
 ## Features
 
-- Parses Grafana/Loki "Explore" exports, JSONL/NDJSON and JSON arrays of log objects.
+- Parses JSONL/NDJSON, JSON arrays of log objects, and timestamped log exports (a JSON array whose elements wrap each
+  log line with its timestamp and labels, as log platforms export them).
 - Unwraps double-encoded JSON recursively, including JSON after a text prefix inside a string.
 - Compact one-line-per-entry view by default, toggle to expanded (indented JSON) per entry or for the whole view.
 - Each field keeps one color in the log view and the sidebar's FIELDS list, so FIELDS doubles as a legend.
@@ -34,14 +35,14 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 Open a log file and run `:JLog` in its buffer, or run `:JLog {path}`. jlog never writes to the source file.
 
-The newest entries come first by default, for JSONL files (oldest line at the top) and Grafana exports (newest
+The newest entries come first by default, for JSONL files (oldest line at the top) and timestamped exports (newest
 element first) alike; `R` toggles the order and `view.sort = "asc"` makes oldest first the default. Within a group,
 entries also run newest first.
 
-The view reloads automatically when the file changes: appended lines are streamed in, and atomic saves (write to a
-temp file, then rename) are followed. Large JSONL files, and newest-first Grafana exports shown in the default order,
-show the first screen immediately and finish loading in the background; meanwhile FIELDS adds newly found fields as
-they appear, marked `loading N%` until the counts are final. An oldest-first Grafana export, or any Grafana export
+The view reloads automatically when the file changes: appended lines are streamed in, and atomic saves (write to a temp
+file, then rename) are followed. Large JSONL files, and newest-first timestamped exports shown in the default order,
+show the first screen immediately and finish loading in the background; meanwhile FIELDS adds newly found fields as they
+appear, marked `loading N%` until the counts are final. An oldest-first timestamped export, or any timestamped export
 with `view.sort = "asc"`, appears once loading finishes.
 
 Large JSONL logs are parsed on background threads, and counts for fields with more than 1000 distinct values are
@@ -66,7 +67,7 @@ shows `page 2/5`, or `page 1/…` while the page boundaries are still being foun
 `paging.overlap` lines or elements of its neighbours, dimmed with `JLogOverlap`, so a request at a page edge stays
 whole; filters, groups and FIELDS counts include them. Filters, group and mode carry over to another page; the cursor
 and expanded entries reset. Appended lines show on the page that holds the end of the file; on any other page only
-the page count updates. A rewritten file returns to the page holding the cursor entry. A Grafana export whose
+the page count updates. A rewritten file returns to the page holding the cursor entry. A timestamped export whose
 timestamps are not in order is not paged.
 
 ### Commands

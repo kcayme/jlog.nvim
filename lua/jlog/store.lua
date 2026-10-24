@@ -141,6 +141,7 @@ Store.query = function(self, pred, field, on_items)
       sync = false
       ok, items, shown = coroutine.resume(build)
       if not ok then
+        self.running = false
         error(items, 0)
       end
       if coroutine.status(build) ~= "dead" then
@@ -169,14 +170,19 @@ Store.query = function(self, pred, field, on_items)
   ---@param sync boolean|nil the first tick, run by query itself: work that fits in it finishes at once
   local function step(sync)
     local deadline = sync and vim.uv.hrtime() + M.timing.tick_ns or utils.tick_deadline(M.timing.tick_ns)
-    local last
+    local last, ok, err
 
     if stale() then
       return
     end
     repeat
       last = math.min(next_index + SCAN_BATCH - 1, count)
-      scan(next_index, last)
+      ok, err = pcall(scan, next_index, last)
+      if not ok then
+        -- a query that failed hands out no items, so it must not keep the view waiting for them
+        self.running = false
+        error(err, 0)
+      end
       next_index = last + 1
     until next_index > count or vim.uv.hrtime() >= deadline
     if next_index > count and sync then

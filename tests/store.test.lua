@@ -77,6 +77,15 @@ describe("store", function()
     assert.is_false(store.running)
   end)
 
+  it("should not stay running when the filter raises", function()
+    local ok = pcall(store.query, store, function()
+      error("boom")
+    end, nil, function() end)
+
+    assert.is_false(ok)
+    assert.is_false(store.running)
+  end)
+
   it("should count the matched entries", function()
     local counter
 

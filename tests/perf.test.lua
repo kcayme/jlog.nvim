@@ -381,6 +381,7 @@ for _, count in ipairs(SIZES) do
           ws:add_filter("request_id=req-00020000")
         end)
         print(string.format("nested filter request_id (%d shown): %.0fms (budget 300)", ws.shown, elapsed))
+        assert.are.equal(3, ws.shown)
         assert.is_true(elapsed < 300)
       end)
 

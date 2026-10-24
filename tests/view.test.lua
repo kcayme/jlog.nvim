@@ -3,7 +3,12 @@ local source = require("jlog.parse.source")
 local opts = require("jlog.config").setup()
 
 local function make_ws(text)
-  return { entries = source.build(text, "jsonl"), opts = opts, state = { mode = "compact", expanded = {} } }
+  return {
+    key = "test",
+    entries = source.build(text, "jsonl"),
+    opts = opts,
+    state = { mode = "compact", expanded = {} },
+  }
 end
 local function headers(bufnr)
   local ns = vim.api.nvim_create_namespace("jlog.view.header")
@@ -217,12 +222,15 @@ describe("view", function()
       for i = 1, 300 do
         ids[i] = i
       end
+      -- these messages are read through vim.notify, which `progress = "notify"` uses on every Neovim
+      require("jlog.config").options.progress = "notify"
       vim.notify = function(msg)
         messages[#messages + 1] = msg
       end
       render_and_wait(v, all({ 1 }))
       render_and_wait(v, all(ids))
       vim.notify = notify
+      require("jlog.config").options.progress = "auto"
       assert.are.same({ "jlog: rendering…", "jlog: rendering done" }, messages)
     end)
 
@@ -651,7 +659,8 @@ describe("view", function()
       -- the fixture's plain lines only end in a newline, which the source drops
       local text = '[{"line":"panic: boom\\n  at main.go:1\\n","timestamp":"1"},'
         .. '{"line":"{\\"msg\\":\\"a\\"}","timestamp":"2"}]'
-      local ws = { entries = source.build(text, "loki"), opts = opts, state = { mode = "compact", expanded = {} } }
+      local ws =
+        { key = "test", entries = source.build(text, "loki"), opts = opts, state = { mode = "compact", expanded = {} } }
       local v = view.new(ws)
       local found
 

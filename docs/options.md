@@ -25,6 +25,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `facets.top_values` | `integer` | `10` | Number of top values listed per field in the sidebar. |
 | `paging.size` | `integer` | `100000` | Page size: source lines for JSONL, array elements for JSON arrays and timestamped exports. A JSONL page boundary moves on up to `size / 10` lines to the next line that starts an entry, so an entry does not split; a longer run of plain lines is split there. |
 | `paging.overlap` | `integer` | `2000` | How much of each neighbouring page is also shown on a page, so a request at a page edge stays whole: source lines for JSONL (extended so an entry is never cut), elements for JSON arrays and timestamped exports. |
+| `progress` | `JLogProgress` | `"auto"` | How long-running work (loading, indexing, applying, rendering) reports: `"auto"` sends progress messages on Neovim 0.12+, which UIs that draw progress show with a spinner, and uses `vim.notify` on older versions; `"notify"` always uses `vim.notify`. |
 | `keymaps.toggle_entry` | `string\|false` | `"<Tab>"` | Expand/collapse the entry under the cursor. |
 | `keymaps.toggle_mode` | `string\|false` | `"E"` | Toggle compact/expanded for the whole view. |
 | `keymaps.raw` | `string\|false` | `"gf"` | Show the entry's raw text in a float; inside the float, jump to the source line (JSONL only). |

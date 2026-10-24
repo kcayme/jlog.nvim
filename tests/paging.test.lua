@@ -86,6 +86,8 @@ describe("paging", function()
     loader.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
     store.timing = { tick_ns = 0 }
     loader.open_index_ns = 0
+    -- these messages are read through vim.notify, which `progress = "notify"` uses on every Neovim
+    require("jlog.config").options.progress = "notify"
     vim.notify = function(msg)
       messages[#messages + 1] = msg
     end

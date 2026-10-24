@@ -48,8 +48,10 @@ with `view.sort = "asc"`, appears once loading finishes.
 Large JSONL logs are parsed on background threads, and counts for fields with more than 1000 distinct values are
 estimates, marked `~`.
 
-Work that outlasts the first screen (loading, indexing pages, applying a filter or group, rendering) reports through
-`vim.notify`: one message when it starts and one when it is done.
+Work that outlasts the first screen (loading, indexing pages, applying a filter or group, rendering) reports its
+progress: one message when it starts and one when it is done. On Neovim 0.12+ these are progress messages, so a UI that
+draws progress (such as a notification plugin) can show a spinner while the work runs; on older versions, or with
+`progress = "notify"`, they go through `vim.notify`.
 
 While a large page is still filling in the background, `/` may match the raw text of rows not yet rendered, and
 miss text that only exists in the compact form (formatted times, flattened nested keys); it is exact once rendering is
@@ -159,6 +161,7 @@ require("jlog").setup({
   sidebar = { width = 40, position = "right" },
   facets = { top_values = 10 },
   paging = { size = 100000, overlap = 2000 }, -- source lines (JSONL) or array elements
+  progress = "auto", -- "auto": progress messages on Neovim 0.12+, else vim.notify; "notify": always vim.notify
   keymaps = {
     toggle_entry = "<CR>",
     toggle_mode = "E",

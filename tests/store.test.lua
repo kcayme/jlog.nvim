@@ -24,6 +24,7 @@ describe("store", function()
   before_each(function()
     vim.notify = function() end
     store = store_mod.new({
+      key = "test",
       entries = source.build(TEXT, "jsonl"),
       opts = config.setup(),
       state = { filters = {}, reverse = false, expanded = {}, mode = "compact" },

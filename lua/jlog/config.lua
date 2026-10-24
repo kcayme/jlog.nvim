@@ -69,6 +69,8 @@
 ---@field group_by string|false
 ---@field help string|false
 
+---@alias JLogProgress "auto"|"notify"
+
 ---@class JLogOptions
 ---@field fields JLogFieldsOptions
 ---@field view JLogViewOptions
@@ -78,6 +80,7 @@
 ---@field paging JLogPagingOptions
 ---@field keymaps JLogKeymapsOptions
 ---@field compact JLogCompactOptions
+---@field progress JLogProgress how long work reports: `auto` uses progress messages on Neovim 0.12+, else `vim.notify`
 
 local M = {}
 
@@ -95,6 +98,7 @@ M.defaults = {
   sidebar = { width = 45, position = "right" },
   facets = { top_values = 10 },
   paging = { size = 100000, overlap = 2000 },
+  progress = "auto",
   keymaps = {
     toggle_entry = "<CR>",
     toggle_mode = "E",

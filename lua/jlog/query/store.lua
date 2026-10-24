@@ -1,10 +1,12 @@
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local group = require("jlog.query.group")
+local progress_mod = require("jlog.progress")
 local utils = require("jlog.utils")
 local workers = require("jlog.worker")
 
 ---@class JLogStoreSource
+---@field key string names the workspace in progress messages
 ---@field entries JLogEntry[]
 ---@field opts JLogOptions
 ---@field state JLogWorkspaceState
@@ -64,7 +66,6 @@ Store.query = function(self, pred, field, on_items)
   local entry, decoded, decoded_done
   local next_index = 1
   local collected
-  local notified = false
   local ctx = { raw = "" }
 
   self.generation = generation
@@ -116,9 +117,7 @@ Store.query = function(self, pred, field, on_items)
     local yielded = false
     local build
 
-    if notified then
-      vim.notify("jlog: applying done", vim.log.levels.INFO)
-    end
+    progress_mod.finish(source.key, "apply", "applying done")
     build = coroutine.create(function()
       return group.build(count, {
         pred = function(index)
@@ -216,8 +215,7 @@ Store.query = function(self, pred, field, on_items)
       return
     end
     if sync then
-      notified = true
-      vim.notify("jlog: applying…", vim.log.levels.INFO)
+      progress_mod.begin(source.key, "apply", "applying…")
     end
     -- a timer, not vim.schedule: chained scheduled callbacks run back to back without handling input or redraw
     vim.defer_fn(step, 0)

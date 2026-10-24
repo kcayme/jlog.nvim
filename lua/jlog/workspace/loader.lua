@@ -2,6 +2,7 @@ local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local layout = require("jlog.workspace.layout")
 local pages = require("jlog.parse.pages")
+local progress_mod = require("jlog.progress")
 local query = require("jlog.workspace.query")
 local reader = require("jlog.parse.reader")
 local source = require("jlog.parse.source")
@@ -99,7 +100,7 @@ local function load_rest(ws, entries, read, on_done, counter, token, notified)
   if fraction then
     progress = "loading " .. math.floor(fraction * 100) .. "%"
     if not notified then
-      vim.notify("jlog: loading…", vim.log.levels.INFO)
+      progress_mod.begin(ws.key, "load", "loading…")
     end
     -- with a filter set, the sidebar shows the filtered counts of the last apply instead
     if counter and #ws.state.filters == 0 then
@@ -112,9 +113,7 @@ local function load_rest(ws, entries, read, on_done, counter, token, notified)
     return
   end
 
-  if notified then
-    vim.notify("jlog: loaded " .. #entries .. " entries", vim.log.levels.INFO)
-  end
+  progress_mod.finish(ws.key, "load", "loaded " .. #entries .. " entries")
   ws.loading = nil
   on_done(entries)
   if ws.reload_pending then
@@ -224,7 +223,7 @@ local function scan_pages(ws, index, on_known, wait_done)
   ws.indexing = nil
   if ws.index_notified then
     ws.index_notified = nil
-    vim.notify("jlog: indexed " .. index:count() .. " pages", vim.log.levels.INFO)
+    progress_mod.finish(ws.key, "index", "indexed " .. index:count() .. " pages")
   end
   -- an index rebuilt after an append replaces the one in use
   if ws.pages and ws.pages ~= index then
@@ -552,7 +551,7 @@ M.start = function(ws, slice, counter)
   if paged == nil and ws.indexing then
     -- page 1 is not known yet: the start of the source, or an empty view rather than the wrong end of the log
     ws.loading, ws.index_notified = true, true
-    vim.notify("jlog: indexing pages…", vim.log.levels.INFO)
+    progress_mod.begin(ws.key, "index", "indexing pages…")
   elseif tail and range.core_last_line - range.first_src + 1 > M.load_sizes.first then
     load_page(ws, 1)
   elseif not tail and more then

@@ -4,6 +4,7 @@ local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local layout = require("jlog.workspace.layout")
 local loader = require("jlog.workspace.loader")
+local progress_mod = require("jlog.progress")
 local query = require("jlog.workspace.query")
 local sidebar_mod = require("jlog.ui.sidebar")
 local store_mod = require("jlog.query.store")
@@ -109,6 +110,8 @@ Workspace.close = function(self)
   self.closed = true
   registry[self.key] = nil
   restore_gc()
+  -- work stopped by the close never reports done; end its progress messages here
+  progress_mod.cancel(self.key)
   pcall(vim.api.nvim_del_augroup_by_id, self.augroup)
   -- buffer sources have no watcher or poll timer
   for _, handle in ipairs({ self.timer, self.watcher, self.poll }) do

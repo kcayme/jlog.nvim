@@ -1,6 +1,7 @@
 local entry_model = require("jlog.parse.entry")
 local cache = require("jlog.ui.cache")
 local keymaps = require("jlog.ui.keymaps")
+local progress_mod = require("jlog.progress")
 local render = require("jlog.ui.render")
 local utils = require("jlog.utils")
 
@@ -810,9 +811,7 @@ View.render = function(self, items, on_done)
 
   local function done()
     self.complete = true
-    if notified then
-      vim.notify("jlog: rendering done", vim.log.levels.INFO)
-    end
+    progress_mod.finish(self.ws.key, "render", "rendering done")
   end
 
   ---@param item_index integer
@@ -905,7 +904,7 @@ View.render = function(self, items, on_done)
     end
     if not notified then
       notified = true
-      vim.notify("jlog: rendering…", vim.log.levels.INFO)
+      progress_mod.begin(self.ws.key, "render", "rendering…")
     end
     -- after on_done, which put the cursor back on its entry
     for _, winid in ipairs(vim.fn.win_findbuf(self.bufnr)) do
@@ -969,7 +968,7 @@ View.render = function(self, items, on_done)
   end
   -- one message when a render outlasts the first screen and one when it ends: each notify is a line in :messages
   notified = true
-  vim.notify("jlog: rendering…", vim.log.levels.INFO)
+  progress_mod.begin(self.ws.key, "render", "rendering…")
   -- a timer, not vim.schedule: chained scheduled callbacks run back to back without handling input or redraw
   vim.defer_fn(step, 0)
 end

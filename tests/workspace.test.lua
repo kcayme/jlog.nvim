@@ -221,7 +221,8 @@ describe("workspace", function()
   end)
 
   it("should apply in chunks and let a newer apply supersede an in-flight one", function()
-    config.setup({ view = { sort = "asc" } })
+    -- the apply messages are read through vim.notify, which `progress = "notify"` uses on every Neovim
+    config.setup({ view = { sort = "asc" }, progress = "notify" })
     local lines = {}
     for i = 1, 25000 do
       lines[i] = string.format('{"msg":"m%d","status":%d}', i, i % 2 == 0 and 500 or 200)
@@ -525,6 +526,8 @@ describe("workspace", function()
       reader.chunk_size = 2
       loader.timing = { tick_ns = 0, publish_ns = 0 }
       store.timing = { tick_ns = 0 }
+      -- these messages are read through vim.notify, which `progress = "notify"` uses on every Neovim
+      config.options.progress = "notify"
       vim.notify = function(msg)
         if msg:find("load", 1, true) then
           messages[#messages + 1] = msg

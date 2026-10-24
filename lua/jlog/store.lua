@@ -18,6 +18,7 @@ local utils = require("jlog.utils")
 ---@class JLogStore
 ---@field source JLogStoreSource
 ---@field generation integer bumped per query; stale chunked queries and counts stop
+---@field running boolean the latest query still scans or groups: its items are not handed out yet
 ---@field matched table<integer, boolean> entry index -> matched the latest query
 ---@field counter JLogFacetCounter|nil facet counts of the latest query, once complete
 ---@field counting JLogFacetCounting|nil the latest query's facet count, still running
@@ -37,7 +38,7 @@ M.timing = { tick_ns = 12e6 }
 ---@param source JLogStoreSource
 ---@return JLogStore
 M.new = function(source)
-  return setmetatable({ source = source, generation = 0, matched = {} }, Store)
+  return setmetatable({ source = source, generation = 0, running = false, matched = {} }, Store)
 end
 
 ---Filter and group in ticks; work past the first ~12ms tick continues later, a newer query wins.
@@ -59,6 +60,7 @@ Store.query = function(self, pred, field, on_items)
   local ctx = { raw = "" }
 
   self.generation = generation
+  self.running = true
   self.matched = matched
 
   local function stale()
@@ -148,12 +150,14 @@ Store.query = function(self, pred, field, on_items)
         return
       end
       if not yielded then
+        self.running = false
         on_items(items, shown)
 
         return
       end
       vim.defer_fn(function()
         if not stale() then
+          self.running = false
           on_items(items, shown)
         end
       end, 0)

@@ -415,6 +415,13 @@ local function trim_stale(view, deadline)
   return true
 end
 
+---A newer query still scans: rows filled now would be replaced by its render, and they slow its scan.
+---@param view JLogView
+---@return boolean
+local function query_running(view)
+  return view.ws.store ~= nil and view.ws.store.running
+end
+
 ---@param view JLogView
 ---@return integer|nil
 local function window_of(view)
@@ -617,7 +624,13 @@ M.render_visible = function(winid)
   local ok, err, cursor
 
   -- while a render lays out, rows below the written ones are old lines; entries swapped in do not match the rows
-  if not view or not next(view.pending) or view.placeholders or view.rendered_entries ~= view.ws.entries then
+  if
+    not view
+    or not next(view.pending)
+    or view.placeholders
+    or view.rendered_entries ~= view.ws.entries
+    or query_running(view)
+  then
     return
   end
   -- the visible rows always render, but take from the pass's budget so the jobs after them spend less
@@ -821,6 +834,12 @@ View.render = function(self, items, on_done)
       or not vim.api.nvim_buf_is_valid(self.bufnr)
       or self.rendered_entries ~= self.ws.entries
     then
+      return
+    end
+    -- its render replaces this one; until it starts, this fill waits
+    if query_running(self) then
+      vim.defer_fn(fill_step, 0)
+
       return
     end
     vim.bo[self.bufnr].modifiable = true

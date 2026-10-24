@@ -385,6 +385,25 @@ for _, count in ipairs(SIZES) do
         assert.is_true(elapsed < 300)
       end)
 
+      it("should show a request_id filter's results within 300ms while the page still fills", function()
+        local elapsed
+
+        path = write_log(gen.nested_lines(count), ".jsonl")
+        ws = workspace.open({ path = path })
+        assert.is_true(vim.wait(60000, function()
+          return settled(ws)() and ws.indexing == nil
+        end, 1))
+        -- the old render's fill must not compete with the new query's scan
+        assert.is_false(ws.view.complete)
+
+        elapsed = time_apply(ws, function()
+          ws:add_filter("request_id=req-00020000")
+        end)
+        print(string.format("nested filter request_id mid-fill (%d shown): %.0fms (budget 300)", ws.shown, elapsed))
+        assert.are.equal(3, ws.shown)
+        assert.is_true(elapsed < 300)
+      end)
+
       it("should keep the Lua heap within 3x the file while a nested page fills", function()
         local before, peak, monitor, bytes
 

@@ -68,11 +68,13 @@ describe("store", function()
     store:query(status_500(), nil, function()
       second = true
     end)
+    assert.is_true(store.running)
 
     assert.is_true(vim.wait(1000, function()
       return second
     end, 10))
     assert.is_false(first)
+    assert.is_false(store.running)
   end)
 
   it("should count the matched entries", function()

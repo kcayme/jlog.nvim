@@ -676,6 +676,34 @@ describe("view", function()
       assert.are.same(compact_lines(v), vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
     end)
 
+    it("should not fill rows while a newer query is still running", function()
+      local ws = make_ws(table.concat(json_lines(3000), "\n"))
+      local v = view.new(ws)
+      local laid_out = false
+      local pending = 0
+
+      ws.store = { running = false }
+      vim.api.nvim_win_set_buf(0, v.bufnr)
+      v:render(all(vim.fn.range(1, 3000)), function()
+        -- as when a filter applies right after the layout: its scan runs while this render would fill
+        ws.store.running = true
+        laid_out = true
+      end)
+      assert.is_true(vim.wait(2000, function()
+        return laid_out
+      end, 1))
+      vim.wait(50)
+      view.render_visible(vim.api.nvim_get_current_win())
+      for _ in pairs(v.pending) do
+        pending = pending + 1
+      end
+      assert.are.equal(3000, pending)
+
+      ws.store.running = false
+      wait_complete(v)
+      assert.are.same(compact_lines(v), vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+    end)
+
     it("should lay out a row still pending again instead of reusing it", function()
       local v = view.new(make_ws(table.concat(json_lines(2000), "\n")))
 

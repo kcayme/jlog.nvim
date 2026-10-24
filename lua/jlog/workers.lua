@@ -16,6 +16,11 @@ local function work_fn(path, job, payload, id)
   ok, result = pcall(function()
     return require("jlog.jobs")[job](payload)
   end)
+  if ok and type(result) ~= "string" then
+    ok, result = false, "job returned " .. type(result) .. ", expected a string"
+  elseif not ok then
+    result = tostring(result)
+  end
   collectgarbage()
 
   return id, ok, result
@@ -57,25 +62,38 @@ end
 ---@param payload string
 ---@param on_result fun(err: string|nil, result: string|nil)
 M.run = function(job, payload, on_result)
-  local path
+  local path, created, handle, queued, ok, err
 
-  if not work_handle then
-    work_handle = vim.uv.new_work(work_fn, on_work_done)
-  end
-  if not work_handle then
-    failed = true
+  local function fail(message)
     vim.defer_fn(function()
-      on_result("worker threads unavailable", nil)
+      on_result(message, nil)
     end, 0)
+  end
 
-    return
+  if not work_handle then
+    created, handle = pcall(vim.uv.new_work, work_fn, on_work_done)
+    if not created or not handle then
+      failed = true
+      fail("worker threads unavailable: " .. tostring(handle))
+
+      return
+    end
+    work_handle = handle
   end
 
   path = package.path .. ";" .. plugin_lua .. "/?.lua;" .. plugin_lua .. "/?/init.lua"
   next_id = next_id + 1
   callbacks[next_id] = on_result
   pending = pending + 1
-  work_handle:queue(path, job, payload, next_id)
+  queued, ok, err = pcall(work_handle.queue, work_handle, path, job, payload, next_id)
+  if queued and ok then
+    return
+  end
+  err = queued and err or ok
+
+  callbacks[next_id] = nil
+  pending = pending - 1
+  fail("could not queue job: " .. tostring(err))
 end
 
 return M

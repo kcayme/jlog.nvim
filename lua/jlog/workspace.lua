@@ -67,6 +67,8 @@ local HEAD_LIMIT = 65536
 local DEBOUNCE_MS = 200
 local TAIL_CHECK = 256
 local POLL_MS = 500
+-- how long a load waiting on worker threads sleeps before it checks again
+local WAIT_MS = 2
 -- the default (200) pays collection debt in one 50-80ms tick at 500k lines; 400 keeps ticks under ~35ms
 local GC_STEPMUL = 400
 
@@ -651,7 +653,7 @@ local function load_rest(ws, entries, read, on_done, counter, token, notified)
     end
     vim.defer_fn(function()
       load_rest(ws, entries, read, on_done, counter, token, true)
-    end, 0)
+    end, waiting and WAIT_MS or 0)
 
     return
   end

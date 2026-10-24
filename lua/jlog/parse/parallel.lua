@@ -8,12 +8,15 @@ local workers = require("jlog.workers")
 ---@field next_pos integer first byte after it
 ---@field done boolean|nil its job has reported
 ---@field err string|nil
----@field result string|nil the job's mpack result
+---@field result string|nil the job's mpack result, until decoded
+---@field positions integer[]|nil decoded JSON position of each line
+---@field fields table|nil decoded field counts
+---@field next_line integer|nil index of the next line to append
 
 local M = {}
 
--- lines parsed per call once a load falls back to the main thread
-local FALLBACK_LINES = 500
+-- lines appended per call, from a finished chunk or parsed on the main thread after a fallback
+local LINES_PER_CALL = 500
 
 -- about this many bytes go to one worker job, cut at a newline
 M.chunk_bytes = 4 * 1024 * 1024
@@ -44,31 +47,39 @@ local function dispatch(text, chunk)
   end)
 end
 
----Append a chunk's lines as `source.append_lines` would, with each line's JSON position from its job.
+---Append up to `max_lines` lines of a chunk from `pos`, as `source.append_lines` would, with JSON positions from its job.
 ---@param entries JLogEntry[] mutated
 ---@param text string
----@param chunk JLogChunk
----@param positions integer[] one per line, 0 for a line that is not JSON
----@param first_lnum integer
-local function append_positions(entries, text, chunk, positions, first_lnum)
-  local pos = chunk.first
+---@param chunk JLogChunk its `positions` decoded; `next_line` is the index of the line at `pos`
+---@param pos integer
+---@param lnum integer source line number of the line at `pos`
+---@param max_lines integer
+---@return integer next_pos
+---@return integer appended lines consumed, blank and continuation lines included
+local function append_slice(entries, text, chunk, pos, lnum, max_lines)
+  local positions = chunk.positions
+  local first_line = chunk.next_line
+  local last_line = math.min(#positions, first_line + max_lines - 1)
   local line_end, line, last, json_at
 
-  for index, position in ipairs(positions) do
+  for index = first_line, last_line do
     line_end = index < #positions and text:find("\n", pos, true) - 1 or chunk.last
     line = text:sub(pos, line_end):gsub("\r$", "")
     pos = line_end + 2
     if line:find("%S") then
       last = entries[#entries]
-      json_at = position ~= 0 and position or nil
+      json_at = positions[index] ~= 0 and positions[index] or nil
       if not json_at and last and last.json_at then
         last.cont = last.cont or {}
         last.cont[#last.cont + 1] = line
       else
-        entries[#entries + 1] = { src = first_lnum + index - 1, raw = line, body = line, json_at = json_at }
+        entries[#entries + 1] = { src = lnum + index - first_line, raw = line, body = line, json_at = json_at }
       end
     end
   end
+  chunk.next_line = last_line + 1
+
+  return pos, last_line - first_line + 1
 end
 
 ---A `JLogReader` of the jsonl lines from `pos` to `stop` that parses them on worker threads.
@@ -79,7 +90,7 @@ end
 ---@return JLogReader
 M.line_reader = function(text, pos, lnum, stop)
   local start = pos
-  -- dispatched and not yet appended, in source order
+  -- dispatched and not yet fully appended, in source order
   local chunks = {}
   local cut = pos
   local fallback = false
@@ -89,18 +100,20 @@ M.line_reader = function(text, pos, lnum, stop)
   end
 
   return function(entries, on_json, count, counter)
-    local lines, chunk, decoded
+    local lines, chunk, decoded, appended
 
-    fallback = fallback or not workers.available()
+    -- chunks already out still report, as a result or an error
+    fallback = fallback or (not chunks[1] and not workers.available())
     if fallback or (count and not chunks[1]) then
-      lines, pos = source.take_lines(text, pos, count or FALLBACK_LINES, stop)
+      lines, pos = source.take_lines(text, pos, count or LINES_PER_CALL, stop)
       source.append_lines(entries, lines, lnum, on_json)
       lnum, cut = lnum + #lines, pos
 
       return fraction()
     end
 
-    while #chunks < workers.limit() and cut <= stop do
+    -- the shared cap also counts jobs of a dropped load that are still running
+    while cut <= stop and #chunks < workers.limit() and workers.in_flight() < workers.limit() and workers.available() do
       chunk = cut_chunk(text, cut, stop)
       cut = chunk.next_pos
       chunks[#chunks + 1] = chunk
@@ -120,12 +133,19 @@ M.line_reader = function(text, pos, lnum, stop)
       return fraction()
     end
 
-    table.remove(chunks, 1)
-    decoded = vim.mpack.decode(chunk.result)
-    append_positions(entries, text, chunk, decoded.positions, lnum)
-    lnum, pos = lnum + #decoded.positions, chunk.next_pos
-    if counter then
-      facets.merge(counter, decoded.fields)
+    if not chunk.positions then
+      decoded = vim.mpack.decode(chunk.result)
+      chunk.positions, chunk.fields, chunk.next_line, chunk.result = decoded.positions, decoded.fields, 1, nil
+    end
+    -- a slice per call, so the caller checks its tick budget between slices of a chunk
+    pos, appended = append_slice(entries, text, chunk, pos, lnum, LINES_PER_CALL)
+    lnum = lnum + appended
+    if chunk.next_line > #chunk.positions then
+      table.remove(chunks, 1)
+      pos = chunk.next_pos
+      if counter then
+        facets.merge(counter, chunk.fields)
+      end
     end
 
     return fraction()

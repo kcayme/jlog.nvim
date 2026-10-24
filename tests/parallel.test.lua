@@ -68,6 +68,27 @@ describe("parallel", function()
     assert_same_counts(base_counts, counts)
   end)
 
+  it("should append a finished chunk a bounded slice per call", function()
+    local text = table.concat(gen.nested_lines(3000), "\n")
+    local read = parallel.line_reader(text, 1, 1, #text)
+    local entries = {}
+    local fraction, waiting, before
+
+    parallel.chunk_bytes = #text
+    read(entries, nil, 200)
+    before = #entries
+    repeat
+      fraction, waiting = read(entries, nil, nil, nil)
+      if waiting then
+        vim.wait(10)
+      end
+    until not waiting
+
+    assert.is_not_nil(fraction)
+    assert.is_true(#entries > before)
+    assert.is_true(#entries - before <= 500)
+  end)
+
   it("should attach continuation lines across a chunk boundary", function()
     local json_line = '{"level":"error","msg":"panic"}'
     local filler = {}

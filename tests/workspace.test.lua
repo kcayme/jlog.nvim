@@ -881,6 +881,7 @@ describe("workspace", function()
   describe("threaded load", function()
     local chunk_bytes = parallel.chunk_bytes
     local min_bytes = parallel.min_bytes
+    local line_reader = parallel.line_reader
     local path
 
     before_each(function()
@@ -892,7 +893,9 @@ describe("workspace", function()
     after_each(function()
       parallel.chunk_bytes = chunk_bytes
       parallel.min_bytes = min_bytes
+      parallel.line_reader = line_reader
       workers.disabled = nil
+      config.setup()
       vim.fn.delete(path)
     end)
 
@@ -911,16 +914,83 @@ describe("workspace", function()
       return ws.entries
     end
 
+    ---Record the entries list each threaded reader appends to, in the order the readers are made.
+    ---@return table[] lists
+    local function spy_readers()
+      local lists = {}
+
+      parallel.line_reader = function(...)
+        local read = line_reader(...)
+        local slot = #lists + 1
+
+        lists[slot] = false
+
+        return function(entries, ...)
+          lists[slot] = entries
+
+          return read(entries, ...)
+        end
+      end
+
+      return lists
+    end
+
+    ---Wait until no job runs, then a little longer, so a late result would have been appended.
+    local function settle_jobs()
+      assert.is_true(vim.wait(5000, function()
+        return workers.in_flight() == 0
+      end, 1))
+      vim.wait(100)
+    end
+
     it("should drop chunks in flight when the workspace closes", function()
+      local lists = spy_readers()
       local ws = assert(workspace.open({ path = path }))
+      local sizes
 
       assert.is_true(vim.wait(2000, function()
         return workers.in_flight() > 0
       end, 1))
       ws:close()
-      assert.is_true(vim.wait(1000, function()
-        return workers.in_flight() == 0
+      sizes = vim.tbl_map(function(list)
+        return list and #list
+      end, lists)
+      settle_jobs()
+
+      assert.are.same(
+        sizes,
+        vim.tbl_map(function(list)
+          return list and #list
+        end, lists)
+      )
+    end)
+
+    it("should not append a dropped page load to any page once its jobs return", function()
+      local lists, ws, old, old_size, srcs_ok
+
+      require("jlog").setup({ paging = { size = 6000, overlap = 2 } })
+      lists = spy_readers()
+      ws = assert(workspace.open({ path = path }))
+      assert.is_true(vim.wait(5000, function()
+        return lists[#lists] and workers.in_flight() > 0
+      end, 1))
+      old = lists[#lists]
+      assert.is_true(ws:goto_page(2))
+      old_size = #old
+      assert.is_true(vim.wait(10000, function()
+        return not ws.loading and ws.page == 2
       end))
+      settle_jobs()
+
+      assert.are.equal(old_size, #old)
+      assert.are_not.equal(old, ws.entries)
+      srcs_ok = true
+      for index = 2, #ws.entries do
+        srcs_ok = srcs_ok and ws.entries[index].src > ws.entries[index - 1].src
+      end
+      assert.is_true(srcs_ok)
+      assert.are.equal(ws.pages:range(2).first_src, ws.entries[1].src)
+      ws:close()
     end)
 
     it("should load a threaded page with the same entries as a main-thread page", function()

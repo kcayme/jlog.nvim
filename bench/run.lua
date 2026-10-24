@@ -186,35 +186,12 @@ local function bench_jsonl(size)
   }
 end
 
-local function bench_array(size)
-  local input = string.format("array %dk", size / 1000)
-  local path = ensure("array-" .. size .. ".json", function()
-    return gen.array_text(size)
-  end)
-  local text = read_file(path)
-  local jlog_ms = jlog_parse(text, "array")
-
-  workspace_rows(input, path)
-
-  rows.parsing[#rows.parsing + 1] = {
-    input,
-    ms_cell(jlog_ms),
-    ms_cell(median(function()
-      vim.json.decode(text)
-    end)),
-    jq_cell("-c '.[]'", path),
-  }
-end
-
 vim.fn.mkdir(DATA_DIR, "p")
 require("jlog").setup()
 opts = config.options
 
 for _, size in ipairs(SIZES) do
   bench_jsonl(size)
-end
-for _, size in ipairs(SIZES) do
-  bench_array(size)
 end
 
 ---Append a Markdown table of `list` to `out`, with its header and alignment rows.
@@ -246,11 +223,10 @@ local out = {
 table_lines(out, "| input | jlog (ms) | vim.json.decode (ms) | jq (ms) |", "|---|---:|---:|---:|", rows.parsing)
 out[#out + 1] =
   "jlog builds its entries and each entry's field tree; it keeps key order and number literals as written."
-out[#out + 1] =
-  "vim.json.decode decodes each line (jsonl) or the whole array; jq runs `jq -c .` (jsonl) or `jq -c '.[]'` (array)."
+out[#out + 1] = "vim.json.decode decodes each line; jq runs `jq -c .`."
 out[#out + 1] = "jq does not build jlog's entry model or continuation lines."
 out[#out + 1] =
-  "For jsonl, vim.json.decode and jq read a prefix-free copy of the same lines, since they cannot parse prefixed or continuation lines."
+  "vim.json.decode and jq read a prefix-free copy of the same lines, since they cannot parse prefixed or continuation lines."
 if not has_jq then
   out[#out + 1] = "Notice: jq is not on PATH, the jq column was skipped."
 end

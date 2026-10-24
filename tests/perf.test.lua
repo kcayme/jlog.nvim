@@ -325,6 +325,82 @@ for _, count in ipairs(SIZES) do
       assert.is_true(elapsed < 50)
     end)
 
+    -- the viewport targets are measured on a nested 100k page only
+    if count == 100000 then
+      local function complete(ws_arg)
+        return function()
+          return ws_arg.view ~= nil and ws_arg.view.complete == true
+        end
+      end
+
+      it("should show a nested page's first compact screen within 300ms", function()
+        local start, elapsed, view, first, last, item_index, entry, expected, offset
+
+        path = write_log(gen.nested_lines(count), ".jsonl")
+        start = now_ms()
+        ws = workspace.open({ path = path })
+        elapsed = now_ms() - start
+        view = ws.view
+        print(string.format("nested open -> first compact screen: %.0fms (budget 300)", elapsed))
+        assert.is_true(elapsed < 300)
+
+        vim.api.nvim_win_call(vim.fn.win_findbuf(view.bufnr)[1], function()
+          first, last = vim.fn.line("w0"), vim.fn.line("w$")
+        end)
+        for lnum = first, last do
+          item_index = view.line_item[lnum]
+          entry = ws.entries[view.items[item_index].idx]
+          expected = render.compact(entry, opts, true)
+          offset = lnum - view.item_line[item_index] + 1
+          assert.are.equal(expected[offset], vim.api.nvim_buf_get_lines(view.bufnr, lnum - 1, lnum, false)[1])
+        end
+      end)
+
+      it("should keep every tick short while a nested page fills", function()
+        local tick
+
+        path = write_log(gen.nested_lines(count), ".jsonl")
+        -- open itself is the first screen, checked above; the ticks after it must stay short
+        ws = workspace.open({ path = path })
+        tick = worst_tick(function() end, complete(ws))
+        print(string.format("worst tick: nested fill after open %.1fms (budget 16)", tick))
+        assert.is_true(tick < 16)
+      end)
+
+      it("should show a request_id filter's results within 300ms after open", function()
+        local elapsed
+
+        path = write_log(gen.nested_lines(count), ".jsonl")
+        ws = workspace.open({ path = path })
+        assert.is_true(vim.wait(60000, complete(ws), 50))
+
+        elapsed = time_apply(ws, function()
+          ws:add_filter("request_id=req-00020000")
+        end)
+        print(string.format("nested filter request_id (%d shown): %.0fms (budget 300)", ws.shown, elapsed))
+        assert.is_true(elapsed < 300)
+      end)
+
+      it("should keep the Lua heap within 3x the file while a nested page fills", function()
+        local before, peak, monitor, bytes
+
+        path = write_log(gen.nested_lines(count), ".jsonl")
+        bytes = vim.uv.fs_stat(path).size
+        before = collectgarbage("count")
+        peak = before
+        monitor = vim.uv.new_timer()
+        monitor:start(0, 1, function()
+          peak = math.max(peak, collectgarbage("count"))
+        end)
+        ws = workspace.open({ path = path })
+        assert.is_true(vim.wait(60000, complete(ws), 1))
+        monitor:stop()
+        monitor:close()
+        print(string.format("nested heap growth: %.1f MB for %.1f MB file", (peak - before) / 1024, bytes / 1048576))
+        assert.is_true(peak - before < 3 * bytes / 1024)
+      end)
+    end
+
     -- page changes only exist past one page
     if count <= 100000 then
       return

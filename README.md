@@ -47,6 +47,10 @@ with `view.sort = "asc"`, appears once loading finishes.
 Work that outlasts the first screen (loading, indexing pages, applying a filter or group, rendering) reports through
 `vim.notify`: one message when it starts and one when it is done.
 
+While a large page is still filling in the background, `/` may match the raw text of rows not yet rendered, and
+miss text that only exists in the compact form (formatted times, flattened nested keys); it is exact once rendering is
+done.
+
 Type filters under `FILTERS` and a field under `GROUP BY` in the sidebar, then `:w` to apply (leaving insert mode
 also applies). An empty section shows an example in normal mode.
 

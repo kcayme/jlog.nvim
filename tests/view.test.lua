@@ -789,16 +789,25 @@ describe("view", function()
 
       it("should render rows a redraw finds still pending", function()
         local v = shown(5000)
+        local laid_out = false
 
-        v:render(all(vim.fn.range(1, 5000)))
         view.tick_ns = 0
+        v:render(all(vim.fn.range(1, 5000)), function()
+          laid_out = true
+          vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        end)
+        assert.is_true(vim.wait(2000, function()
+          return laid_out
+        end, 1))
+        -- no WinScrolled headless: only the redraw sees the new screen
         vim.api.nvim_win_set_cursor(0, { 3000, 0 })
         vim.cmd("redraw!")
         assert.is_true(vim.wait(200, function()
           return is_compact(v, 3000)
         end, 1))
-        -- the fill, going down from row 1, has not got there
+        -- the fill, going down from row 1, has reached neither
         assert.is_true(v.pending[2000])
+        assert.is_true(v.pending[4500])
         view.tick_ns = tick_ns
         wait_complete(v)
       end)

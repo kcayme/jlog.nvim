@@ -1,3 +1,11 @@
+local _, err = require("jlog").health_check()
+
+if err then
+  vim.notify(err, vim.log.levels.ERROR)
+
+  return
+end
+
 vim.api.nvim_create_user_command("JLog", function(cmd_opts)
   require("jlog.commands").run(cmd_opts.fargs)
 end, {

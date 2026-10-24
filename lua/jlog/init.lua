@@ -1,7 +1,27 @@
 local M = {}
 
+local MIN_VERSION = "0.10"
+
+---Whether this Neovim can run jlog; modules below rely on it (vim.uv, vim.json in worker threads, vim.system).
+---@return boolean ok
+---@return string|nil err
+M.health_check = function()
+  if vim.fn.has("nvim-" .. MIN_VERSION) == 0 then
+    return false, "jlog requires Neovim >= " .. MIN_VERSION
+  end
+
+  return true
+end
+
 ---@param opts table|nil partial `JLogOptions`
 M.setup = function(opts)
+  local _, err = M.health_check()
+
+  if err then
+    vim.notify(err, vim.log.levels.ERROR)
+
+    return
+  end
   require("jlog.config").setup(opts)
   require("jlog.ui.highlights").setup()
   require("jlog.hooks").register()

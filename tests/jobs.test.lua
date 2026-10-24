@@ -66,23 +66,4 @@ describe("jobs", function()
     assert.are.equal(2, result.fields["labels.app"].counts["a"])
     assert.are.equal(1, result.fields.msg.counts["a"])
   end)
-
-  describe("without vim.json", function()
-    local real_json = vim.json
-
-    after_each(function()
-      vim.json = real_json
-    end)
-
-    it("should raise instead of treating every line as non-JSON", function()
-      vim.json = nil
-
-      assert.has_error(function()
-        jobs.parse_lines(vim.mpack.encode({ text = '{"a":1}' }))
-      end)
-      assert.has_error(function()
-        jobs.count_entries(vim.mpack.encode({ entries = {} }))
-      end)
-    end)
-  end)
 end)

@@ -737,7 +737,8 @@ View.render = function(self, items, on_done)
   local total = #items
   local entry_count = 0
   local notified = false
-  local swept = false
+  -- rows filled since the last sweep began; a sweep that fills none leaves only entries no sweep reaches
+  local swept_fill = true
   local below, above, next_item
 
   for _, item in ipairs(items) do
@@ -786,6 +787,7 @@ View.render = function(self, items, on_done)
       return false
     end
     render_pending(self, item_index)
+    swept_fill = true
 
     return true
   end
@@ -824,12 +826,15 @@ View.render = function(self, items, on_done)
     if not ok then
       error(err, 0)
     end
-    -- a prepend during the fill moves items past the upward cursor: sweep once more from the top
-    if below > #self.items and above < 1 and next(self.pending) and not swept then
-      swept, below, above = true, 1, 0
+    -- a prepend during the fill moves items past the upward cursor: sweep again from the top
+    if below > #self.items and above < 1 and next(self.pending) and swept_fill then
+      swept_fill, below, above = false, 1, 0
     end
     if below > #self.items and above < 1 then
-      done()
+      -- complete means nothing is pending
+      if not next(self.pending) then
+        done()
+      end
 
       return
     end

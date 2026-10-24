@@ -215,6 +215,34 @@ describe("reload", function()
     end)
   end)
 
+  it("should append to a filling view without writing onto the wrong rows", function()
+    local render = require("jlog.ui.render")
+    local lines, appended = {}, {}
+    local view
+
+    for index = 1, 3000 do
+      lines[index] = string.format('{"msg":"m%d","level":"INFO","n":%d}', index, index)
+    end
+    for index = 1, 5 do
+      appended[index] = string.format('{"msg":"new%d","level":"WARN"}', index)
+    end
+    vim.fn.writefile(lines, path)
+    ws = workspace.open({ path = path })
+    wait(function()
+      return ws.rendered == ws.store.generation and #ws.entries == 3000
+    end)
+    view = ws.view
+    assert.is_false(view.complete)
+    vim.fn.writefile(appended, path, "a")
+    assert.is_true(vim.wait(5000, function()
+      return #ws.entries == 3005 and view.complete
+    end, 20))
+    for row, text in ipairs(vim.api.nvim_buf_get_lines(view.bufnr, 0, -1, false)) do
+      local entry = ws.entries[view.items[view.line_item[row]].idx]
+      assert.are.equal(render.compact(entry, ws.opts, true)[1], text, "row " .. row)
+    end
+  end)
+
   it("should keep unsaved sidebar filter edits when lines are appended", function()
     local bufnr
 

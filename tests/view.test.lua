@@ -741,6 +741,117 @@ describe("view", function()
       wait_complete(v)
     end)
 
+    it("should expand and collapse a pending entry in place", function()
+      local v = view.new(make_ws(table.concat(json_lines(3000), "\n")))
+      local laid_out = false
+      local compact, row
+
+      vim.api.nvim_win_set_buf(0, v.bufnr)
+      view.tick_ns = 0
+      v:render(all(vim.fn.range(1, 3000)), function()
+        laid_out = true
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+      end)
+      assert.is_true(vim.wait(2000, function()
+        return laid_out
+      end, 1))
+      row = v.item_line[v.entry_item[2000]]
+      vim.api.nvim_win_set_cursor(0, { row, 0 })
+      assert.is_true(v.pending[2000])
+      compact = render.compact(v.ws.entries[2000], opts, true)[1]
+
+      v:toggle_entry()
+      assert.is_nil(v.pending[2000])
+      assert.are.same({ compact, "{" }, vim.api.nvim_buf_get_lines(v.bufnr, row - 1, row + 1, false))
+      v:toggle_entry()
+      assert.is_nil(v.pending[2000])
+      assert.are.equal(compact, vim.fn.getbufline(v.bufnr, row)[1])
+      assert.are.equal(v.items[v.line_item[row + 1]].idx, 2001)
+
+      view.tick_ns = tick_ns
+      wait_complete(v)
+      assert.are.same(compact_lines(v), vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+    end)
+
+    it("should not cache a buffer that still holds placeholders when the mode toggles", function()
+      local v = view.new(make_ws(table.concat(json_lines(5000), "\n")))
+      local laid_out = false
+
+      local function assert_no_placeholder()
+        for row, text in ipairs(vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false)) do
+          local entry = v.ws.entries[v.items[v.line_item[row]].idx]
+          assert.are_not.equal(render.escape_newlines(entry.body), text, "row " .. row)
+        end
+      end
+
+      vim.api.nvim_win_set_buf(0, v.bufnr)
+      view.tick_ns = 0
+      v:render(all(vim.fn.range(1, 5000)), function()
+        laid_out = true
+      end)
+      assert.is_true(vim.wait(2000, function()
+        return laid_out
+      end, 1))
+      assert.is_false(v.complete)
+      v:toggle_mode()
+      assert.is_nil(v.cache)
+      view.tick_ns = tick_ns
+      wait_complete(v)
+      assert_no_placeholder()
+
+      v:toggle_mode()
+      wait_complete(v)
+      assert.are.equal("compact", v.ws.state.mode)
+      assert_no_placeholder()
+    end)
+
+    it("should fill every pending entry onto its own row when entries are prepended mid-fill", function()
+      local v = view.new(make_ws(table.concat(json_lines(3200), "\n")))
+      local laid_out = false
+      local next_new = 3001
+
+      v.ws.state.reverse = true
+      vim.api.nvim_win_set_buf(0, v.bufnr)
+      view.tick_ns = 0
+      v:render(all(vim.fn.range(3000, 1, -1)), function()
+        laid_out = true
+        vim.api.nvim_win_set_cursor(0, { 1500, 0 })
+      end)
+      assert.is_true(vim.wait(2000, function()
+        return laid_out
+      end, 1))
+      -- prepend one or two new entries every few ms until the fill completes, including during its last sweep
+      assert.is_true(vim.wait(10000, function()
+        if next_new <= 3200 and not v.complete then
+          v:prepend(next_new % 3 == 0 and { next_new + 1, next_new } or { next_new }, nil)
+          next_new = next_new + (next_new % 3 == 0 and 2 or 1)
+        end
+        return v.complete
+      end, 2))
+      assert.are.same({}, v.pending)
+      assert.are.same(compact_lines(v), vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+    end)
+
+    it("should not complete while an entry no sweep reaches is still pending", function()
+      local v = view.new(make_ws(table.concat(json_lines(1001), "\n")))
+      local laid_out = false
+
+      v:render(all(vim.fn.range(1, 1000)), function()
+        laid_out = true
+      end)
+      assert.is_true(vim.wait(2000, function()
+        return laid_out
+      end, 1))
+      -- stands in for any entry left pending where no item scan finds it
+      v.pending[1001] = true
+      assert.is_true(vim.wait(5000, function()
+        return v.complete or v.pending[1000] == nil and v.pending[1] == nil
+      end, 1))
+      vim.wait(50)
+      assert.is_false(v.complete)
+      v.pending[1001] = nil
+    end)
+
     describe("visible screen", function()
       local function shown(count)
         local v = view.new(make_ws(table.concat(json_lines(count), "\n")))

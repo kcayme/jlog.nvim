@@ -372,7 +372,10 @@ for _, count in ipairs(SIZES) do
 
         path = write_log(gen.nested_lines(count), ".jsonl")
         ws = workspace.open({ path = path })
-        assert.is_true(vim.wait(60000, complete(ws), 50))
+        -- the page index scans in background ticks; filtering meanwhile would time that work too
+        assert.is_true(vim.wait(60000, function()
+          return complete(ws)() and settled(ws)() and ws.indexing == nil
+        end, 50))
 
         elapsed = time_apply(ws, function()
           ws:add_filter("request_id=req-00020000")

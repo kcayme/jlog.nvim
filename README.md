@@ -82,7 +82,7 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
 
 | Key | Where | Action |
 |-----|-------|--------|
-| `<Tab>` | log view | Expand/collapse the entry under the cursor |
+| `<CR>` | log view | Expand/collapse the entry under the cursor |
 | `E` | log view | Toggle the whole view between compact and expanded |
 | `gf` | log view | Show the entry's raw source text in a float (press again in the float to jump to the source line, JSONL only) |
 | `R` | log view | Reverse order |
@@ -152,7 +152,7 @@ require("jlog").setup({
   facets = { top_values = 10 },
   paging = { size = 100000, overlap = 2000 }, -- source lines (JSONL) or array elements
   keymaps = {
-    toggle_entry = "<Tab>",
+    toggle_entry = "<CR>",
     toggle_mode = "E",
     raw = "gf",
     reverse = "R",

@@ -96,7 +96,7 @@ M.defaults = {
   facets = { top_values = 10 },
   paging = { size = 100000, overlap = 2000 },
   keymaps = {
-    toggle_entry = "<Tab>",
+    toggle_entry = "<CR>",
     toggle_mode = "E",
     raw = "gf",
     reverse = "R",

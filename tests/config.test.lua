@@ -6,7 +6,7 @@ describe("config", function()
     assert.are.same({ "time", "ts", "timestamp", "@timestamp" }, opts.fields.time)
     assert.are.equal("compact", opts.view.mode)
     assert.are.equal(4, opts.unwrap.max_depth)
-    assert.are.equal("<Tab>", opts.keymaps.toggle_entry)
+    assert.are.equal("<CR>", opts.keymaps.toggle_entry)
   end)
 
   it("should deep-merge user options", function()

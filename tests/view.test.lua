@@ -317,7 +317,7 @@ describe("view", function()
     for _, map in ipairs(vim.api.nvim_buf_get_keymap(v.bufnr, "n")) do
       maps[map.lhs] = map.desc
     end
-    assert.are.equal("jlog: toggle_entry", maps["<Tab>"])
+    assert.are.equal("jlog: toggle_entry", maps["<CR>"])
     assert.is_nil(maps["R"])
   end)
 

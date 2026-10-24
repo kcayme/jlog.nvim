@@ -320,6 +320,37 @@ describe("workspace", function()
     ws:close()
   end)
 
+  it("should finish counting when the render is replaced before it ends", function()
+    local lines = {}
+    local view = require("jlog.ui.view")
+    local view_tick_ns = view.tick_ns
+    local buf, ws
+
+    for index = 1, 25000 do
+      lines[index] = string.format('{"msg":"m%d","status":%d}', index, index % 2 == 0 and 500 or 200)
+    end
+    buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    ws = assert(workspace.open({ bufnr = buf }))
+    assert.is_true(vim.wait(10000, function()
+      return not ws.loading and ws.rendered == ws.store.generation and not ws.sidebar.stale
+    end))
+
+    view.tick_ns = 0
+    ws:add_filter("status=500")
+    assert.is_true(vim.wait(10000, function()
+      return ws.view.complete == false
+    end, 1))
+    ws.view:toggle_mode()
+    view.tick_ns = view_tick_ns
+
+    assert.is_true(vim.wait(10000, function()
+      return ws.sidebar.stale == false
+    end))
+    assert.are.equal(12500, ws.store.counter.fields.status.counts["500"])
+    ws:close()
+  end)
+
   it("should render a filter before counting fields, then publish the counts", function()
     local lines = {}
     local timing = vim.deepcopy(workspace.timing)

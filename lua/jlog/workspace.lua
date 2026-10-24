@@ -336,6 +336,15 @@ Workspace.apply = function(self, on_done, counted)
     self.shown = shown
     self.view:set_winbar(winbar_text(self, shown))
     render_sidebar(self)
+    -- counting does not wait for the render: a superseded render never calls its on_done
+    if self.sidebar.stale then
+      self.store:count(function(counter)
+        self.sidebar.stale = false
+        publish_facets(self, counter)
+        -- unsaved FILTERS edits are kept; the next sync renders the counts
+        render_sidebar(self)
+      end)
+    end
     self.view:render(items, function()
       -- a newer apply that has not rendered yet supersedes this render too
       if self.store.generation ~= generation or self.closed then
@@ -344,14 +353,6 @@ Workspace.apply = function(self, on_done, counted)
       self.rendered = generation
       if cursor_entry then
         self.view:goto_entry(cursor_entry)
-      end
-      if self.sidebar.stale then
-        self.store:count(function(counter)
-          self.sidebar.stale = false
-          publish_facets(self, counter)
-          -- unsaved FILTERS edits are kept; the next sync renders the counts
-          render_sidebar(self)
-        end)
       end
       if on_done then
         on_done()

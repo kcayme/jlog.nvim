@@ -20,7 +20,7 @@ local utils = require("jlog.utils")
 ---@field complete boolean the last render into the buffer finished: its layout is written and `pending` is empty
 ---@field pending table<integer, boolean> entry index -> its row still shows a placeholder
 ---@field placeholders boolean|nil while a render lays out: JSON entries get placeholder lines
----@field visible_queued boolean|nil a redraw found placeholders and scheduled rendering its window's rows
+---@field visible_queued table<integer, boolean> window id -> a redraw found placeholders and scheduled rendering its rows
 ---@field edited boolean entries were expanded or collapsed in place since the last render
 ---@field mode JLogViewMode|nil the mode the buffer was rendered in
 ---@field folded table<integer, boolean> windows whose folds were made for the buffer's last render
@@ -502,15 +502,15 @@ end
 local function queue_visible(view, winid, toprow, botrow)
   local item
 
-  if view.visible_queued or not next(view.pending) then
+  if view.visible_queued[winid] or not next(view.pending) then
     return
   end
   for row = toprow, botrow do
     item = view.items[view.line_item[row + 1]]
     if item and item.kind == "entry" and view.pending[item.idx] then
-      view.visible_queued = true
+      view.visible_queued[winid] = true
       vim.schedule(function()
-        view.visible_queued = nil
+        view.visible_queued[winid] = nil
         if vim.api.nvim_win_is_valid(winid) then
           M.render_visible(winid)
         end
@@ -1236,6 +1236,7 @@ M.new = function(ws)
     edited = false,
     folded = {},
     pending = {},
+    visible_queued = {},
   }, View)
 
   view.bufnr = create_buffer(view)

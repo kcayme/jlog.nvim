@@ -572,11 +572,17 @@ describe("view", function()
       end, 1))
     end
 
+    -- a view left with an entry no sweep reaches, so its fill stops
+    local stuck
+
     before_each(function()
       view.placeholder_min = 0
     end)
     after_each(function()
       view.placeholder_min, view.fold_expr_limit, view.tick_ns = placeholder_min, fold_expr_limit, tick_ns
+      if stuck then
+        stuck.pending[1001], stuck = nil, nil
+      end
     end)
 
     it("should lay out placeholders and fill them to the full compact render", function()
@@ -848,7 +854,7 @@ describe("view", function()
       assert.is_true(vim.wait(2000, function()
         return laid_out
       end, 1))
-      -- prepend one or two new entries every few ms until the fill completes, including during its last sweep
+      -- prepend one or two new entries every few ms while the fill runs; the 200 run out before its last sweep
       assert.is_true(vim.wait(10000, function()
         if next_new <= 3200 and not v.complete then
           v:prepend(next_new % 3 == 0 and { next_new + 1, next_new } or { next_new }, nil)
@@ -864,6 +870,7 @@ describe("view", function()
       local v = view.new(make_ws(table.concat(json_lines(1001), "\n")))
       local laid_out = false
 
+      stuck = v
       v:render(all(vim.fn.range(1, 1000)), function()
         laid_out = true
       end)
@@ -877,10 +884,10 @@ describe("view", function()
       end, 1))
       vim.wait(50)
       assert.is_false(v.complete)
-      v.pending[1001] = nil
     end)
 
     describe("visible screen", function()
+      local render_visible = view.render_visible
       local function shown(count)
         local v = view.new(make_ws(table.concat(json_lines(count), "\n")))
 
@@ -897,6 +904,7 @@ describe("view", function()
 
       after_each(function()
         vim.fn.setreg("/", "")
+        view.render_visible = render_visible
       end)
 
       it("should show the visible screen compact as soon as the render returns", function()
@@ -948,6 +956,38 @@ describe("view", function()
         assert.is_true(v.pending[2000])
         assert.is_true(v.pending[4500])
         view.tick_ns = tick_ns
+        wait_complete(v)
+      end)
+
+      it("should render the pending rows of every window one redraw finds", function()
+        local v = shown(5000)
+        local laid_out = false
+        local rendered = {}
+        local first, second
+
+        v:render(all(vim.fn.range(1, 5000)), function()
+          laid_out = true
+          vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        end)
+        assert.is_true(vim.wait(2000, function()
+          return laid_out
+        end, 1))
+        first = vim.api.nvim_get_current_win()
+        vim.cmd("split")
+        second = vim.api.nvim_get_current_win()
+        vim.api.nvim_win_set_cursor(first, { 2000, 0 })
+        vim.api.nvim_win_set_cursor(second, { 4000, 0 })
+        -- the fill outruns any wait here, so record which windows the redraw queues instead
+        view.render_visible = function(winid)
+          rendered[winid] = true
+          render_visible(winid)
+        end
+        vim.cmd("redraw!")
+        vim.wait(50, function()
+          return rendered[first] and rendered[second]
+        end, 1)
+        assert.are.same({ [first] = true, [second] = true }, rendered)
+        vim.cmd("close")
         wait_complete(v)
       end)
 

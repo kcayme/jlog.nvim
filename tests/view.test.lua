@@ -1015,10 +1015,26 @@ describe("view", function()
 
         v:render(all(vim.fn.range(1, 5000)))
         vim.fn.setreg("/", "m4000")
-        vim.api.nvim_win_set_cursor(0, { 4000, 50 })
+        -- where `/` leaves it: on the match in the raw text
+        vim.api.nvim_win_set_cursor(0, { 4000, vim.fn.match(vim.fn.getline(4000), "m4000") })
         view.render_visible(winid)
         assert.is_true(is_compact(v, 4000))
         assert.are.equal(vim.fn.match(compact_at(v, 4000), "m4000"), vim.api.nvim_win_get_cursor(0)[2])
+        wait_complete(v)
+      end)
+
+      it("should keep the column of a cursor moved sideways onto a pending row with a leftover search", function()
+        local v = shown(5000)
+        local winid = vim.api.nvim_get_current_win()
+
+        v:render(all(vim.fn.range(1, 5000)))
+        vim.fn.setreg("/", "m4000")
+        -- off the match, as a sideways move then G leaves it with 'nostartofline'
+        vim.api.nvim_win_set_cursor(0, { 4000, 3 })
+        view.render_visible(winid)
+        assert.is_true(is_compact(v, 4000))
+        assert.are_not.equal(3, vim.fn.match(compact_at(v, 4000), "m4000"))
+        assert.are.same({ 4000, 3 }, vim.api.nvim_win_get_cursor(0))
         wait_complete(v)
       end)
 

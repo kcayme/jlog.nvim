@@ -484,6 +484,23 @@ local function render_window_rows(view, rewritten)
   end
 end
 
+---The window's cursor sits on a match of the last search in its row's text, as `/` and `n` leave it.
+---@param winid integer
+---@return boolean
+local function on_search_match(winid)
+  local cursor = vim.api.nvim_win_get_cursor(winid)
+  local pattern = vim.fn.getreg("/")
+  local line = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(winid), cursor[1] - 1, cursor[1], false)[1]
+  local ok, col
+
+  if pattern == "" then
+    return false
+  end
+  ok, col = pcall(vim.fn.match, line, pattern, cursor[2])
+
+  return ok and col == cursor[2]
+end
+
 ---The cursor's byte column was found in the raw text: put it on the search match, or the start of the row.
 ---@param winid integer
 ---@param row integer 1-based
@@ -621,6 +638,7 @@ M.render_visible = function(winid)
   local bufnr = vim.api.nvim_win_get_buf(winid)
   local view = views[bufnr]
   local rewritten = {}
+  local searched = {}
   local ok, err, cursor
 
   -- while a render lays out, rows below the written ones are old lines; entries swapped in do not match the rows
@@ -635,6 +653,10 @@ M.render_visible = function(winid)
   end
   -- the visible rows always render, but take from the pass's budget so the jobs after them spend less
   utils.tick_deadline(M.tick_ns)
+  -- a cursor `/` or `n` left on a match in the raw text follows it into the compact line; any other stays put
+  for _, other in ipairs(vim.fn.win_findbuf(bufnr)) do
+    searched[other] = on_search_match(other)
+  end
   vim.bo[bufnr].modifiable = true
   ok, err = pcall(vim.api.nvim_win_call, winid, function()
     render_window_rows(view, rewritten)
@@ -643,10 +665,9 @@ M.render_visible = function(winid)
   if not ok then
     error(err, 0)
   end
-  for _, other in ipairs(vim.fn.win_findbuf(bufnr)) do
+  for other, on_match in pairs(searched) do
     cursor = vim.api.nvim_win_get_cursor(other)
-    -- only `/` and `n` land past column 0 of the raw text; G, gg and :N land at column 0 and stay there
-    if rewritten[cursor[1]] and cursor[2] > 0 then
+    if on_match and rewritten[cursor[1]] then
       cursor_to_match(other, cursor[1])
     end
   end

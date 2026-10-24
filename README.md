@@ -263,7 +263,7 @@ linked group's color, reversed and bold, so the level reads as a colored label i
 | `JLogNull` | expanded null values | `Constant` |
 | `JLogPrefix` | text before embedded JSON | `Comment` |
 | `JLogPlain` | non-JSON entries and continuation lines | `Comment` |
-| `JLogGroupHeader` | group header lines | `Title` |
+| `JLogGroupHeader` | group headers (virtual lines and closed group folds) | `Title` |
 | `JLogSectionHeader` | sidebar `FILTERS` / `GROUP BY` / `FIELDS` | `Title` |
 | `JLogFieldName` | field names in the FIELDS section, when `view.field_colors = false` | `Identifier` |
 | `JLogFieldCount` | counts in the FIELDS section | `Comment` |

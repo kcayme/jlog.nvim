@@ -192,7 +192,7 @@ describe("reload", function()
       return #ws.entries == 3
     end)
     wait(function()
-      return #vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false) == 5
+      return #vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false) == 3
     end)
   end)
 

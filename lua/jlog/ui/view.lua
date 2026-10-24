@@ -54,6 +54,7 @@ local ERROR_LEVELS = { error = true, fatal = true, panic = true }
 
 local ns = vim.api.nvim_create_namespace("jlog.view")
 local ns_anchor = vim.api.nvim_create_namespace("jlog.view.anchor")
+local ns_header = vim.api.nvim_create_namespace("jlog.view.header")
 
 ---@type table<integer, JLogView>
 local views = {}
@@ -73,12 +74,9 @@ end
 ---@return string[] lines
 ---@return JLogSpan[][]|nil spans
 local function item_lines(view, item, lines_only)
-  local line, span
-
+  -- a group header takes no line: it is a virtual line above the group's first entry
   if item.kind == "header" then
-    line, span = render.header(item.group)
-
-    return { line }, { span }
+    return {}, {}
   end
   if is_expanded(view, item) then
     return render.expanded(view.ws.entries[item.idx], view.ws.opts)
@@ -107,7 +105,44 @@ local function apply_winbar(view, text)
   end
 end
 
----One open manual fold per group, from its header line to the line before the next header.
+---Draw the header before `item_index` as a virtual line above its first line; the mark goes when that line does.
+---@param view JLogView
+---@param item_index integer an entry right after a group header
+local function place_header(view, item_index)
+  local line = render.header(view.items[item_index - 1].group)
+
+  vim.api.nvim_buf_set_extmark(view.bufnr, ns_header, view.item_line[item_index] - 1, 0, {
+    virt_lines = { { { line, "JLogGroupHeader" } } },
+    virt_lines_above = true,
+    invalidate = true,
+    undo_restore = false,
+  })
+end
+
+---@param view JLogView
+---@param item_index integer
+---@return boolean
+local function starts_group(view, item_index)
+  local previous = view.items[item_index - 1]
+
+  return previous ~= nil and previous.kind == "header"
+end
+
+---A virtual line above line 1 shows only when the window is scrolled up into it.
+---@param view JLogView
+---@param winid integer
+local function show_first_header(view, winid)
+  if view.first_header ~= 1 then
+    return
+  end
+  vim.api.nvim_win_call(winid, function()
+    if vim.fn.line("w0") == 1 then
+      vim.fn.winrestview({ topfill = 1 })
+    end
+  end)
+end
+
+---One open manual fold per group, from its first entry line to the line before the next group's.
 ---@param view JLogView
 local function create_manual_folds(view)
   local items, item_line = view.items, view.item_line
@@ -133,7 +168,11 @@ local function apply_window_options(view, winid)
 
   wo.wrap = false
   wo.foldexpr = "v:lua.require'jlog.ui.view'.foldexpr(v:lnum)"
+  -- a closed fold hides the header's virtual line, so the fold line shows the header instead
+  wo.foldtext = "v:lua.require'jlog.ui.view'.foldtext()"
   wo.foldlevel = 99
+  -- a group of one single-line entry is a one-line fold, which only closes with this at 0
+  wo.foldminlines = 0
   -- evaluating a foldexpr per line costs seconds on 500k lines: only pay it for groups in smaller views
   wo.foldmethod = (view.first_header and not manual) and "expr" or "manual"
   vim.api.nvim_win_call(winid, function()
@@ -145,6 +184,7 @@ local function apply_window_options(view, winid)
       create_manual_folds(view)
     end
   end)
+  show_first_header(view, winid)
   view.folded[winid] = true
 end
 
@@ -219,6 +259,7 @@ local function append_items(view, first, last, replace, deadline, keep_tail)
   local line_count = #line_item
   local done = last
   local start = replace and 0 or #line_item
+  local group_starts = {}
   local lines
 
   for item_index = first, last do
@@ -231,6 +272,9 @@ local function append_items(view, first, last, replace, deadline, keep_tail)
     item_line[item_index] = line_count + 1
     if items[item_index].kind == "entry" then
       entry_item[items[item_index].idx] = item_index
+      if starts_group(view, item_index) then
+        group_starts[#group_starts + 1] = item_index
+      end
     elseif not view.first_header then
       view.first_header = item_index
     end
@@ -244,6 +288,9 @@ local function append_items(view, first, last, replace, deadline, keep_tail)
     end
   end
   write_lines(view, start, keep_tail and start or -1, buffer_lines)
+  for _, item_index in ipairs(group_starts) do
+    place_header(view, item_index)
+  end
 
   return done
 end
@@ -432,6 +479,21 @@ local function create_buffer(view)
         apply_window_options(view, winid)
       end
       apply_winbar(view, view.winbar_text)
+      -- entering the buffer resets the window's topfill after this autocmd
+      vim.schedule(function()
+        if vim.api.nvim_win_is_valid(winid) and vim.api.nvim_win_get_buf(winid) == bufnr then
+          show_first_header(view, winid)
+        end
+      end)
+    end,
+  })
+  -- reaching line 1 (`gg`, `k`) scrolls to the line, not to the header above it
+  vim.api.nvim_create_autocmd("CursorMoved", {
+    buffer = bufnr,
+    callback = function()
+      if vim.fn.line(".") == 1 then
+        show_first_header(view, vim.api.nvim_get_current_win())
+      end
     end,
   })
   vim.api.nvim_create_autocmd("BufWipeout", {
@@ -538,6 +600,9 @@ View.render = function(self, items, on_done)
     finish()
 
     return
+  end
+  for _, winid in ipairs(vim.fn.win_findbuf(self.bufnr)) do
+    show_first_header(self, winid)
   end
   -- one message when a render outlasts the first screen and one when it ends: each notify is a line in :messages
   vim.notify("jlog: rendering…", vim.log.levels.INFO)
@@ -696,6 +761,10 @@ View.toggle_entry = function(self)
   for index = item_index + 1, #item_line do
     item_line[index] = item_line[index] + delta
   end
+  -- rewriting the group's first entry removed its header mark
+  if starts_group(self, item_index) then
+    place_header(self, item_index)
+  end
 
   self:goto_entry(item.idx)
 end
@@ -827,7 +896,7 @@ M.new = function(ws)
   return view
 end
 
----Fold level for `lnum` of the current buffer: group headers open a fold, their entries are inside it.
+---Fold level for `lnum` of the current buffer: a group's first entry line opens a fold, its other lines are inside it.
 ---@param lnum integer
 ---@return string
 M.foldexpr = function(lnum)
@@ -837,11 +906,24 @@ M.foldexpr = function(lnum)
   if not item_index or not view.first_header then
     return "0"
   end
-  if view.items[item_index].kind == "header" then
+  if starts_group(view, item_index) and view.item_line[item_index] == lnum then
     return ">1"
   end
 
   return item_index > view.first_header and "1" or "0"
+end
+
+---Fold line of a closed group: its header, which the fold hides along with the group's lines.
+---@return string|table
+M.foldtext = function()
+  local view = views[vim.api.nvim_get_current_buf()]
+  local item_index = view and view.line_item[vim.v.foldstart]
+
+  if not item_index or not starts_group(view, item_index) then
+    return vim.fn.foldtext()
+  end
+
+  return { { (render.header(view.items[item_index - 1].group)), "JLogGroupHeader" } }
 end
 
 return M

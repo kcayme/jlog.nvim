@@ -1,6 +1,14 @@
 local config = require("jlog.config")
 local workspace = require("jlog.workspace")
 
+local function header_texts(bufnr)
+  local ns = vim.api.nvim_create_namespace("jlog.view.header")
+
+  return vim.tbl_map(function(mark)
+    return mark[4].virt_lines[1][1][1]
+  end, vim.api.nvim_buf_get_extmarks(bufnr, ns, 0, -1, { details = true }))
+end
+
 describe("workspace", function()
   before_each(function()
     config.setup()
@@ -20,8 +28,8 @@ describe("workspace", function()
     ws:add_filter("status>=500")
     ws:set_group("request_id")
     local lines = vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false)
-    assert.is_truthy(lines[1]:find("^▾ r1"))
-    assert.are.equal(5, #lines) -- header, panic entry, its 2 continuation lines, request completed
+    assert.is_truthy(header_texts(ws.view.bufnr)[1]:find("^▾ r1"))
+    assert.are.equal(4, #lines) -- panic entry, its 2 continuation lines, request completed
     assert.is_truthy(vim.wo[vim.fn.bufwinid(ws.view.bufnr)].winbar:find("status>=500", 1, true))
   end)
 
@@ -107,11 +115,9 @@ describe("workspace", function()
       }
     )
     ws:set_group("id")
-    lines = vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false)
+    lines = header_texts(ws.view.bufnr)
     assert.is_truthy(lines[1]:find("^▾ 123456789012345[67]  1 entry$"))
-    assert.are.equal(3, #vim.tbl_filter(function(line)
-      return line:find("^▾") ~= nil
-    end, lines))
+    assert.are.equal(3, #lines)
     ws:set_group(nil)
     ws:add_filter("n=12345678901234567890")
     assert.is_truthy(ws.view.winbar_text:find(" 1/3 ", 1, true))
@@ -774,7 +780,7 @@ describe("workspace", function()
         assert.is_true(vim.wait(2000, function()
           return ws.rendered == ws.generation
         end))
-        lines = vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false)
+        lines = vim.list_extend(header_texts(ws.view.bufnr), vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false))
         ws:close()
 
         return lines

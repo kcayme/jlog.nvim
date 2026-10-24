@@ -247,31 +247,6 @@ local function bench_jsonl(size)
   return count
 end
 
-local function bench_loki(size)
-  local input = string.format("loki %dk", size / 1000)
-  local path = ensure("loki-" .. size .. ".json", function()
-    return gen.loki_text(size, true)
-  end)
-  local text = read_file(path)
-  local count = jlog_rows(input, text, "loki")
-
-  workspace_rows(input, path)
-
-  add_row(
-    input,
-    "vim.json.decode array + line",
-    count,
-    median(function()
-      for _, item in ipairs(vim.json.decode(text)) do
-        pcall(vim.json.decode, item.line)
-      end
-    end)
-  )
-  if has_jq then
-    jq_row(input, "jq -c '.[] | .line | fromjson? // .'", count, "-c '.[] | .line | fromjson? // .'", path)
-  end
-end
-
 vim.fn.mkdir(DATA_DIR, "p")
 require("jlog").setup()
 opts = config.options
@@ -279,24 +254,13 @@ opts = config.options
 for _, size in ipairs(SIZES) do
   bench_jsonl(size)
 end
-for _, size in ipairs(SIZES) do
-  bench_loki(size)
-end
 
 ---Append a Markdown table of `list` to `out`, with its header and alignment rows.
 local function table_lines(out, header, align, list)
   out[#out + 1] = header
   out[#out + 1] = align
   for _, row in ipairs(list) do
-    -- a `|` inside a cell (the jq loki filter) would split the Markdown table
-    out[#out + 1] = "| "
-      .. table.concat(
-        vim.tbl_map(function(cell)
-          return (tostring(cell):gsub("|", "\\|"))
-        end, row),
-        " | "
-      )
-      .. " |"
+    out[#out + 1] = "| " .. table.concat(row, " | ") .. " |"
   end
   out[#out + 1] = ""
 end

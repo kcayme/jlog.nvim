@@ -26,21 +26,6 @@ Each contender reads the whole input into records.
 | jsonl 500k | vim.json.decode per line (pure lines) | 889 | 562427 | - |
 | jsonl 500k | jq -c . (pure lines) | 2473 | 202185 | - |
 | jsonl 500k | jq . (pure lines) | 2638 | 189561 | - |
-| loki 10k | jlog parse only | 110 | 91200 | 4 |
-| loki 10k | jlog parse + compact render | 131 | 76563 | - |
-| loki 10k | jlog parse + expanded render | 416 | 24046 | - |
-| loki 10k | vim.json.decode array + line | 24 | 413377 | - |
-| loki 10k | jq -c '.[] \| .line \| fromjson? // .' | 82 | 121484 | - |
-| loki 100k | jlog parse only | 2037 | 49103 | 55 |
-| loki 100k | jlog parse + compact render | 2465 | 40573 | - |
-| loki 100k | jlog parse + expanded render | 5071 | 19720 | - |
-| loki 100k | vim.json.decode array + line | 273 | 366439 | - |
-| loki 100k | jq -c '.[] \| .line \| fromjson? // .' | 830 | 120509 | - |
-| loki 500k | jlog parse only | 10789 | 46345 | 281 |
-| loki 500k | jlog parse + compact render | 13294 | 37610 | - |
-| loki 500k | jlog parse + expanded render | 27000 | 18518 | - |
-| loki 500k | vim.json.decode array + line | 1563 | 319911 | - |
-| loki 500k | jq -c '.[] \| .line \| fromjson? // .' | 4071 | 122827 | - |
 
 jq does not build jlog's entry model or continuation lines.
 jq and `vim.json.decode` rows read a prefix-free copy of the same lines, since they cannot parse prefixed or continuation lines.
@@ -61,15 +46,6 @@ What a user waits for in the plugin; nothing in jq or `vim.json.decode` does the
 | jsonl 500k | open -> first screen | 91 | - |
 | jsonl 500k | search licence (page) | 107 | 917133 |
 | jsonl 500k | group by request_id (page) | 274 | 358502 |
-| loki 10k | open -> first screen | 39 | - |
-| loki 10k | search licence (page) | 6 | 1622784 |
-| loki 10k | group by request_id (page) | 42 | 236971 |
-| loki 100k | open -> first screen | 66 | - |
-| loki 100k | search licence (page) | 166 | 604086 |
-| loki 100k | group by request_id (page) | 476 | 209873 |
-| loki 500k | open -> first screen | 119 | - |
-| loki 500k | search licence (page) | 179 | 569700 |
-| loki 500k | group by request_id (page) | 536 | 190440 |
 
 Rows run on the page a file opens on (page 1, the newest; at most paging.size plus overlap).
 Their entries/s is entries on that page per second; open is to the first screen, not the whole load.

@@ -199,12 +199,12 @@ Each field of a compact line is drawn in a style, set globally with `compact.sty
 `compact.fields[key].style` (`key` is a field name or one of the roles `time`, `level`, `message`, `status`):
 
 - `plain`: `key=value`, the key colored per field. Example: `method=GET`.
-- `inverted`: the key as a colored block (the color reversed and bold), then the value. Example: ` method  GET`.
-- `pill`: like `inverted`, with rounded caps. Example: `(method) GET`.
+- `inverted`: `key=value` with the key as a colored block (the color reversed and bold). Example: ` method =GET`.
+- `pill`: like `inverted`, with rounded caps around the key. Example: `(method)=GET`.
 
 Fields in `compact.style_values` (by default `level` and `status`) are styled on the value instead: ` 500 `, with no
 key. Remove one from the list to give it a styled key too, e.g. `compact.style_values = { "level" }` shows
-`(status) 500`. `time` and `message` show no key, so a style on them always goes on the value.
+`(status)=500`. `time` and `message` show no key, so a style on them always goes on the value.
 
 `level` defaults to `inverted` (the badge); a global `compact.style` other than `"plain"`, or `compact.fields.level`,
 overrides that. The global style never applies to `time` or `message`; style them through `compact.fields.time` or

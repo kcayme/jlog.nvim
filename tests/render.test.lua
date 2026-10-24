@@ -257,14 +257,14 @@ describe("compact styles", function()
   it("should keep literals and escape newlines next to styled keys", function()
     local lines = render.compact(one('{"a":1.50,"b":"x\\ny"}'), styled({ style = "inverted" }))
 
-    assert.are.equal("a 1.50 b x\\ny", lines[1])
+    assert.are.equal("a=1.50 b=x\\ny", lines[1])
   end)
 
   it("should style the key and keep the value plain under inverted and pill", function()
     local color = highlights.field_group("method")
     local lines, spans = render.compact(one('{"method":"GET"}'), styled({ style = "pill" }))
 
-    assert.are.equal("method GET", lines[1])
+    assert.are.equal("method=GET", lines[1])
     assert.are.same({ { 0, 6, highlights.badge_of(color), color }, { 7, 10, "JLogValue" } }, spans[1])
   end)
 
@@ -276,7 +276,7 @@ describe("compact styles", function()
 
       assert.are.equal("ERROR x  500", lines[1])
       lines = render.compact(one(text), styled({ style = "pill", style_values = {} }))
-      assert.are.equal("level ERROR x  status 500", lines[1])
+      assert.are.equal("level=ERROR x  status=500", lines[1])
     end
   )
 
@@ -287,7 +287,7 @@ describe("compact styles", function()
     local lines, spans =
       render.compact(one('{"path":"/a"}'), styled({ fields = { path = { style = "inverted", format = format } } }))
 
-    assert.are.equal("path </a>", lines[1])
+    assert.are.equal("path=</a>", lines[1])
     assert.are.same({ 5, 9, "DiagnosticHint" }, spans[1][2])
   end)
 
@@ -348,7 +348,7 @@ describe("compact styles", function()
       styled({ fields = { ["req.host"] = { style = "inverted" }, list = { style = "inverted" } } })
     )
 
-    assert.are.equal("req.host h list [1,2]", lines[1])
+    assert.are.equal("req.host=h list=[1,2]", lines[1])
   end)
 
   it("should keep the level badge and its alignment in any style", function()

@@ -305,7 +305,7 @@ local function push_styled(line, key, role, value, role_group)
     push(line, escape_newlines(key))
     color = line.field_colors and highlights.field_group(key) or "JLogKey"
     add_span(line, start_col, line.col, highlights.badge_of(color), style == "pill" and color or nil)
-    push(line, " ")
+    push(line, "=")
     -- the value stays plain text; a level or status keeps its own color on it
     push(
       line,

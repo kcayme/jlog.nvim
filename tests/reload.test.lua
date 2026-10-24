@@ -215,33 +215,55 @@ describe("reload", function()
     end)
   end)
 
-  it("should append to a filling view without writing onto the wrong rows", function()
-    local render = require("jlog.ui.render")
-    local lines, appended = {}, {}
-    local view
+  for _, sort in ipairs({ "desc", "asc" }) do
+    it("should extend a filling " .. sort .. " view without writing onto the wrong rows", function()
+      local render = require("jlog.ui.render")
+      local view_module = require("jlog.ui.view")
+      local tick_ns = view_module.tick_ns
+      local lines, appended = {}, {}
+      local pending_on_extend, generation, ok, err
 
-    for index = 1, 3000 do
-      lines[index] = string.format('{"msg":"m%d","level":"INFO","n":%d}', index, index)
-    end
-    for index = 1, 5 do
-      appended[index] = string.format('{"msg":"new%d","level":"WARN"}', index)
-    end
-    vim.fn.writefile(lines, path)
-    ws = workspace.open({ path = path })
-    wait(function()
-      return ws.rendered == ws.store.generation and #ws.entries == 3000
+      for index = 1, 3000 do
+        lines[index] = string.format('{"msg":"m%d","level":"INFO","n":%d}', index, index)
+      end
+      for index = 1, 5 do
+        appended[index] = string.format('{"msg":"new%d","level":"WARN"}', index)
+      end
+      vim.fn.writefile(lines, path)
+      require("jlog").setup({ view = { sort = sort } })
+      -- one row per tick, so the fill outlasts the file watcher
+      view_module.tick_ns = 0
+      ok, err = pcall(function()
+        ws = workspace.open({ path = path })
+        wait(function()
+          return ws.rendered == ws.store.generation and #ws.entries == 3000
+        end)
+        assert.is_true(next(ws.view.pending) ~= nil)
+        -- reload by hand: the watcher can arrive after the fill, and a later re-render would hide bad rows
+        ws.watcher:stop()
+        vim.fn.writefile(appended, path, "a")
+        generation = ws.view.generation
+        ws:reload()
+        assert.are.equal(3005, #ws.entries)
+        pending_on_extend = next(ws.view.pending) ~= nil
+        view_module.tick_ns = tick_ns
+        assert.is_true(vim.wait(10000, function()
+          return ws.view.complete
+        end, 20))
+        -- extended and filled in place, never rendered again
+        assert.are.equal(generation, ws.view.generation)
+      end)
+      view_module.tick_ns = tick_ns
+      assert(ok, err)
+      -- the extension landed mid-fill
+      assert.is_true(pending_on_extend)
+      assert.are.equal(3005, #ws.view.items)
+      for row, text in ipairs(vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false)) do
+        local entry = ws.entries[ws.view.items[ws.view.line_item[row]].idx]
+        assert.are.equal(render.compact(entry, ws.opts, true)[1], text, "row " .. row)
+      end
     end)
-    view = ws.view
-    assert.is_false(view.complete)
-    vim.fn.writefile(appended, path, "a")
-    assert.is_true(vim.wait(5000, function()
-      return #ws.entries == 3005 and view.complete
-    end, 20))
-    for row, text in ipairs(vim.api.nvim_buf_get_lines(view.bufnr, 0, -1, false)) do
-      local entry = ws.entries[view.items[view.line_item[row]].idx]
-      assert.are.equal(render.compact(entry, ws.opts, true)[1], text, "row " .. row)
-    end
-  end)
+  end
 
   it("should keep unsaved sidebar filter edits when lines are appended", function()
     local bufnr

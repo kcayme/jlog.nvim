@@ -6,7 +6,7 @@ local next_id = 0
 local callbacks = {}
 local pending = 0
 
-local plugin_lua = debug.getinfo(1, "S").source:sub(2):match("^(.*)/jlog/workers%.lua$")
+local plugin_lua = debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]jlog[/\\]workers%.lua$")
 
 -- The work function is string.dump-ed to the thread: no upvalues, everything arrives as arguments.
 local function work_fn(path, job, payload, id)
@@ -68,6 +68,13 @@ M.run = function(job, payload, on_result)
     vim.defer_fn(function()
       on_result(message, nil)
     end, 0)
+  end
+
+  if not plugin_lua then
+    failed = true
+    fail("worker threads unavailable: plugin path not found")
+
+    return
   end
 
   if not work_handle then

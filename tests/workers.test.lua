@@ -89,8 +89,10 @@ describe("workers", function()
       "end)",
       "vim.wait(3000, function() return done end)",
     }, script)
-    result = vim.system({ "nvim", "--headless", "-u", "NONE", "-l", script }, { text = true }):wait()
+    result = vim.system({ "nvim", "--headless", "-u", "NONE", "-l", script }, { text = true }):wait(10000)
     vim.fn.delete(dir, "rf")
+
+    assert.are.equal(0, result.code, "child process failed or timed out: " .. tostring(result.stderr))
 
     assert.is_truthy(result.stdout:find("expected a string", 1, true))
     assert.is_truthy(result.stdout:find("|nil", 1, true))
@@ -151,5 +153,19 @@ describe("workers", function()
 
   it("should limit workers to the thread pool size minus one", function()
     assert.is_true(workers.limit() >= 1)
+  end)
+
+  it("should fall back when the plugin path cannot be resolved", function()
+    local got = {}
+    local source = table.concat(vim.fn.readfile("lua/jlog/workers.lua"), "\n")
+    local unresolved = load(source, "=unresolvable")()
+
+    unresolved.run("parse_lines", "x", function(err)
+      got.err, got.done = err, true
+    end)
+    wait_for(got)
+
+    assert.is_false(unresolved.available())
+    assert.is_truthy(got.err)
   end)
 end)

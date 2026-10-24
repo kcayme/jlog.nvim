@@ -6,14 +6,23 @@ local M = {}
 
 M.NAMES = { "parse_lines", "count_entries" }
 
+---Raises when this Neovim has no vim.json, which json.object_at would otherwise mistake for non-JSON lines.
+local function require_json()
+  if not vim.json then
+    error("vim.json is unavailable in this worker")
+  end
+end
+
 ---Runs in a worker thread: find the JSON object in each line and count the fields of those lines.
 ---@param payload string vim.mpack of `{ text = string }`, lines joined by "\n"
 ---@return string vim.mpack of `{ positions = integer[], fields = table }`
 M.parse_lines = function(payload)
-  local lines = vim.split(vim.mpack.decode(payload).text, "\n", { plain = true })
-  local counter = facets.counter()
+  local lines, counter, json_at, decoded
   local positions = {}
-  local json_at, decoded
+
+  require_json()
+  lines = vim.split(vim.mpack.decode(payload).text, "\n", { plain = true })
+  counter = facets.counter()
 
   for index, line in ipairs(lines) do
     json_at = nil
@@ -36,8 +45,11 @@ end
 ---@param payload string vim.mpack of `{ entries = { { body, json_at, labels }, ... } }`
 ---@return string vim.mpack of `{ fields = table }`
 M.count_entries = function(payload)
-  local entries = vim.mpack.decode(payload).entries
-  local counter = facets.counter()
+  local entries, counter
+
+  require_json()
+  entries = vim.mpack.decode(payload).entries
+  counter = facets.counter()
 
   for _, entry in ipairs(entries) do
     facets.add(counter, entry_model.flatten(entry, entry_model.decode(entry)))

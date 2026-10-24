@@ -727,14 +727,112 @@ describe("view", function()
     end)
 
     it("should not highlight a placeholder row", function()
-      local v = view.new(make_ws(table.concat(json_lines(50), "\n")))
+      local v = view.new(make_ws(table.concat(json_lines(2000), "\n")))
 
       vim.api.nvim_win_set_buf(0, v.bufnr)
-      v:render(all(vim.fn.range(1, 50)))
-      assert.is_true(v.pending[1])
+      v:render(all(vim.fn.range(1, 2000)), function()
+        vim.api.nvim_win_set_cursor(0, { 1, 0 })
+      end)
+      -- far from the rendered screen, with no WinScrolled to render it before the redraw
+      vim.api.nvim_win_set_cursor(0, { 1500, 0 })
+      assert.is_true(v.pending[1500])
       vim.cmd("redraw!")
-      assert.is_nil(v.redraw_spans[1])
+      assert.is_nil(v.redraw_spans[1500])
       wait_complete(v)
+    end)
+
+    describe("visible screen", function()
+      local function shown(count)
+        local v = view.new(make_ws(table.concat(json_lines(count), "\n")))
+
+        vim.api.nvim_win_set_buf(0, v.bufnr)
+
+        return v
+      end
+      local function compact_at(v, row)
+        return render.compact(v.ws.entries[v.items[v.line_item[row]].idx], opts, true)[1]
+      end
+      local function is_compact(v, row)
+        return vim.fn.getbufline(v.bufnr, row)[1] == compact_at(v, row)
+      end
+
+      after_each(function()
+        vim.fn.setreg("/", "")
+      end)
+
+      it("should show the visible screen compact as soon as the render returns", function()
+        local v = shown(5000)
+
+        -- as the workspace does: the layout's inserts push the cursor down, on_done puts it back
+        v:render(all(vim.fn.range(1, 5000)), function()
+          vim.api.nvim_win_set_cursor(0, { 1, 0 })
+        end)
+        assert.is_false(v.complete)
+        assert.is_true(vim.fn.line("w$") < 100)
+        for row = 1, vim.fn.line("w$") do
+          assert.are.equal(compact_at(v, row), vim.fn.getbufline(v.bufnr, row)[1], "row " .. row)
+        end
+        wait_complete(v)
+      end)
+
+      it("should render the screen a scroll lands on", function()
+        local v = shown(5000)
+        local winid = vim.api.nvim_get_current_win()
+
+        v:render(all(vim.fn.range(1, 5000)))
+        vim.cmd("normal! 4000G")
+        vim.api.nvim_exec_autocmds("WinScrolled", { pattern = tostring(winid) })
+        assert.is_true(is_compact(v, 4000))
+        assert.is_false(v.complete)
+        wait_complete(v)
+      end)
+
+      it("should render rows a redraw finds still pending", function()
+        local v = shown(5000)
+
+        v:render(all(vim.fn.range(1, 5000)))
+        view.tick_ns = 0
+        vim.api.nvim_win_set_cursor(0, { 3000, 0 })
+        vim.cmd("redraw!")
+        assert.is_true(vim.wait(200, function()
+          return is_compact(v, 3000)
+        end, 1))
+        -- the fill, going down from row 1, has not got there
+        assert.is_true(v.pending[2000])
+        view.tick_ns = tick_ns
+        wait_complete(v)
+      end)
+
+      it("should fill outward from the cursor", function()
+        local v = shown(5000)
+        local laid_out = false
+
+        view.tick_ns = 0
+        v:render(all(vim.fn.range(1, 5000)), function()
+          laid_out = true
+          vim.api.nvim_win_set_cursor(0, { 2500, 0 })
+        end)
+        -- past the visible rows and their margin, so only the fill renders it
+        assert.is_true(vim.wait(2000, function()
+          return laid_out and v.pending[2600] == nil
+        end, 1))
+        assert.is_true(v.pending[1])
+        view.tick_ns = tick_ns
+        wait_complete(v)
+      end)
+
+      it("should put the cursor on the search match after its row turns compact", function()
+        local v = shown(5000)
+        local winid = vim.api.nvim_get_current_win()
+
+        v:render(all(vim.fn.range(1, 5000)))
+        vim.fn.setreg("/", "m4000")
+        vim.api.nvim_win_set_cursor(0, { 4000, 50 })
+        view.render_visible(winid)
+        assert.is_true(is_compact(v, 4000))
+        assert.are.equal(vim.fn.match(compact_at(v, 4000), "m4000"), vim.api.nvim_win_get_cursor(0)[2])
+        wait_complete(v)
+      end)
     end)
   end)
 

@@ -20,6 +20,7 @@ local utils = require("jlog.utils")
 ---@field complete boolean the last render into the buffer finished: its layout is written and `pending` is empty
 ---@field pending table<integer, boolean> entry index -> its row still shows a placeholder
 ---@field placeholders boolean|nil while a render lays out: JSON entries get placeholder lines
+---@field visible_queued boolean|nil a redraw found placeholders and scheduled rendering its window's rows
 ---@field edited boolean entries were expanded or collapsed in place since the last render
 ---@field mode JLogViewMode|nil the mode the buffer was rendered in
 ---@field folded table<integer, boolean> windows whose folds were made for the buffer's last render
@@ -54,6 +55,8 @@ M.read_slice = 5000
 M.placeholder_min = 1000
 -- placeholder lines built per buffer write while a render lays out
 M.fill_slice = 1000
+-- rows rendered above and below a window's visible ones, so a short scroll lands on compact lines
+M.visible_margin = 50
 
 -- items built between checks of the tick's time budget (expanded entries are slower, but 64 stay well within it)
 local BATCH = 64
@@ -450,17 +453,82 @@ local function is_error(view, item)
   return level ~= nil and ERROR_LEVELS[tostring(level):lower()] == true
 end
 
+---Render the pending rows of the current window's visible rows and margin, skipping closed folds.
+---@param view JLogView
+---@param rewritten table<integer, boolean> receives each rewritten row (1-based)
+local function render_window_rows(view, rewritten)
+  local lnum = math.max(vim.fn.line("w0") - M.visible_margin, 1)
+  local last = math.min(vim.fn.line("w$") + M.visible_margin, #view.line_item)
+  local fold_end, item_index, item
+
+  while lnum <= last do
+    fold_end = vim.fn.foldclosedend(lnum)
+    if fold_end ~= -1 then
+      lnum = fold_end + 1
+    else
+      item_index = view.line_item[lnum]
+      item = view.items[item_index]
+      if item.kind == "entry" and view.pending[item.idx] then
+        rewritten[view.item_line[item_index]] = true
+        render_pending(view, item_index)
+      end
+      lnum = lnum + 1
+    end
+  end
+end
+
+---The cursor's byte column was found in the raw text: put it on the search match, or the start of the row.
+---@param winid integer
+---@param row integer 1-based
+local function cursor_to_match(winid, row)
+  local line = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(winid), row - 1, row, false)[1]
+  local ok, col = pcall(vim.fn.match, line, vim.fn.getreg("/"))
+
+  vim.api.nvim_win_set_cursor(winid, { row, ok and col >= 0 and col or 0 })
+end
+
+---Schedule rendering window `winid`'s rows if rows `toprow..botrow` show placeholders; a redraw cannot write the buffer.
+---@param view JLogView
+---@param winid integer
+---@param toprow integer 0-based
+---@param botrow integer 0-based
+local function queue_visible(view, winid, toprow, botrow)
+  local item
+
+  if view.visible_queued or not next(view.pending) then
+    return
+  end
+  for row = toprow, botrow do
+    item = view.items[view.line_item[row + 1]]
+    if item and item.kind == "entry" and view.pending[item.idx] then
+      view.visible_queued = true
+      vim.schedule(function()
+        view.visible_queued = nil
+        if vim.api.nvim_win_is_valid(winid) then
+          M.render_visible(winid)
+        end
+      end)
+
+      return
+    end
+  end
+end
+
 ---@param _ any
----@param _winid integer
+---@param winid integer
 ---@param bufnr integer
+---@param toprow integer 0-based
+---@param botrow integer 0-based
 ---@return boolean
-local function on_win(_, _winid, bufnr)
+local function on_win(_, winid, bufnr, toprow, botrow)
   local view = views[bufnr]
 
   if not view then
     return false
   end
   view.redraw_spans = {}
+  -- folds opened or closed fire no WinScrolled
+  queue_visible(view, winid, toprow, botrow)
 
   return true
 end
@@ -540,7 +608,58 @@ M.cap_marks = function(span, pill)
   return marks
 end
 
+---Render the pending rows window `winid` shows, plus `M.visible_margin` rows above and below, skipping closed folds.
+---@param winid integer
+M.render_visible = function(winid)
+  local bufnr = vim.api.nvim_win_get_buf(winid)
+  local view = views[bufnr]
+  local rewritten = {}
+  local ok, err, row
+
+  -- while a render lays out, rows below the written ones are old lines; entries swapped in do not match the rows
+  if not view or not next(view.pending) or view.placeholders or view.rendered_entries ~= view.ws.entries then
+    return
+  end
+  vim.bo[bufnr].modifiable = true
+  ok, err = pcall(vim.api.nvim_win_call, winid, function()
+    render_window_rows(view, rewritten)
+  end)
+  vim.bo[bufnr].modifiable = false
+  if not ok then
+    error(err, 0)
+  end
+  for _, other in ipairs(vim.fn.win_findbuf(bufnr)) do
+    row = vim.api.nvim_win_get_cursor(other)[1]
+    if rewritten[row] then
+      cursor_to_match(other, row)
+    end
+  end
+end
+
 vim.api.nvim_set_decoration_provider(ns, { on_win = on_win, on_line = on_line })
+
+-- global: a buffer-local one only fires when the view's window is the first that scrolled
+vim.api.nvim_create_autocmd("WinScrolled", {
+  group = vim.api.nvim_create_augroup("jlog.view", { clear = true }),
+  callback = function(args)
+    local winids = {}
+
+    for key in pairs(vim.v.event) do
+      if key ~= "all" then
+        winids[#winids + 1] = tonumber(key)
+      end
+    end
+    -- an event fired by hand carries no window ids
+    if #winids == 0 then
+      winids[1] = tonumber(args.match)
+    end
+    for _, winid in ipairs(winids) do
+      if vim.api.nvim_win_is_valid(winid) then
+        M.render_visible(winid)
+      end
+    end
+  end,
+})
 
 ---A new, empty buffer for `view`, with the view's options, autocmds and keymaps.
 ---@param view JLogView
@@ -618,8 +737,8 @@ View.render = function(self, items, on_done)
   local total = #items
   local entry_count = 0
   local notified = false
-  local fill_next = 1
-  local next_item
+  local swept = false
+  local below, above, next_item
 
   for _, item in ipairs(items) do
     if item.kind == "entry" then
@@ -658,21 +777,32 @@ View.render = function(self, items, on_done)
     end
   end
 
-  ---Render pending rows in item order until `deadline`.
+  ---@param item_index integer
+  ---@return boolean rendered
+  local function fill_at(item_index)
+    local item = self.items[item_index]
+
+    if not item or item.kind ~= "entry" or not self.pending[item.idx] then
+      return false
+    end
+    render_pending(self, item_index)
+
+    return true
+  end
+
+  ---Render pending rows outward from the cursor's item, alternating below and above, until `deadline`.
   ---@param deadline number
   local function fill_rows(deadline)
-    local item
+    local filled
 
     -- read `self.items` each tick: View.prepend moves the unfilled items down, View.append adds rendered ones
-    while fill_next <= #self.items do
-      item = self.items[fill_next]
-      fill_next = fill_next + 1
-      if item.kind == "entry" and self.pending[item.idx] then
-        render_pending(self, fill_next - 1)
-        -- at least one row per tick, so every tick makes progress
-        if vim.uv.hrtime() >= deadline then
-          return
-        end
+    while below <= #self.items or above >= 1 do
+      filled = fill_at(below)
+      filled = fill_at(above) or filled
+      below, above = below + 1, above - 1
+      -- at least one row per tick, so every tick makes progress
+      if filled and vim.uv.hrtime() >= deadline then
+        return
       end
     end
   end
@@ -694,7 +824,11 @@ View.render = function(self, items, on_done)
     if not ok then
       error(err, 0)
     end
-    if fill_next > #self.items then
+    -- a prepend during the fill moves items past the upward cursor: sweep once more from the top
+    if below > #self.items and above < 1 and next(self.pending) and not swept then
+      swept, below, above = true, 1, 0
+    end
+    if below > #self.items and above < 1 then
       done()
 
       return
@@ -725,6 +859,12 @@ View.render = function(self, items, on_done)
       notified = true
       vim.notify("jlog: rendering…", vim.log.levels.INFO)
     end
+    -- after on_done, which put the cursor back on its entry
+    for _, winid in ipairs(vim.fn.win_findbuf(self.bufnr)) do
+      M.render_visible(winid)
+    end
+    below = item_at_cursor(self) or 1
+    above = below - 1
     vim.defer_fn(fill_step, 0)
   end
 

@@ -254,10 +254,41 @@ describe("compact styles", function()
     assert.are.same({ { 9, 12, highlights.badge_of("JLogStatus5xx"), "JLogStatus5xx" } }, with_cap(spans[1]))
   end)
 
-  it("should keep literals and escape newlines inside badges", function()
+  it("should keep literals and escape newlines next to styled keys", function()
     local lines = render.compact(one('{"a":1.50,"b":"x\\ny"}'), styled({ style = "inverted" }))
 
-    assert.are.equal("1.50 x\\ny", lines[1])
+    assert.are.equal("a 1.50 b x\\ny", lines[1])
+  end)
+
+  it("should style the key and keep the value plain under inverted and pill", function()
+    local color = highlights.field_group("method")
+    local lines, spans = render.compact(one('{"method":"GET"}'), styled({ style = "pill" }))
+
+    assert.are.equal("method GET", lines[1])
+    assert.are.same({ { 0, 6, highlights.badge_of(color), color }, { 7, 10, "JLogValue" } }, spans[1])
+  end)
+
+  it(
+    "should keep level and status values styled by default, and style their keys once left out of style_values",
+    function()
+      local text = '{"level":"ERROR","msg":"x","status":500}'
+      local lines = render.compact(one(text), styled({ style = "pill" }))
+
+      assert.are.equal("ERROR x  500", lines[1])
+      lines = render.compact(one(text), styled({ style = "pill", style_values = {} }))
+      assert.are.equal("level ERROR x  status 500", lines[1])
+    end
+  )
+
+  it("should show a key-styled field's format text as its value", function()
+    local format = function(ctx)
+      return "<" .. ctx.value .. ">", "DiagnosticHint"
+    end
+    local lines, spans =
+      render.compact(one('{"path":"/a"}'), styled({ fields = { path = { style = "inverted", format = format } } }))
+
+    assert.are.equal("path </a>", lines[1])
+    assert.are.same({ 5, 9, "DiagnosticHint" }, spans[1][2])
   end)
 
   it("should use the format's text and group in every style", function()
@@ -311,13 +342,13 @@ describe("compact styles", function()
     assert.are.equal("a\\nb", lines[1])
   end)
 
-  it("should style nested and collapsed values", function()
+  it("should style nested and collapsed keys", function()
     local lines = render.compact(
       one('{"req":{"host":"h"},"list":[1,2]}'),
       styled({ fields = { ["req.host"] = { style = "inverted" }, list = { style = "inverted" } } })
     )
 
-    assert.are.equal("h [1,2]", lines[1])
+    assert.are.equal("req.host h list [1,2]", lines[1])
   end)
 
   it("should keep the level badge and its alignment in any style", function()
@@ -362,7 +393,7 @@ describe("compact styles", function()
   it("should fall back to JLogKey's color when field colors are off", function()
     local _, spans = render.compact(one('{"a":1}'), styled({ style = "inverted" }, { field_colors = false }))
 
-    assert.are.same({ { 0, 1, highlights.badge_of("JLogKey") } }, spans[1])
+    assert.are.same({ { 0, 1, highlights.badge_of("JLogKey") }, { 2, 3, "JLogValue" } }, spans[1])
   end)
 
   it("should not run the global style on time and message", function()

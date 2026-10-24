@@ -155,6 +155,7 @@ require("jlog").setup({
     order = {}, -- top-level keys shown first, e.g. { "method", "path", "status" }
     fields = {}, -- per key or role: { style = "pill", format = function(ctx) return ctx.value end }
     pill = { left = "\238\130\182", right = "\238\130\180" }, -- Nerd Font caps; "" for square ends
+    style_values = { "level", "status" }, -- keys or roles styled on the value instead of the key
   },
   view = { mode = "compact", sort = "desc", field_colors = true }, -- "desc" shows the newest entries first
   unwrap = { enable = true, max_depth = 4 },
@@ -198,8 +199,12 @@ Each field of a compact line is drawn in a style, set globally with `compact.sty
 `compact.fields[key].style` (`key` is a field name or one of the roles `time`, `level`, `message`, `status`):
 
 - `plain`: `key=value`, the key colored per field. Example: `method=GET`.
-- `inverted`: the value only, as a colored block (the color reversed and bold). Example: ` GET `.
-- `pill`: like `inverted`, with rounded caps. Example: `(GET)`.
+- `inverted`: the key as a colored block (the color reversed and bold), then the value. Example: ` method  GET`.
+- `pill`: like `inverted`, with rounded caps. Example: `(method) GET`.
+
+Fields in `compact.style_values` (by default `level` and `status`) are styled on the value instead: ` 500 `, with no
+key. Remove one from the list to give it a styled key too, e.g. `compact.style_values = { "level" }` shows
+`(status) 500`. `time` and `message` show no key, so a style on them always goes on the value.
 
 `level` defaults to `inverted` (the badge); a global `compact.style` other than `"plain"`, or `compact.fields.level`,
 overrides that. The global style never applies to `time` or `message`; style them through `compact.fields.time` or

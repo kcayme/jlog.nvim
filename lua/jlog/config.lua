@@ -24,6 +24,7 @@
 ---@field order string[] field keys shown first in the compact line, in this order
 ---@field fields table<string, JLogCompactField> per field key or role (`time`, `level`, `message`, `status`)
 ---@field pill JLogPillOptions
+---@field style_values string[] keys or roles whose value, not key, takes an inverted or pill style
 
 ---@alias JLogViewMode "compact"|"expanded"
 ---@alias JLogSort "asc"|"desc"
@@ -104,7 +105,13 @@ M.defaults = {
     message = { "msg", "message" },
     status = { "status", "status_code" },
   },
-  compact = { style = "plain", order = {}, fields = {}, pill = { left = "\238\130\182", right = "\238\130\180" } },
+  compact = {
+    style = "plain",
+    order = {},
+    fields = {},
+    pill = { left = "\238\130\182", right = "\238\130\180" },
+    style_values = { "level", "status" },
+  },
   view = { mode = "compact", sort = "desc", field_colors = true },
   unwrap = { enable = true, max_depth = 4 },
   sidebar = {

@@ -301,6 +301,22 @@ local function push_styled(line, key, role, value, role_group)
   end
   line.sep = " "
   start_col = line.col
+  if style ~= "plain" and not compact.styles_value(resolved, key, role) then
+    push(line, escape_newlines(key))
+    color = line.field_colors and highlights.field_group(key) or "JLogKey"
+    add_span(line, start_col, line.col, highlights.badge_of(color), style == "pill" and color or nil)
+    push(line, " ")
+    -- the value stays plain text; a level or status keeps its own color on it
+    push(
+      line,
+      text and escape_newlines(text) or value,
+      type(format_group) == "string" and format_group
+        or (role and color_of(line, key, role, value, role_group))
+        or "JLogValue"
+    )
+
+    return
+  end
   if not text and style == "plain" and not role_group then
     push(line, escape_newlines(key))
     push(line, "=")

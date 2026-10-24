@@ -7,6 +7,7 @@ local M = {}
 ---@field rank_of table<string, integer>
 ---@field order string[]
 ---@field status table<string, boolean>
+---@field style_values table<string, boolean> keys and roles whose value, not key, takes an inverted or pill style
 ---@field failed table<string, boolean> keys whose format already warned
 
 -- weak cache: resolution per `opts` table
@@ -30,18 +31,21 @@ end
 ---@return JLogCompactResolved
 M.resolve = function(opts)
   local resolved = resolve_cache[opts]
-  local compact, rank_of, status
+  local compact, rank_of, status, style_values
 
   if resolved then
     return resolved
   end
   compact = opts.compact
-  rank_of, status = {}, {}
+  rank_of, status, style_values = {}, {}, {}
   for rank, key in ipairs(compact.order) do
     rank_of[key] = rank_of[key] or rank
   end
   for _, alias in ipairs(opts.fields.status) do
     status[alias] = true
+  end
+  for _, name in ipairs(compact.style_values) do
+    style_values[name] = true
   end
   resolved = {
     active = compact.style ~= "plain" or #compact.order > 0 or next(compact.fields) ~= nil,
@@ -50,6 +54,7 @@ M.resolve = function(opts)
     rank_of = rank_of,
     order = compact.order,
     status = status,
+    style_values = style_values,
     failed = {},
   }
   resolve_cache[opts] = resolved
@@ -79,6 +84,20 @@ M.style_of = function(resolved, key, role)
   end
 
   return resolved.style
+end
+
+---Whether an inverted or pill style goes on the field's value rather than its key: `time` and `message` show no key,
+---and `style_values` lists the rest.
+---@param resolved JLogCompactResolved
+---@param key string
+---@param role "time"|"level"|"message"|"status"|nil
+---@return boolean
+M.styles_value = function(resolved, key, role)
+  return role == "time"
+    or role == "message"
+    or resolved.style_values[key]
+    or (role and resolved.style_values[role])
+    or false
 end
 
 ---@param resolved JLogCompactResolved

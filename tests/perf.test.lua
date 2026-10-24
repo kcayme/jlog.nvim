@@ -422,6 +422,117 @@ for _, count in ipairs(SIZES) do
         print(string.format("nested heap growth: %.1f MB for %.1f MB file", (peak - before) / 1024, bytes / 1048576))
         assert.is_true(peak - before < 3 * bytes / 1024)
       end)
+
+      describe("on workers", function()
+        local workers = require("jlog.workers")
+        local config = require("jlog.config")
+        local saved_options
+
+        local function load_ms(disabled)
+          local start, elapsed
+
+          workers.disabled = disabled
+          start = now_ms()
+          ws = workspace.open({ path = path })
+          assert.is_true(vim.wait(60000, function()
+            return ws.loading == nil
+          end, 1))
+          elapsed = now_ms() - start
+          ws:close()
+          ws = nil
+
+          return elapsed
+        end
+
+        local function count_ms(disabled)
+          local start, elapsed
+
+          workers.disabled = disabled
+          ws = workspace.open({ path = path })
+          assert.is_true(vim.wait(60000, function()
+            return complete(ws)() and settled(ws)() and ws.indexing == nil and ws.sidebar.stale == false
+          end, 50))
+          start = now_ms()
+          ws:add_filter("http.method=GET")
+          assert.is_true(vim.wait(60000, function()
+            return settled(ws)() and ws.sidebar.stale == false
+          end, 1))
+          elapsed = now_ms() - start
+          assert.are.equal(20000, ws.shown)
+          ws:close()
+          ws = nil
+
+          return elapsed
+        end
+
+        before_each(function()
+          saved_options = vim.deepcopy(config.options)
+          -- one page holds the whole file, so the load is timed end to end
+          config.setup({ paging = { size = 200000 } })
+        end)
+
+        after_each(function()
+          workers.disabled = nil
+          config.options = saved_options
+        end)
+
+        it("should load a nested page on workers in under a second", function()
+          local threaded, main_thread
+
+          path = write_log(gen.nested_lines(count), ".jsonl")
+          threaded = load_ms(nil)
+          main_thread = load_ms(true)
+          print(
+            string.format(
+              "nested load, one page: workers %.0fms, main thread %.0fms (budget 1000)",
+              threaded,
+              main_thread
+            )
+          )
+          assert.is_true(threaded < 1000)
+        end)
+
+        it("should count a large filter's fields on workers faster than on the main thread", function()
+          local threaded, main_thread
+
+          path = write_log(gen.nested_lines(count), ".jsonl")
+          threaded = count_ms(nil)
+          main_thread = count_ms(true)
+          print(
+            string.format(
+              "nested filter 20000 matches -> counts: workers %.0fms, main thread %.0fms",
+              threaded,
+              main_thread
+            )
+          )
+          assert.is_true(threaded < main_thread)
+        end)
+
+        it("should keep the Lua heap within 3x the file while loading on workers", function()
+          local before, peak, monitor, bytes
+
+          path = write_log(gen.nested_lines(count), ".jsonl")
+          bytes = vim.uv.fs_stat(path).size
+          before = collectgarbage("count")
+          peak = before
+          monitor = vim.uv.new_timer()
+          monitor:start(0, 1, function()
+            peak = math.max(peak, collectgarbage("count"))
+          end)
+          ws = workspace.open({ path = path })
+          assert.is_true(vim.wait(60000, complete(ws), 1))
+          monitor:stop()
+          monitor:close()
+          print(
+            string.format(
+              "nested heap growth on workers: %.1f MB for %.1f MB file",
+              (peak - before) / 1024,
+              bytes / 1048576
+            )
+          )
+          assert.is_true(peak - before < 3 * bytes / 1024)
+        end)
+      end)
     end
 
     -- page changes only exist past one page

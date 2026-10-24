@@ -44,6 +44,8 @@ show the first screen immediately and finish loading in the background; meanwhil
 they appear, marked `loading N%` until the counts are final. An oldest-first Grafana export, or any Grafana export
 with `view.sort = "asc"`, appears once loading finishes.
 
+Large JSONL logs are parsed on background threads, and counts for fields with more than 1000 distinct values are estimates, marked `~`.
+
 Work that outlasts the first screen (loading, indexing pages, applying a filter or group, rendering) reports through
 `vim.notify`: one message when it starts and one when it is done.
 

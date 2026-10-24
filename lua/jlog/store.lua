@@ -319,6 +319,7 @@ Store.count = function(self, on_done)
     local deadline = utils.tick_deadline(M.timing.tick_ns)
     local entries = self.source.entries
     local usable, complete, entry
+    local blocked = false
 
     if self.source.closed or self.generation ~= generation then
       return
@@ -336,6 +337,8 @@ Store.count = function(self, on_done)
     repeat
       usable = workers.available()
       if usable and (#own >= workers.limit() or workers.in_flight() >= workers.limit()) then
+        blocked = true
+
         break
       end
       while counting.next_index <= #entries do
@@ -363,8 +366,8 @@ Store.count = function(self, on_done)
       end
     until not complete or vim.uv.hrtime() >= deadline
     if counting.next_index <= #entries or building[1] or own[1] then
-      -- stopped short of the deadline with jobs out: wait for a result instead of spinning
-      vim.defer_fn(tick_threaded, own[1] and vim.uv.hrtime() < deadline and COUNT_WAIT_MS or 0)
+      -- stopped short of the deadline for a result or a free slot: wait instead of spinning
+      vim.defer_fn(tick_threaded, (own[1] or blocked) and vim.uv.hrtime() < deadline and COUNT_WAIT_MS or 0)
 
       return
     end

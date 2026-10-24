@@ -121,6 +121,8 @@ describe("store", function()
 
   describe("threaded counts", function()
     local run = workers.run
+    local in_flight = workers.in_flight
+    local defer_fn = vim.defer_fn
     local batch_bytes = store_mod.count_batch_bytes
 
     local function build_lines()
@@ -171,6 +173,8 @@ describe("store", function()
     after_each(function()
       workers.disabled = nil
       workers.run = run
+      workers.in_flight = in_flight
+      vim.defer_fn = defer_fn
       store_mod.count_batch_bytes = batch_bytes
     end)
 
@@ -206,6 +210,39 @@ describe("store", function()
 
       assert.is_false(vim.wait(1000, function()
         return done
+      end, 10))
+    end)
+
+    it("should wait between ticks while other jobs hold every slot, then finish", function()
+      local delays = {}
+      local counter
+
+      store_mod.count_batch_bytes = 4096
+      store.source.entries = source.build(build_lines(), "jsonl")
+      store:query(function()
+        return true
+      end, nil, function() end)
+      workers.in_flight = function()
+        return 99
+      end
+      vim.defer_fn = function(callback, delay)
+        delays[#delays + 1] = delay
+
+        return defer_fn(callback, delay)
+      end
+      store:count(function(result)
+        counter = result
+      end)
+      vim.wait(100, function()
+        return false
+      end)
+      workers.in_flight = in_flight
+
+      assert.is_nil(counter)
+      assert.is_true(#delays > 1)
+      assert.is_true(delays[#delays] > 0)
+      assert.is_true(vim.wait(5000, function()
+        return counter ~= nil
       end, 10))
     end)
 

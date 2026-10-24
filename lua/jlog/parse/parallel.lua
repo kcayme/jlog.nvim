@@ -47,7 +47,7 @@ local function dispatch(text, chunk)
   end)
 end
 
----Append up to `max_lines` lines of a chunk from `pos`, as `source.append_lines` would, with JSON positions from its job.
+---Append up to `max_lines` lines of a chunk from `pos`, as `source.append_lines` would, using the job's positions.
 ---@param entries JLogEntry[] mutated
 ---@param text string
 ---@param chunk JLogChunk its `positions` decoded; `next_line` is the index of the line at `pos`
@@ -130,7 +130,8 @@ M.line_reader = function(text, pos, lnum, stop)
     end
     chunk = chunks[1]
     if not chunk then
-      return fraction()
+      -- no chunk out and work remains: the cap is full of other jobs
+      return fraction(), cut <= stop or nil
     end
     if not chunk.done then
       return fraction(), true

@@ -46,6 +46,7 @@ describe("parallel", function()
   local chunk_bytes = parallel.chunk_bytes
   local min_bytes = parallel.min_bytes
   local run = workers.run
+  local in_flight = workers.in_flight
 
   before_each(function()
     parallel.min_bytes = 0
@@ -56,6 +57,7 @@ describe("parallel", function()
     parallel.min_bytes = min_bytes
     workers.disabled = nil
     workers.run = run
+    workers.in_flight = in_flight
   end)
 
   it("should build the same entries and counts as a main-thread load", function()
@@ -148,5 +150,21 @@ describe("parallel", function()
 
     assert.is_true(vim.deep_equal(base, load(text, false)))
     assert.are.equal(0, calls)
+  end)
+
+  it("should report waiting and append nothing when the shared cap is full of other jobs", function()
+    local text = table.concat(gen.nested_lines(1000), "\n")
+    local read = parallel.line_reader(text, 1, 1, #text)
+    local entries = {}
+    local fraction, waiting
+
+    workers.in_flight = function()
+      return 99
+    end
+    fraction, waiting = read(entries, nil, nil, facets.counter())
+
+    assert.is_true(waiting)
+    assert.is_not_nil(fraction)
+    assert.are.equal(0, #entries)
   end)
 end)

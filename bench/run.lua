@@ -12,7 +12,8 @@ local DATA_DIR = "bench/data"
 local SIZES = { 10000, 100000, 500000 }
 local opts = config.options
 local has_jq = vim.fn.executable("jq") == 1
-local rows = {}
+-- parsing: jlog against vim.json.decode and jq; workspace: what a user waits for in the plugin, no jq equivalent
+local rows = { parsing = {}, workspace = {} }
 
 local function write_file(path, text)
   local fd = assert(io.open(path, "wb"))
@@ -62,12 +63,21 @@ local function median(fn)
 end
 
 local function add_row(input, contender, count, ms, memory_mb)
-  rows[#rows + 1] = {
+  rows.parsing[#rows.parsing + 1] = {
     input,
     contender,
     string.format("%.0f", ms),
     count and string.format("%.0f", count / (ms / 1000)) or "-",
     memory_mb and string.format("%.0f", memory_mb) or "-",
+  }
+end
+
+local function add_workspace_row(input, action, count, ms)
+  rows.workspace[#rows.workspace + 1] = {
+    input,
+    action,
+    string.format("%.0f", ms),
+    count and string.format("%.0f", count / (ms / 1000)) or "-",
   }
 end
 
@@ -161,9 +171,9 @@ end
 local function workspace_rows(input, path)
   local ws
 
-  add_row(
+  add_workspace_row(
     input,
-    "workspace open -> first screen",
+    "open -> first screen",
     nil,
     median(function()
       local start, elapsed
@@ -181,9 +191,9 @@ local function workspace_rows(input, path)
   )
   ws = assert(workspace.open({ path = path }))
   wait_settled(ws)
-  add_row(
+  add_workspace_row(
     input,
-    "workspace search licence (page)",
+    "search licence (page)",
     #ws.entries,
     apply_median(ws, function()
       ws:clear_filters()
@@ -191,9 +201,9 @@ local function workspace_rows(input, path)
       ws:add_filter("licence")
     end)
   )
-  add_row(
+  add_workspace_row(
     input,
-    "workspace group by request_id (page)",
+    "group by request_id (page)",
     #ws.entries,
     apply_median(ws, function()
       ws:clear_filters()
@@ -273,6 +283,24 @@ for _, size in ipairs(SIZES) do
   bench_loki(size)
 end
 
+---Append a Markdown table of `list` to `out`, with its header and alignment rows.
+local function table_lines(out, header, align, list)
+  out[#out + 1] = header
+  out[#out + 1] = align
+  for _, row in ipairs(list) do
+    -- a `|` inside a cell (the jq loki filter) would split the Markdown table
+    out[#out + 1] = "| "
+      .. table.concat(
+        vim.tbl_map(function(cell)
+          return (tostring(cell):gsub("|", "\\|"))
+        end, row),
+        " | "
+      )
+      .. " |"
+  end
+  out[#out + 1] = ""
+end
+
 local out = {
   "# jlog benchmark",
   "",
@@ -283,25 +311,19 @@ local out = {
     has_jq and vim.fn.system("jq --version"):gsub("\n", "") or "jq not found (jq rows skipped)"
   ),
   "",
-  "| input | contender | median ms | entries/s | Lua MB after parse |",
-  "|---|---|---:|---:|---:|",
+  "## Parsing vs jq",
+  "",
+  "Each contender reads the whole input into records.",
+  "",
 }
 
-for _, row in ipairs(rows) do
-  -- a `|` inside a cell (the jq loki filter) would split the Markdown table
-  out[#out + 1] = "| "
-    .. table.concat(
-      vim.tbl_map(function(cell)
-        return (tostring(cell):gsub("|", "\\|"))
-      end, row),
-      " | "
-    )
-    .. " |"
-end
-out[#out + 1] = ""
+table_lines(
+  out,
+  "| input | contender | median ms | entries/s | Lua MB after parse |",
+  "|---|---|---:|---:|---:|",
+  rows.parsing
+)
 out[#out + 1] = "jq does not build jlog's entry model or continuation lines."
-out[#out + 1] = "Workspace rows run on the page a file opens on (page 1, the newest; at most paging.size plus overlap)."
-out[#out + 1] = "Their entries/s is entries on that page per second; open is to the first screen, not the whole load."
 out[#out + 1] =
   "jq and `vim.json.decode` rows read a prefix-free copy of the same lines, since they cannot parse prefixed or continuation lines."
 out[#out + 1] =
@@ -309,5 +331,13 @@ out[#out + 1] =
 if not has_jq then
   out[#out + 1] = "Notice: jq is not on PATH, jq rows were skipped."
 end
+out[#out + 1] = ""
+out[#out + 1] = "## Workspace"
+out[#out + 1] = ""
+out[#out + 1] = "What a user waits for in the plugin; nothing in jq or `vim.json.decode` does the same work."
+out[#out + 1] = ""
+table_lines(out, "| input | action | median ms | entries/s |", "|---|---|---:|---:|", rows.workspace)
+out[#out + 1] = "Rows run on the page a file opens on (page 1, the newest; at most paging.size plus overlap)."
+out[#out + 1] = "Their entries/s is entries on that page per second; open is to the first screen, not the whole load."
 
 io.write(table.concat(out, "\n"), "\n")

@@ -2,7 +2,9 @@ local config = require("jlog.config")
 local entry_model = require("jlog.parse.entry")
 local filter = require("jlog.query.filter")
 local source = require("jlog.parse.source")
+local facets = require("jlog.query.facets")
 local store_mod = require("jlog.store")
+local workers = require("jlog.workers")
 
 local TEXT = table.concat({
   '{"status":200,"request_id":"a"}',
@@ -115,5 +117,118 @@ describe("store", function()
     store:count_appended(4, entry, entry_model.decode(entry))
 
     assert.are.equal(3, counter.fields.status.counts["500"])
+  end)
+
+  describe("threaded counts", function()
+    local run = workers.run
+    local batch_bytes = store_mod.count_batch_bytes
+
+    local function build_lines()
+      local lines = {}
+
+      for index = 1, 5000 do
+        lines[index] = ('{"status":%d,"route":"/r%d","n":%d}'):format(
+          index % 3 == 0 and 500 or 200,
+          index % 7,
+          index % 500
+        )
+      end
+      lines[#lines + 1] = "not json at all"
+
+      return table.concat(lines, "\n")
+    end
+
+    local function count_all(threaded)
+      local counter
+
+      workers.disabled = not threaded or nil
+      store.source.entries = source.build(build_lines(), "jsonl")
+      store:query(function()
+        return true
+      end, nil, function() end)
+      store:count(function(result)
+        counter = result
+      end)
+      assert.is_true(vim.wait(5000, function()
+        return counter ~= nil
+      end, 10))
+
+      return facets.result(counter, 5)
+    end
+
+    local function exact(list)
+      local out = {}
+
+      for _, field in ipairs(list) do
+        if not field.estimated then
+          out[field.name] = field
+        end
+      end
+
+      return out
+    end
+
+    after_each(function()
+      workers.disabled = nil
+      workers.run = run
+      store_mod.count_batch_bytes = batch_bytes
+    end)
+
+    it("should count a large match on workers with the same uncapped counts", function()
+      local jobs = 0
+      local expected, actual
+
+      store_mod.count_batch_bytes = 4096
+      expected = count_all(false)
+      workers.run = function(job, payload, on_result)
+        jobs = jobs + (job == "count_entries" and 1 or 0)
+
+        return run(job, payload, on_result)
+      end
+      actual = count_all(true)
+
+      assert.is_true(jobs > 1)
+      assert.are.same(exact(expected), exact(actual))
+    end)
+
+    it("should not publish a superseded query's counts", function()
+      local done = false
+
+      store_mod.count_batch_bytes = 4096
+      store.source.entries = source.build(build_lines(), "jsonl")
+      store:query(function()
+        return true
+      end, nil, function() end)
+      store:count(function()
+        done = true
+      end)
+      store:query(status_500(), nil, function() end)
+
+      assert.is_false(vim.wait(1000, function()
+        return done
+      end, 10))
+    end)
+
+    it("should count a failed batch on the main thread", function()
+      local calls = 0
+      local expected, actual
+
+      store_mod.count_batch_bytes = 4096
+      expected = count_all(false)
+      workers.run = function(job, payload, on_result)
+        calls = calls + 1
+        if calls == 2 then
+          return vim.defer_fn(function()
+            on_result("boom", nil)
+          end, 0)
+        end
+
+        return run(job, payload, on_result)
+      end
+      actual = count_all(true)
+
+      assert.is_true(calls > 2)
+      assert.are.same(exact(expected), exact(actual))
+    end)
   end)
 end)

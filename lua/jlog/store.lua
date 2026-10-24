@@ -2,6 +2,7 @@ local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local group = require("jlog.query.group")
 local utils = require("jlog.utils")
+local workers = require("jlog.workers")
 
 ---@class JLogStoreSource
 ---@field entries JLogEntry[]
@@ -34,6 +35,11 @@ local COUNT_BATCH = 100
 
 -- tick_ns: work per tick before yielding (keeps ticks ~16ms)
 M.timing = { tick_ns = 12e6 }
+
+-- a match smaller than this is counted on the main thread
+M.count_min = 2000
+-- about this many bytes of entry text go to one worker job
+M.count_batch_bytes = 256 * 1024
 
 ---@param source JLogStoreSource
 ---@return JLogStore
@@ -227,11 +233,56 @@ Store.set_counts = function(self, counter)
   self.counting = nil
 end
 
+---@param matched table<integer, boolean>
+---@return boolean
+local function matches_at_least(matched, minimum)
+  local seen = 0
+
+  for _ in pairs(matched) do
+    seen = seen + 1
+    if seen >= minimum then
+      return true
+    end
+  end
+
+  return false
+end
+
+---Count `list` entries on the main thread into `counter`.
+---@param counter JLogFacetCounter
+---@param list JLogEntry[]
+local function count_here(counter, list)
+  for _, entry in ipairs(list) do
+    facets.add(counter, entry_model.flatten(entry, entry_model.decode(entry)))
+  end
+end
+
+---Send a batch of entries to a worker; its `done`, `err` and `result` are set when it reports.
+---@param list JLogEntry[]
+---@return table batch
+local function dispatch_batch(list)
+  local batch = { entries = list }
+  local items = {}
+
+  for index, entry in ipairs(list) do
+    -- text that is not JSON is never decoded, so only its labels travel
+    items[index] = { body = entry.json_at and entry.body or "", json_at = entry.json_at, labels = entry.labels }
+  end
+  workers.run("count_entries", vim.mpack.encode({ entries = items }), function(err, result)
+    batch.done, batch.err, batch.result = true, err, result
+  end)
+
+  return batch
+end
+
 ---Count the facets of the matched entries in ticks, then call `on_done`; a newer query stops it.
 ---@param on_done fun(counter: JLogFacetCounter)
 Store.count = function(self, on_done)
   local generation = self.generation
   local counting = { counter = facets.counter(), matched = self.matched, next_index = 1 }
+  -- threaded path: batches out, batch being filled, and its text size
+  local own, building, building_bytes = {}, {}, 0
+  local tick_threaded
   local function tick()
     local deadline = utils.tick_deadline(M.timing.tick_ns)
     local entries = self.source.entries
@@ -261,9 +312,68 @@ Store.count = function(self, on_done)
     on_done(counting.counter)
   end
 
+  tick_threaded = function()
+    local batch
+    local deadline = utils.tick_deadline(M.timing.tick_ns)
+    local entries = self.source.entries
+    local usable, complete, entry
+
+    if self.source.closed or self.generation ~= generation then
+      return
+    end
+    for index = #own, 1, -1 do
+      if own[index].done then
+        batch = table.remove(own, index)
+        if batch.err then
+          count_here(counting.counter, batch.entries)
+        else
+          facets.merge(counting.counter, vim.mpack.decode(batch.result).fields)
+        end
+      end
+    end
+    repeat
+      usable = workers.available()
+      if usable and (#own >= workers.limit() or workers.in_flight() >= workers.limit()) then
+        break
+      end
+      while counting.next_index <= #entries do
+        entry = entries[counting.next_index]
+        if counting.matched[counting.next_index] then
+          building[#building + 1] = entry
+          building_bytes = building_bytes + #entry.body
+        end
+        counting.next_index = counting.next_index + 1
+        if building_bytes >= M.count_batch_bytes then
+          break
+        end
+        if counting.next_index % COUNT_BATCH == 0 and vim.uv.hrtime() >= deadline then
+          break
+        end
+      end
+      complete = building_bytes >= M.count_batch_bytes or (counting.next_index > #entries and building[1] ~= nil)
+      if complete and usable then
+        own[#own + 1] = dispatch_batch(building)
+      elseif complete then
+        count_here(counting.counter, building)
+      end
+      if complete then
+        building, building_bytes = {}, 0
+      end
+    until not complete or vim.uv.hrtime() >= deadline
+    if counting.next_index <= #entries or building[1] or own[1] then
+      vim.defer_fn(tick_threaded, 0)
+
+      return
+    end
+
+    self.counting = nil
+    self.counter = counting.counter
+    on_done(counting.counter)
+  end
+
   -- set up now so appends join it; counting starts in a tick of its own
   self.counting = counting
-  vim.defer_fn(tick, 0)
+  vim.defer_fn(workers.available() and matches_at_least(counting.matched, M.count_min) and tick_threaded or tick, 0)
 end
 
 ---An entry appended after the query that matched: a running count takes it into its pass, a finished one adds it.

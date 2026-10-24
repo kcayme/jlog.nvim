@@ -61,23 +61,8 @@ local function median(fn)
   return times[math.ceil(RUNS / 2)]
 end
 
-local function add_row(input, contender, count, ms, memory_mb)
-  rows.parsing[#rows.parsing + 1] = {
-    input,
-    contender,
-    string.format("%.0f", ms),
-    count and string.format("%.0f", count / (ms / 1000)) or "-",
-    memory_mb and string.format("%.0f", memory_mb) or "-",
-  }
-end
-
-local function add_workspace_row(input, action, count, ms)
-  rows.workspace[#rows.workspace + 1] = {
-    input,
-    action,
-    string.format("%.0f", ms),
-    count and string.format("%.0f", count / (ms / 1000)) or "-",
-  }
+local function ms_cell(ms)
+  return string.format("%.0f", ms)
 end
 
 local function each_tree(entries)
@@ -86,40 +71,34 @@ local function each_tree(entries)
   end
 end
 
-local function jlog_rows(input, text, format)
-  local entries
-  local baseline, memory_mb
+---Median ms for jlog to parse `text` into entries with their field trees, and the Lua MB they hold.
+local function jlog_parse(text, format)
+  local baseline, memory_mb, entries
 
   collectgarbage("collect")
   baseline = collectgarbage("count")
+  -- held in a local so the collect below measures what the entries keep alive
   entries = source.build(text, format)
   each_tree(entries)
   collectgarbage("collect")
   memory_mb = (collectgarbage("count") - baseline) / 1024
-  add_row(
-    input,
-    "jlog parse only",
-    #entries,
-    median(function()
-      each_tree(source.build(text, format))
-    end),
-    memory_mb
-  )
 
-  return #entries
+  return median(function()
+    each_tree(source.build(text, format))
+  end), memory_mb
 end
 
-local function jq_row(input, contender, count, args, path)
+---Median ms for `jq args path`, or "-" when jq is not on PATH.
+local function jq_cell(args, path)
   local cmd = "jq " .. args .. " " .. vim.fn.shellescape(path) .. " > /dev/null"
 
-  add_row(
-    input,
-    contender,
-    count,
-    median(function()
-      vim.system({ "sh", "-c", cmd }):wait()
-    end)
-  )
+  if not has_jq then
+    return "-"
+  end
+
+  return ms_cell(median(function()
+    vim.system({ "sh", "-c", cmd }):wait()
+  end))
 end
 
 ---@param ws JLogWorkspace
@@ -147,52 +126,49 @@ local function apply_median(ws, reset, action)
 end
 
 ---Rows for the workspace: open to first screen, then a search and a group on the page it opens.
+---One workspace row: median ms to open to the first screen, then to search, filter and group on that page.
 local function workspace_rows(input, path)
   local ws
+  local row = { input }
 
-  add_workspace_row(
-    input,
-    "open -> first screen",
-    nil,
-    median(function()
-      local start, elapsed
+  local function add(ms)
+    row[#row + 1] = ms_cell(ms)
+  end
 
-      collectgarbage("collect")
-      start = now_ms()
+  add(median(function()
+    local start, elapsed
 
-      ws = assert(workspace.open({ path = path }))
-      elapsed = now_ms() - start
-      wait_settled(ws)
-      ws:close()
+    collectgarbage("collect")
+    start = now_ms()
 
-      return elapsed
-    end)
-  )
+    ws = assert(workspace.open({ path = path }))
+    elapsed = now_ms() - start
+    wait_settled(ws)
+    ws:close()
+
+    return elapsed
+  end))
   ws = assert(workspace.open({ path = path }))
   wait_settled(ws)
-  add_workspace_row(
-    input,
-    "search licence (page)",
-    #ws.entries,
-    apply_median(ws, function()
-      ws:clear_filters()
-    end, function()
-      ws:add_filter("licence")
-    end)
-  )
-  add_workspace_row(
-    input,
-    "group by request_id (page)",
-    #ws.entries,
-    apply_median(ws, function()
-      ws:clear_filters()
-      ws:set_group(nil)
-    end, function()
-      ws:set_group("request_id")
-    end)
-  )
+  add(apply_median(ws, function()
+    ws:clear_filters()
+  end, function()
+    ws:add_filter("licence")
+  end))
+  add(apply_median(ws, function()
+    ws:clear_filters()
+  end, function()
+    ws:add_filter("status>=500")
+  end))
+  add(apply_median(ws, function()
+    ws:clear_filters()
+    ws:set_group(nil)
+  end, function()
+    ws:set_group("request_id")
+  end))
   ws:close()
   collectgarbage("collect")
+  rows.workspace[#rows.workspace + 1] = row
 end
 
 local function bench_jsonl(size)
@@ -204,25 +180,21 @@ local function bench_jsonl(size)
     return table.concat(gen.jsonl_lines(size, true), "\n") .. "\n"
   end)
   local pure_lines = vim.split(read_file(pure_path), "\n", { plain = true, trimempty = true })
-  local count = jlog_rows(input, read_file(path), "jsonl")
+  local jlog_ms, memory_mb = jlog_parse(read_file(path), "jsonl")
 
   workspace_rows(input, path)
 
-  add_row(
+  rows.parsing[#rows.parsing + 1] = {
     input,
-    "vim.json.decode per line (pure lines)",
-    #pure_lines,
-    median(function()
+    ms_cell(jlog_ms),
+    ms_cell(median(function()
       for _, line in ipairs(pure_lines) do
         vim.json.decode(line)
       end
-    end)
-  )
-  if has_jq then
-    jq_row(input, "jq -c . (pure lines)", #pure_lines, "-c .", pure_path)
-  end
-
-  return count
+    end)),
+    jq_cell("-c .", pure_path),
+    string.format("%.0f", memory_mb),
+  }
 end
 
 local function bench_array(size)
@@ -231,21 +203,19 @@ local function bench_array(size)
     return gen.array_text(size)
   end)
   local text = read_file(path)
-  local count = jlog_rows(input, text, "array")
+  local jlog_ms, memory_mb = jlog_parse(text, "array")
 
   workspace_rows(input, path)
 
-  add_row(
+  rows.parsing[#rows.parsing + 1] = {
     input,
-    "vim.json.decode array",
-    count,
-    median(function()
+    ms_cell(jlog_ms),
+    ms_cell(median(function()
       vim.json.decode(text)
-    end)
-  )
-  if has_jq then
-    jq_row(input, "jq -c '.[]'", count, "-c '.[]'", path)
-  end
+    end)),
+    jq_cell("-c '.[]'", path),
+    string.format("%.0f", memory_mb),
+  }
 end
 
 vim.fn.mkdir(DATA_DIR, "p")
@@ -276,36 +246,38 @@ local out = {
     "Median of %d runs after 1 warm-up; %s; %s.",
     RUNS,
     vim.fn.system("nvim --version"):match("NVIM v[^\n]+"),
-    has_jq and vim.fn.system("jq --version"):gsub("\n", "") or "jq not found (jq rows skipped)"
+    has_jq and vim.fn.system("jq --version"):gsub("\n", "") or "jq not found (jq column skipped)"
   ),
   "",
   "## Parsing vs jq",
   "",
-  "Each contender reads the whole input into records.",
+  "Median ms for each contender to read the whole input into records.",
   "",
 }
 
-table_lines(
-  out,
-  "| input | contender | median ms | entries/s | Lua MB after parse |",
-  "|---|---|---:|---:|---:|",
-  rows.parsing
-)
+table_lines(out, "| input | jlog | vim.json.decode | jq | jlog Lua MB |", "|---|---:|---:|---:|---:|", rows.parsing)
+out[#out + 1] =
+  "jlog builds its entries and each entry's field tree; it keeps key order and number literals as written."
+out[#out + 1] =
+  "vim.json.decode decodes each line (jsonl) or the whole array; jq runs `jq -c .` (jsonl) or `jq -c '.[]'` (array)."
 out[#out + 1] = "jq does not build jlog's entry model or continuation lines."
 out[#out + 1] =
-  "jq and `vim.json.decode` rows read a prefix-free copy of the same lines, since they cannot parse prefixed or continuation lines."
+  "For jsonl, vim.json.decode and jq read a prefix-free copy of the same lines, since they cannot parse prefixed or continuation lines."
 out[#out + 1] =
-  "Lua MB after parse is approximate: LuaJIT interns strings, so entry strings that equal the input text add nothing."
+  "jlog Lua MB is approximate: LuaJIT interns strings, so entry strings that equal the input text add nothing."
 if not has_jq then
-  out[#out + 1] = "Notice: jq is not on PATH, jq rows were skipped."
+  out[#out + 1] = "Notice: jq is not on PATH, the jq column was skipped."
 end
 out[#out + 1] = ""
 out[#out + 1] = "## Workspace"
 out[#out + 1] = ""
-out[#out + 1] = "What a user waits for in the plugin; nothing in jq or `vim.json.decode` does the same work."
+out[#out + 1] =
+  "What a user waits for in the plugin, in median ms; nothing in jq or `vim.json.decode` does the same work."
 out[#out + 1] = ""
-table_lines(out, "| input | action | median ms | entries/s |", "|---|---|---:|---:|", rows.workspace)
-out[#out + 1] = "Rows run on the page a file opens on (page 1, the newest; at most paging.size plus overlap)."
-out[#out + 1] = "Their entries/s is entries on that page per second; open is to the first screen, not the whole load."
+table_lines(out, "| input | open to screen | search | filter | group |", "|---|---:|---:|---:|---:|", rows.workspace)
+out[#out + 1] = "Search is the bare term `licence`, filter is `status>=500`, group is by `request_id`."
+out[#out + 1] =
+  "Search, filter and group run on the page a file opens on (page 1, the newest; at most paging.size plus overlap)."
+out[#out + 1] = "Open to screen stops at the first screen, not the whole load."
 
 io.write(table.concat(out, "\n"), "\n")

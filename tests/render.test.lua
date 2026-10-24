@@ -119,6 +119,23 @@ describe("render.compact", function()
     local lines = render.compact({ src = 1, raw = "", body = "a\nb" }, opts)
     assert.are.same({ "a", "b" }, lines)
   end)
+
+  it("should take one line plus continuations for every JSON entry in the fixtures", function()
+    local detect = require("jlog.parse.detect")
+    local checked = 0
+
+    for _, name in ipairs({ "app.jsonl", "loki.json", "array.json" }) do
+      local text = table.concat(vim.fn.readfile("tests/fixtures/" .. name, "b"), "\n")
+
+      for _, entry in ipairs(source.build(text, detect.detect(text, opts))) do
+        if entry.json_at then
+          checked = checked + 1
+          assert.are.equal(1 + #(entry.cont or {}), #render.compact(entry, opts, true), name .. ": " .. entry.raw)
+        end
+      end
+    end
+    assert.is_true(checked > 0)
+  end)
 end)
 
 describe("render.expanded", function()

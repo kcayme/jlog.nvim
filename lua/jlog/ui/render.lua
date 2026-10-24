@@ -683,6 +683,8 @@ local function labels_object(entry)
   return keys, vals
 end
 
+M.escape_newlines = escape_newlines
+
 ---One line per entry (plus continuation lines).
 ---@param entry JLogEntry
 ---@param opts JLogOptions

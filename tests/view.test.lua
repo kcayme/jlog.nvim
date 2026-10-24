@@ -547,6 +547,135 @@ describe("view", function()
     end)
   end)
 
+  describe("placeholder layout", function()
+    local render = require("jlog.ui.render")
+    local placeholder_min, fold_expr_limit = view.placeholder_min, view.fold_expr_limit
+    local function json_lines(count)
+      local out = {}
+      for i = 1, count do
+        out[i] = string.format('{"time":"2026-10-16T12:50:24.97Z","level":"info","msg":"m%d","n":%d}', i, i)
+      end
+      return out
+    end
+    local function compact_lines(v)
+      local out = {}
+      for _, item in ipairs(v.items) do
+        if item.kind == "entry" then
+          vim.list_extend(out, (render.compact(v.ws.entries[item.idx], opts, true)))
+        end
+      end
+      return out
+    end
+    local function wait_complete(v)
+      assert.is_true(vim.wait(5000, function()
+        return v.complete
+      end, 1))
+    end
+
+    before_each(function()
+      view.placeholder_min = 0
+    end)
+    after_each(function()
+      view.placeholder_min, view.fold_expr_limit = placeholder_min, fold_expr_limit
+    end)
+
+    it("should lay out placeholders and fill them to the full compact render", function()
+      local text = json_lines(2001)
+      local v, pending
+
+      table.insert(text, 1, "plain start")
+      vim.list_extend(text, { "  at a", "  at b" })
+      v = view.new(make_ws(table.concat(text, "\n")))
+      v:render(all(vim.fn.range(1, 2002)))
+      assert.are.equal(#compact_lines(v), vim.api.nvim_buf_line_count(v.bufnr))
+      pending = 0
+      for _ in pairs(v.pending) do
+        pending = pending + 1
+      end
+      assert.are.equal(2001, pending)
+      assert.are.equal(
+        '{"time":"2026-10-16T12:50:24.97Z","level":"info","msg":"m1","n":1}',
+        vim.fn.getbufline(v.bufnr, 2)[1]
+      )
+      assert.is_false(v.complete)
+
+      wait_complete(v)
+      assert.are.same(compact_lines(v), vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+      assert.are.same({}, v.pending)
+    end)
+
+    it("should keep group headers and manual folds through the fill", function()
+      local v = view.new(make_ws(table.concat(json_lines(2100), "\n")))
+      local items = {}
+
+      view.fold_expr_limit = 0
+      vim.api.nvim_win_set_buf(0, v.bufnr)
+      for group = 0, 2 do
+        items[#items + 1] = { kind = "header", group = { label = "g" .. group, idxs = {} } }
+        vim.list_extend(items, all(vim.fn.range(group * 700 + 1, group * 700 + 700)))
+      end
+      v:render(items)
+      wait_complete(v)
+      assert.are.same(compact_lines(v), vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
+      assert.are.same(
+        { 0, 700, 1400 },
+        vim.tbl_map(function(mark)
+          return mark[1]
+        end, headers(v.bufnr))
+      )
+      for _, lnum in ipairs({ 1, 350, 700, 701, 1400, 1401, 2100 }) do
+        assert.are.equal(1, vim.fn.foldlevel(lnum), "line " .. lnum)
+      end
+    end)
+
+    it("should render an entry expanded in place when the layout is written", function()
+      local v = view.new(make_ws(table.concat(json_lines(10), "\n")))
+      local first
+
+      v.ws.state.expanded[5] = true
+      v:render(all(vim.fn.range(1, 10)))
+      first = v.item_line[v.entry_item[5]]
+      assert.are.equal("{", vim.fn.getbufline(v.bufnr, first + 1)[1])
+      assert.is_nil(v.pending[5])
+      assert.is_true(v.pending[4])
+      wait_complete(v)
+    end)
+
+    it("should give a loki entry with newlines as many rows as its render", function()
+      -- the fixture's plain lines only end in a newline, which the source drops
+      local text = '[{"line":"panic: boom\\n  at main.go:1\\n","timestamp":"1"},'
+        .. '{"line":"{\\"msg\\":\\"a\\"}","timestamp":"2"}]'
+      local ws = { entries = source.build(text, "loki"), opts = opts, state = { mode = "compact", expanded = {} } }
+      local v = view.new(ws)
+      local found
+
+      v:render(all(vim.fn.range(1, #ws.entries)))
+      for item_index, item in ipairs(v.items) do
+        local entry = ws.entries[item.idx]
+        if not entry.json_at and entry.body:find("\n", 1, true) then
+          found = true
+          assert.are.equal(
+            #render.compact(entry, opts, true),
+            (v.item_line[item_index + 1] or #v.line_item + 1) - v.item_line[item_index]
+          )
+        end
+      end
+      assert.is_true(found)
+      wait_complete(v)
+    end)
+
+    it("should not highlight a placeholder row", function()
+      local v = view.new(make_ws(table.concat(json_lines(50), "\n")))
+
+      vim.api.nvim_win_set_buf(0, v.bufnr)
+      v:render(all(vim.fn.range(1, 50)))
+      assert.is_true(v.pending[1])
+      vim.cmd("redraw!")
+      assert.is_nil(v.redraw_spans[1])
+      wait_complete(v)
+    end)
+  end)
+
   describe("pill caps", function()
     local function inline_marks(bufnr)
       local anchor_ns = vim.api.nvim_get_namespaces()["jlog.view.anchor"]

@@ -17,7 +17,9 @@ local utils = require("jlog.utils")
 ---@field redraw_spans table<integer, JLogSpan[][]> item index -> spans, valid for one redraw only
 ---@field rendered_entries JLogEntry[]|nil the entries list the buffer's lines were rendered from
 ---@field stream JLogReuseStream|nil while a render reuses the old lines it replaces
----@field complete boolean the last render into the buffer finished
+---@field complete boolean the last render into the buffer finished: its layout is written and `pending` is empty
+---@field pending table<integer, boolean> entry index -> its row still shows a placeholder
+---@field placeholders boolean|nil while a render lays out: JSON entries get placeholder lines
 ---@field edited boolean entries were expanded or collapsed in place since the last render
 ---@field mode JLogViewMode|nil the mode the buffer was rendered in
 ---@field folded table<integer, boolean> windows whose folds were made for the buffer's last render
@@ -34,6 +36,7 @@ local utils = require("jlog.utils")
 ---@field used_to integer last old line handed out: entries above it can no longer be reused
 ---@field window string[] old lines read but not yet handed out
 ---@field window_first integer old line number of `window[1]`
+---@field pending table<integer, boolean> its entries still showing a placeholder
 local View = {}
 View.__index = View
 
@@ -47,6 +50,10 @@ M.tick_ns = 12e6
 M.trim_slice = 50000
 -- old lines read back at a time while a render reuses them (~2ms per 5k)
 M.read_slice = 5000
+-- renders with at most this many entries render every line at once, so `/` finds compact text right away
+M.placeholder_min = 1000
+-- placeholder lines built per buffer write while a render lays out
+M.fill_slice = 1000
 
 -- items built between checks of the tick's time budget (expanded entries are slower, but 64 stay well within it)
 local BATCH = 64
@@ -109,6 +116,27 @@ local function item_lines(view, item, lines_only)
   end
 
   return render.compact(view.ws.entries[item.idx], view.ws.opts, lines_only)
+end
+
+---The item's lines while a render lays out: a JSON entry's raw body on one line until the fill renders it.
+---@param view JLogView
+---@param item JLogItem
+---@return string[] lines
+---@return boolean pending
+local function placeholder_lines(view, item)
+  local entry = item.kind == "entry" and view.ws.entries[item.idx]
+  local lines
+
+  -- placeholders only lay out in compact mode, so an expanded entry is one in `state.expanded`
+  if not view.placeholders or not entry or not entry.json_at or view.ws.state.expanded[item.idx] then
+    return (item_lines(view, item, true)), false
+  end
+  lines = { render.escape_newlines(entry.body) }
+  for _, cont in ipairs(entry.cont or {}) do
+    lines[#lines + 1] = cont
+  end
+
+  return lines, true
 end
 
 ---@param view JLogView
@@ -214,6 +242,19 @@ local function apply_window_options(view, winid)
   view.folded[winid] = true
 end
 
+---Replace pending entry `idx`'s placeholder row with its compact line; the caller makes the buffer modifiable.
+---@param view JLogView
+---@param idx integer entry index
+local function render_pending(view, idx)
+  local entry = view.ws.entries[idx]
+  local row = view.item_line[view.entry_item[idx]] - 1
+  local line = render.compact(entry, view.ws.opts, true)[1]
+
+  -- one-row set_text keeps the row's header mark and manual folds, which set_lines would drop or shrink
+  vim.api.nvim_buf_set_text(view.bufnr, row, 0, row, #render.escape_newlines(entry.body), { line })
+  view.pending[idx] = nil
+end
+
 ---Old lines of `item` at buffer row `row` onward, or nil if it is expanded now, new, or already passed (reordered).
 ---@param view JLogView
 ---@param item JLogItem
@@ -223,7 +264,8 @@ local function take_old(view, item, row)
   local stream = view.stream
   local old_item, first, last, gap, count, kept, lines
 
-  if item.kind ~= "entry" or is_expanded(view, item) then
+  -- an old placeholder is laid out again, so it stays pending
+  if item.kind ~= "entry" or is_expanded(view, item) or stream.pending[item.idx] then
     return nil
   end
   old_item = stream.entry_item[item.idx]
@@ -271,6 +313,22 @@ local function take_old(view, item, row)
   return lines
 end
 
+---Write `lines` at rows `start..end_line`, then draw the headers of the groups starting at `group_starts`.
+---@param view JLogView
+---@param start integer 0-based
+---@param end_line integer 0-based exclusive, -1 for the end
+---@param lines string[]
+---@param group_starts integer[]
+---@return integer row below the written lines
+local function write_items(view, start, end_line, lines, group_starts)
+  write_lines(view, start, end_line, lines)
+  for _, item_index in ipairs(group_starts) do
+    place_header(view, item_index)
+  end
+
+  return start + #lines
+end
+
 ---Build lines for items `first..last` and append them to the buffer, stopping early once `deadline` passes.
 ---@param view JLogView
 ---@param first integer
@@ -286,7 +344,7 @@ local function append_items(view, first, last, replace, deadline, keep_tail)
   local done = last
   local start = replace and 0 or #line_item
   local group_starts = {}
-  local lines
+  local lines, pending
 
   for item_index = first, last do
     -- a reusing render checks every item: dropping old lines can take a few ms
@@ -294,7 +352,13 @@ local function append_items(view, first, last, replace, deadline, keep_tail)
       done = item_index
     end
     -- the old lines start at `start` until this batch is inserted there
-    lines = view.stream and take_old(view, items[item_index], start) or item_lines(view, items[item_index], true)
+    lines = view.stream and take_old(view, items[item_index], start)
+    if not lines then
+      lines, pending = placeholder_lines(view, items[item_index])
+      if pending then
+        view.pending[items[item_index].idx] = true
+      end
+    end
     item_line[item_index] = line_count + 1
     if items[item_index].kind == "entry" then
       entry_item[items[item_index].idx] = item_index
@@ -309,14 +373,15 @@ local function append_items(view, first, last, replace, deadline, keep_tail)
       line_item[line_count] = item_index
       buffer_lines[#buffer_lines + 1] = line
     end
+    if view.placeholders and #buffer_lines >= M.fill_slice then
+      start = write_items(view, start, keep_tail and start or -1, buffer_lines, group_starts)
+      buffer_lines, group_starts = {}, {}
+    end
     if done < last then
       break
     end
   end
-  write_lines(view, start, keep_tail and start or -1, buffer_lines)
-  for _, item_index in ipairs(group_starts) do
-    place_header(view, item_index)
-  end
+  write_items(view, start, keep_tail and start or -1, buffer_lines, group_starts)
 
   return done
 end
@@ -424,6 +489,10 @@ local function on_line(_, _winid, bufnr, row)
       ephemeral = true,
     })
 
+    return
+  end
+  -- compact spans would land at wrong columns of the raw text
+  if item.kind == "entry" and view.pending[item.idx] then
     return
   end
   spans = view.redraw_spans[item_index]
@@ -540,12 +609,22 @@ local function create_buffer(view)
 end
 
 ---Render `items`, replacing the buffer. What does not fit in the first ~12ms tick renders in later ticks.
+---A large compact render lays out placeholders, calls `on_done`, then fills them with compact lines in later ticks.
 ---@param items JLogItem[]
----@param on_done fun()|nil
+---@param on_done fun()|nil called once the layout is written
 View.render = function(self, items, on_done)
   local generation = self.generation + 1
   local total = #items
+  local entry_count = 0
+  local notified = false
+  local fill_next = 1
   local next_item
+
+  for _, item in ipairs(items) do
+    if item.kind == "entry" then
+      entry_count = entry_count + 1
+    end
+  end
 
   self.generation = generation
   -- any other render changes what is shown, so the other mode's buffer no longer matches it
@@ -563,14 +642,54 @@ View.render = function(self, items, on_done)
         used_to = 0,
         window = {},
         window_first = 1,
+        pending = self.pending,
       }
     or nil
   self.rendered_entries = self.ws.entries
+  self.pending = {}
+  self.placeholders = self.mode == "compact" and entry_count > M.placeholder_min
   self.items, self.line_item, self.item_line, self.entry_item, self.first_header = items, {}, {}, {}, nil
+
+  local function done()
+    self.complete = true
+    if notified then
+      vim.notify("jlog: rendering done", vim.log.levels.INFO)
+    end
+  end
+
+  ---Render pending rows in item order within one tick.
+  local function fill_step()
+    local deadline = vim.uv.hrtime() + M.tick_ns
+    local item
+
+    if self.generation ~= generation or not vim.api.nvim_buf_is_valid(self.bufnr) then
+      return
+    end
+    vim.bo[self.bufnr].modifiable = true
+    -- read `self.items` each tick: View.prepend moves the unfilled items down, View.append adds rendered ones
+    while fill_next <= #self.items do
+      item = self.items[fill_next]
+      fill_next = fill_next + 1
+      if item.kind == "entry" and self.pending[item.idx] then
+        render_pending(self, item.idx)
+        -- at least one row per tick, so every tick makes progress
+        if vim.uv.hrtime() >= deadline then
+          break
+        end
+      end
+    end
+    vim.bo[self.bufnr].modifiable = false
+    if fill_next > #self.items then
+      done()
+
+      return
+    end
+    vim.defer_fn(fill_step, 0)
+  end
 
   local function finish()
     self.stream = nil
-    self.complete = true
+    self.placeholders = false
     apply_winbar(self, self.winbar_text)
     for _, winid in ipairs(vim.fn.win_findbuf(self.bufnr)) do
       apply_window_options(self, winid)
@@ -578,6 +697,20 @@ View.render = function(self, items, on_done)
     if on_done then
       on_done()
     end
+    -- on_done may have started another render
+    if self.generation ~= generation then
+      return
+    end
+    if not next(self.pending) then
+      done()
+
+      return
+    end
+    if not notified then
+      notified = true
+      vim.notify("jlog: rendering…", vim.log.levels.INFO)
+    end
+    vim.defer_fn(fill_step, 0)
   end
 
   ---Insert the next chunk above the old lines and trim those, within one tick.
@@ -610,7 +743,6 @@ View.render = function(self, items, on_done)
     end
     if work(false) then
       finish()
-      vim.notify("jlog: rendering done", vim.log.levels.INFO)
 
       return
     end
@@ -633,6 +765,7 @@ View.render = function(self, items, on_done)
     show_first_header(self, winid)
   end
   -- one message when a render outlasts the first screen and one when it ends: each notify is a line in :messages
+  notified = true
   vim.notify("jlog: rendering…", vim.log.levels.INFO)
   -- a timer, not vim.schedule: chained scheduled callbacks run back to back without handling input or redraw
   vim.defer_fn(step, 0)
@@ -651,6 +784,7 @@ View.append = function(self, indexes, refresh)
     item_index = self.entry_item[refresh]
     first_line = self.item_line[item_index]
     lines = item_lines(self, items[item_index], true)
+    self.pending[refresh] = nil
     write_lines(self, first_line - 1, -1, lines)
     for line = first_line, math.max(#line_item, first_line + #lines - 1) do
       line_item[line] = line <= first_line + #lines - 1 and item_index or nil
@@ -691,6 +825,7 @@ View.prepend = function(self, indexes, refresh)
 
   if refresh then
     old_span = (item_line[2] or old_lines + 1) - item_line[1]
+    self.pending[refresh] = nil
   end
   move_up(items, 1, old_items, count + 1)
   for position, index in ipairs(indexes) do
@@ -767,6 +902,7 @@ View.toggle_entry = function(self)
   first_line = item_line[item_index]
   old_end = (item_line[item_index + 1] or old_count + 1) - 1
   lines = item_lines(self, item, true)
+  self.pending[item.idx] = nil
   delta = #lines - (old_end - first_line + 1)
   write_lines(self, first_line - 1, old_end, lines)
 
@@ -917,6 +1053,7 @@ M.new = function(ws)
     complete = false,
     edited = false,
     folded = {},
+    pending = {},
   }, View)
 
   view.bufnr = create_buffer(view)

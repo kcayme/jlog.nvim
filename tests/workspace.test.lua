@@ -1,5 +1,6 @@
 local config = require("jlog.config")
 local store = require("jlog.store")
+local view = require("jlog.ui.view")
 local workspace = require("jlog.workspace")
 
 local function header_texts(bufnr)
@@ -218,6 +219,7 @@ describe("workspace", function()
     local done = 0
     local notify = vim.notify
     local messages = {}
+    local store_timing = vim.deepcopy(store.timing)
     assert.is_true(vim.wait(10000, function()
       return not ws.loading
     end))
@@ -227,6 +229,8 @@ describe("workspace", function()
       end
     end
     ws.state.filters = { "status=500" }
+    -- a 25k-entry scan can fit in one tick: both scans run past their first tick, so the first is in flight
+    store.timing = { tick_ns = 0 }
     ws:apply(function()
       done = done + 1
     end)
@@ -234,6 +238,7 @@ describe("workspace", function()
     ws:apply(function()
       done = done + 10
     end)
+    store.timing = store_timing
     assert.is_true(vim.wait(10000, function()
       return done > 0
     end))
@@ -252,6 +257,7 @@ describe("workspace", function()
   it("should not report a superseded apply as done when its scan finished in one tick", function()
     local timing = vim.deepcopy(workspace.timing)
     local store_timing = vim.deepcopy(store.timing)
+    local tick_ns = view.tick_ns
     local lines = {}
     local done = 0
     local buf, ws
@@ -267,10 +273,13 @@ describe("workspace", function()
     end))
     workspace.timing = { tick_ns = 1e12, publish_ns = timing.publish_ns }
     store.timing = { tick_ns = 1e12 }
+    -- the placeholder layout fits in one tick: keep this render running past it so the next apply supersedes it
+    view.tick_ns = 0
     ws.state.filters = { "status=500" }
     ws:apply(function()
       done = done + 1
     end)
+    view.tick_ns = tick_ns
     workspace.timing = timing
     store.timing = vim.deepcopy(store_timing)
     ws.state.filters = { "status=200" }

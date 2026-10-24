@@ -15,6 +15,7 @@ local M = {}
 ---@field edited boolean
 ---@field mode JLogViewMode|nil
 ---@field folded table<integer, boolean>
+---@field pending table<integer, boolean>
 
 -- the fields of a `JLogViewBuffer`, exchanged between a view and its cache
 local BUFFER_FIELDS = {
@@ -30,6 +31,7 @@ local BUFFER_FIELDS = {
   "edited",
   "mode",
   "folded",
+  "pending",
 }
 
 ---State for `bufnr`, a buffer nothing has been rendered into yet.
@@ -46,6 +48,7 @@ M.empty = function(bufnr)
     complete = false,
     edited = false,
     folded = {},
+    pending = {},
   }
 end
 
@@ -90,7 +93,7 @@ M.swap = function(view, other)
   end
   -- a render still writing the buffer being left stops
   view.generation = view.generation + 1
-  view.stream = nil
+  view.stream, view.placeholders = nil, false
   vim.bo[left.bufnr].bufhidden = "hide"
   vim.bo[view.bufnr].bufhidden = "wipe"
   for _, winid in ipairs(windows) do

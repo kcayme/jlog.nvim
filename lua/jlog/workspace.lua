@@ -3,10 +3,10 @@ local detect = require("jlog.parse.detect")
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")
-local group = require("jlog.query.group")
 local pages = require("jlog.parse.pages")
 local sidebar_mod = require("jlog.ui.sidebar")
 local source = require("jlog.parse.source")
+local store_mod = require("jlog.store")
 local view_mod = require("jlog.ui.view")
 
 ---@class JLogOpenTarget
@@ -33,7 +33,7 @@ local view_mod = require("jlog.ui.view")
 ---@field sidebar JLogSidebar
 ---@field state JLogWorkspaceState
 ---@field augroup integer
----@field generation integer bumped per apply; stale chunked applies stop
+---@field store JLogStore
 ---@field fields_seen table<string, boolean>
 ---@field published {names: integer, at: number} fields the sidebar shows from the current counter, and when
 ---@field closed boolean|nil
@@ -41,9 +41,7 @@ local view_mod = require("jlog.ui.view")
 ---@field complete boolean the bytes read so far end on a newline
 ---@field check string last bytes read, to detect a rewritten file
 ---@field next_lnum integer source line number of the next appended line
----@field counter JLogFacetCounter|nil facet counts of the last apply, once complete
----@field counting JLogFacetCounting|nil the current apply's facet count, still running after its view rendered
----@field rendered integer generation of the last apply that finished rendering
+---@field rendered integer store generation of the last apply that finished rendering
 ---@field watcher uv.uv_fs_event_t|nil
 ---@field timer uv.uv_timer_t|nil debounces reloads
 ---@field poll uv.uv_timer_t|nil polls for the file to come back after it was deleted or rotated
@@ -62,18 +60,9 @@ local view_mod = require("jlog.ui.view")
 local Workspace = {}
 Workspace.__index = Workspace
 
----@class JLogFacetCounting
----@field counter JLogFacetCounter
----@field matched table<integer, boolean> entry index -> matched the apply's filters
----@field next_index integer
-
 local M = {}
 
 local HEAD_LIMIT = 65536
--- entries scanned between checks of the tick's time budget
-local SCAN_BATCH = 500
--- entries looked at between checks of the tick's time budget while counting facets
-local COUNT_BATCH = 100
 local DEBOUNCE_MS = 200
 local TAIL_CHECK = 256
 local POLL_MS = 500
@@ -310,64 +299,17 @@ local function publish_partial(ws, counter, progress)
   ws.sidebar:render(progress)
 end
 
----Count the facets of the matched entries in ticks after the view is shown, then publish; a newer apply stops it.
----@param ws JLogWorkspace
----@param generation integer the apply that set up `ws.counting`
-local function count_facets(ws, generation)
-  local deadline = vim.uv.hrtime() + M.timing.tick_ns
-  local entries = ws.entries
-  local counting, last, entry
-
-  if ws.closed or ws.generation ~= generation then
-    return
-  end
-  counting = ws.counting
-  repeat
-    last = math.min(counting.next_index + COUNT_BATCH - 1, #entries)
-    for index = counting.next_index, last do
-      if counting.matched[index] then
-        entry = entries[index]
-        facets.add(counting.counter, entry_model.flatten(entry, entry_model.decode(entry)))
-      end
-    end
-    counting.next_index = last + 1
-  until counting.next_index > #entries or vim.uv.hrtime() >= deadline
-  if counting.next_index <= #entries then
-    vim.defer_fn(function()
-      count_facets(ws, generation)
-    end, 0)
-
-    return
-  end
-
-  ws.counting = nil
-  ws.counter = counting.counter
-  ws.sidebar.stale = false
-  publish_facets(ws, counting.counter)
-  -- unsaved FILTERS edits are kept; the next sync renders the counts
-  render_sidebar(ws)
-end
-
 ---Filter, group and render, then count facets; work past the first ~12ms tick continues later, a newer apply wins.
 ---@param on_done fun()|nil called once the view has rendered
 ---@param counted JLogFacetCounter|nil facets of every entry, counted while loading; used when no filter applies
 Workspace.apply = function(self, on_done, counted)
-  local generation = self.generation + 1
-  local entries, opts, state = self.entries, self.opts, self.state
-  local count = #entries
+  local state = self.state
   local field = state.group and filter.unescape_field(state.group)
   local counts = window_in_tab(self, self.sidebar.bufnr) ~= nil
-  local matched = {}
-  local group_values = {}
   local lines = vim.deepcopy(state.filters)
   local pred, errors, invalid
-  local entry, decoded, decoded_done
-  local next_index = 1
-  local prefilled, collected
-  local cursor_entry
-  local notified = false
+  local prefilled
 
-  self.generation = generation
   -- lines that failed before stay pending until edited, so re-validate them with the rest
   for _, err in ipairs(self.sidebar.errors) do
     lines[#lines + 1] = err.text
@@ -377,50 +319,17 @@ Workspace.apply = function(self, on_done, counted)
   self.sidebar:set_errors(invalid)
   -- every entry matches, so the load's counts are this apply's counts
   prefilled = counts and counted ~= nil and #state.filters == 0
-  self.counter = prefilled and counted or nil
-  self.counting = nil
+  self.store:set_counts(prefilled and counted or nil)
   -- the sidebar keeps the last counts until this apply's are counted
   self.sidebar.stale = counts and not prefilled
   if self.sidebar.stale then
     render_sidebar(self)
   end
 
-  -- each entry is decoded at most once per scan, and only when a filter or group needs it
-  local function current_decoded()
-    if not decoded_done then
-      decoded, decoded_done = entry_model.decode(entry), true
-    end
-
-    return decoded
-  end
-  -- simple top-level values are read from the text, the rest from the decode
-  local function read(path)
-    local value, found = entry_model.peek(entry, path, opts)
-
-    if found then
-      return value
-    end
-
-    return entry_model.get(entry, current_decoded(), path, opts)
-  end
-  local ctx = { raw = "", get = read }
-
-  local function scan(first, last)
-    for index = first, last do
-      entry, decoded_done = entries[index], false
-      ctx.raw = entry_model.key(entry)
-      if pred(ctx) then
-        matched[index] = true
-      end
-      if field then
-        -- read now, in the time-boxed scan: decoding again while building groups is one long tick
-        group_values[index] = read(field)
-      end
-    end
-    entry, decoded = nil, nil
-  end
-
   local function publish(items, shown)
+    local generation = self.store.generation
+    local cursor_entry = self.view:entry_at_cursor()
+
     if prefilled then
       publish_facets(self, counted)
     end
@@ -429,19 +338,20 @@ Workspace.apply = function(self, on_done, counted)
     render_sidebar(self)
     self.view:render(items, function()
       -- a newer apply that has not rendered yet supersedes this render too
-      if self.generation ~= generation or self.closed then
+      if self.store.generation ~= generation or self.closed then
         return
       end
       self.rendered = generation
       if cursor_entry then
         self.view:goto_entry(cursor_entry)
       end
-      -- set up now so appends join it; counting starts in a tick of its own
       if self.sidebar.stale then
-        self.counting = { counter = facets.counter(), matched = matched, next_index = 1 }
-        vim.defer_fn(function()
-          count_facets(self, generation)
-        end, 0)
+        self.store:count(function(counter)
+          self.sidebar.stale = false
+          publish_facets(self, counter)
+          -- unsaved FILTERS edits are kept; the next sync renders the counts
+          render_sidebar(self)
+        end)
       end
       if on_done then
         on_done()
@@ -449,111 +359,7 @@ Workspace.apply = function(self, on_done, counted)
     end)
   end
 
-  -- group.build in a coroutine that yields when the tick is up; a build spanning ticks publishes in a tick of its own
-  local function finish()
-    local build_deadline
-
-    if notified then
-      vim.notify("jlog: applying done", vim.log.levels.INFO)
-    end
-    local build = coroutine.create(function()
-      return group.build(count, {
-        pred = function(index)
-          return matched[index] == true
-        end,
-        field = field,
-        reverse = state.reverse,
-        newest_first = self.stored_newest_first,
-        get = function(index)
-          return group_values[index]
-        end,
-        checkpoint = function()
-          if vim.uv.hrtime() >= build_deadline then
-            coroutine.yield()
-          end
-        end,
-      })
-    end)
-    local yielded = false
-
-    cursor_entry = self.view:entry_at_cursor()
-
-    local function resume()
-      local ok, items, shown
-
-      if self.generation ~= generation or self.closed then
-        return
-      end
-      build_deadline = vim.uv.hrtime() + M.timing.tick_ns
-      ok, items, shown = coroutine.resume(build)
-      if not ok then
-        error(items, 0)
-      end
-      if coroutine.status(build) ~= "dead" then
-        yielded = true
-        vim.defer_fn(resume, 0)
-
-        return
-      end
-      if not yielded then
-        publish(items, shown)
-
-        return
-      end
-      vim.defer_fn(function()
-        if self.generation == generation and not self.closed then
-          publish(items, shown)
-        end
-      end, 0)
-    end
-
-    resume()
-  end
-
-  ---@param sync boolean|nil the first tick, run by apply itself: work that fits in it finishes at once
-  local function step(sync)
-    local deadline = vim.uv.hrtime() + M.timing.tick_ns
-    local last
-
-    if self.generation ~= generation or self.closed then
-      return
-    end
-    repeat
-      last = math.min(next_index + SCAN_BATCH - 1, count)
-      scan(next_index, last)
-      next_index = last + 1
-    until next_index > count or vim.uv.hrtime() >= deadline
-    if next_index > count and sync then
-      finish()
-
-      return
-    end
-    -- let the collector finish its cycle in time-boxed steps, or its debt lands on finish in one long tick
-    if next_index > count and not collected then
-      repeat
-        -- selene: allow(incorrect_standard_library_use)
-        collected = collectgarbage("step", 0)
-      until collected or vim.uv.hrtime() >= deadline
-    end
-    if next_index > count and collected then
-      -- grouping and the first render get a tick of their own
-      vim.defer_fn(function()
-        if self.generation == generation and not self.closed then
-          finish()
-        end
-      end, 0)
-
-      return
-    end
-    if sync then
-      notified = true
-      vim.notify("jlog: applying…", vim.log.levels.INFO)
-    end
-    -- a timer, not vim.schedule: chained scheduled callbacks run back to back without handling input or redraw
-    vim.defer_fn(step, 0)
-  end
-
-  step(true)
+  self.store:query(pred, field, publish)
 end
 
 ---@param clause string
@@ -656,7 +462,7 @@ end
 ---@param old_key string|nil key of the last old entry before the append
 ---@return boolean
 local function extend_view(ws, old_count, old_key)
-  local entries, view, counter, counting = ws.entries, ws.view, ws.counter, ws.counting
+  local entries, view, counter = ws.entries, ws.view, ws.store.counter
   local pred = filter.compile(ws.state.filters)
   local changed = old_key ~= nil and entry_model.key(entries[old_count]) ~= old_key
   local indexes = {}
@@ -681,11 +487,8 @@ local function extend_view(ws, old_count, old_key)
     elseif matches then
       indexes[#indexes + 1] = index
     end
-    -- a count still running takes new matches into its pass
-    if matches and counting and index > old_count then
-      counting.matched[index] = true
-    elseif matches and counter and index > old_count then
-      facets.add(counter, entry_model.flatten(entry, decoded))
+    if matches and index > old_count then
+      ws.store:count_appended(index, entry, decoded)
     end
   end
 
@@ -1079,7 +882,7 @@ end
 
 ---@param ws JLogWorkspace
 local function refresh_winbar(ws)
-  if not ws.loading and ws.rendered == ws.generation then
+  if not ws.loading and ws.rendered == ws.store.generation then
     ws.view:set_winbar(winbar_text(ws, ws.shown))
   end
 end
@@ -1330,7 +1133,7 @@ Workspace.reload = function(self)
   if not shown then
     return
   end
-  if self.state.group or self.rendered ~= self.generation or not extend_view(self, old_count, old_key) then
+  if self.state.group or self.rendered ~= self.store.generation or not extend_view(self, old_count, old_key) then
     -- the last entry took continuation lines, so its old lines must not be reused
     if old_key and entry_model.key(self.entries[old_count]) ~= old_key then
       self.view:forget(old_count)
@@ -1598,7 +1401,6 @@ M.open = function(target)
     entries = (early or not more) and entries or {},
     stored_newest_first = order == "desc",
     opts = opts,
-    generation = 0,
     rendered = 0,
     timer = vim.uv.new_timer(),
     fields_seen = {},
@@ -1614,6 +1416,7 @@ M.open = function(target)
   if paged then
     ws.pages, ws.page, ws.core = index, 1, core_of(range)
   end
+  ws.store = store_mod.new(ws)
   ws.view = view_mod.new(ws)
   ws.sidebar = sidebar_mod.new(ws)
   create_layout(ws, path)

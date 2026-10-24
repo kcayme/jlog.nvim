@@ -87,7 +87,7 @@ describe("sidebar", function()
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, { '{"msg":"a","k\\ney":"x"}', '{"msg":"b","k\\ney":"y"}' })
     ws = assert(require("jlog.workspace").open({ bufnr = buf }))
     assert.is_truthy(vim.wait(2000, function()
-      return ws.rendered == ws.generation
+      return ws.rendered == ws.store.generation
     end, 10))
     ws.sidebar:expand_field("k\ney")
     ws.sidebar:cursor_to_value("k\ney", "x")
@@ -98,7 +98,7 @@ describe("sidebar", function()
     vim.api.nvim_feedkeys("g", "x", false)
     assert.are.equal("k\\ney", ws.state.group)
     assert.is_truthy(vim.wait(2000, function()
-      return ws.rendered == ws.generation
+      return ws.rendered == ws.store.generation
     end, 10))
     assert.is_truthy(vim.tbl_contains(vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, -1, false), "k\\ney"))
   end)
@@ -112,7 +112,7 @@ describe("sidebar", function()
     })
     ws = assert(require("jlog.workspace").open({ bufnr = buf }))
     assert.is_truthy(vim.wait(2000, function()
-      return ws.rendered == ws.generation
+      return ws.rendered == ws.store.generation
     end, 10))
     ws.sidebar:expand_field("path")
     local winid = vim.fn.bufwinid(ws.sidebar.bufnr)
@@ -135,7 +135,7 @@ describe("sidebar", function()
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, { '{"msg":"a","path":"' .. long .. '"}', '{"msg":"b","path":"y"}' })
     ws = assert(require("jlog.workspace").open({ bufnr = buf }))
     assert.is_truthy(vim.wait(2000, function()
-      return ws.rendered == ws.generation
+      return ws.rendered == ws.store.generation
     end, 10))
     ws.sidebar:expand_field("path")
     local winid = vim.fn.bufwinid(ws.sidebar.bufnr)
@@ -165,7 +165,7 @@ describe("sidebar", function()
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, { '{"msg":"a","path":"/x"}', '{"msg":"b","path":"/y"}' })
     ws = assert(require("jlog.workspace").open({ bufnr = buf }))
     assert.is_truthy(vim.wait(2000, function()
-      return ws.rendered == ws.generation
+      return ws.rendered == ws.store.generation
     end, 10))
     ws.sidebar:expand_field("path")
     ws.sidebar:cursor_to_value("path", "/y")

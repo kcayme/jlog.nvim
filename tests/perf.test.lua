@@ -55,7 +55,7 @@ end
 ---@return fun(): boolean
 local function settled(ws)
   return function()
-    return not ws.loading and ws.rendered == ws.generation
+    return not ws.loading and ws.rendered == ws.store.generation
   end
 end
 
@@ -310,7 +310,7 @@ for _, count in ipairs(SIZES) do
       path = write_log(gen.jsonl_lines(count), ".jsonl")
       ws = workspace.open({ path = path })
       assert.is_true(vim.wait(30000, function()
-        return not ws.loading and ws.rendered == ws.generation
+        return not ws.loading and ws.rendered == ws.store.generation
       end, 50))
 
       before = vim.api.nvim_buf_line_count(ws.view.bufnr)

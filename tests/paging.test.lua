@@ -1,3 +1,4 @@
+local store = require("jlog.store")
 local workspace = require("jlog.workspace")
 
 local function wait(cond)
@@ -20,13 +21,14 @@ end
 describe("paging", function()
   local notify = vim.notify
   local timing = vim.deepcopy(workspace.timing)
+  local store_timing = vim.deepcopy(store.timing)
   local load_sizes = vim.deepcopy(workspace.load_sizes)
   local open_index_ns = workspace.open_index_ns
   local path
   local ws
 
   local function settled()
-    return not ws.loading and ws.indexing == nil and ws.rendered == ws.generation
+    return not ws.loading and ws.indexing == nil and ws.rendered == ws.store.generation
   end
 
   before_each(function()
@@ -38,6 +40,7 @@ describe("paging", function()
   after_each(function()
     vim.notify = notify
     workspace.timing = vim.deepcopy(timing)
+    store.timing = vim.deepcopy(store_timing)
     workspace.load_sizes = vim.deepcopy(load_sizes)
     workspace.open_index_ns = open_index_ns
     if ws then
@@ -77,6 +80,7 @@ describe("paging", function()
 
     vim.fn.writefile(log_lines(5000), path)
     workspace.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
+    store.timing = { tick_ns = 0 }
     workspace.open_index_ns = 0
     vim.notify = function(msg)
       messages[#messages + 1] = msg
@@ -104,6 +108,7 @@ describe("paging", function()
     require("jlog").setup({ paging = { size = 3000, overlap = 2 } })
     vim.fn.writefile(log_lines(7000), path)
     workspace.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
+    store.timing = { tick_ns = 0 }
     workspace.load_sizes.chunk = 10
     ws = workspace.open({ path = path })
     wait(function()
@@ -231,6 +236,7 @@ describe("paging", function()
     end
     vim.fn.writefile(vim.split("[" .. table.concat(elements, ",\n") .. "]", "\n"), path)
     workspace.timing.tick_ns = 0
+    store.timing.tick_ns = 0
     workspace.load_sizes = { first = 3, chunk = 3 }
     ws = workspace.open({ path = path })
 
@@ -238,6 +244,7 @@ describe("paging", function()
     assert.are.same({ 1, 3 }, { ws.entries[1].src, #ws.entries })
     assert.are.equal(1, ws.view.items[1].idx)
     workspace.timing = vim.deepcopy(timing)
+    store.timing = vim.deepcopy(store_timing)
     wait(settled)
     assert.are.same({ 1, 1, 2002 }, { ws.page, ws.entries[1].src, #ws.entries })
   end)

@@ -86,8 +86,7 @@ M.style_of = function(resolved, key, role)
   return resolved.style
 end
 
----Whether an inverted or pill style goes on the field's value rather than its key: `time` and `message` show no key,
----and `style_values` lists the rest.
+---Whether an inverted or pill style goes on the value: `time` and `message` (no key) and `style_values` fields.
 ---@param resolved JLogCompactResolved
 ---@param key string
 ---@param role "time"|"level"|"message"|"status"|nil

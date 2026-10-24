@@ -309,34 +309,71 @@ describe("sidebar", function()
     require("jlog.config").setup()
   end)
 
-  it("should color field names like their keys in the log view, or use one color when off", function()
-    local highlights = require("jlog.ui.highlights")
-    local function name_groups()
-      local groups = {}
-      local ns = vim.api.nvim_get_namespaces()["jlog.sidebar"]
-      for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, ns, 0, -1, { details = true })) do
-        if mark[3] == 4 then
-          groups[vim.trim(vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, mark[2], mark[2] + 1, false)[1]:sub(5, 18))] =
-            mark[4].hl_group
+  it(
+    "should color field names like their keys in the log view, or use one color when sidebar colors are off",
+    function()
+      local highlights = require("jlog.ui.highlights")
+      local function name_groups()
+        local groups = {}
+        local ns = vim.api.nvim_get_namespaces()["jlog.sidebar"]
+        for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, ns, 0, -1, { details = true })) do
+          if mark[3] == 4 then
+            groups[vim.trim(vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, mark[2], mark[2] + 1, false)[1]:sub(5, 18))] =
+              mark[4].hl_group
+          end
         end
+
+        return groups
       end
 
-      return groups
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+      assert.is_true(vim.wait(2000, function()
+        return name_groups().request_id ~= nil
+      end))
+      assert.are.equal(highlights.field_group("request_id"), name_groups().request_id)
+      ws:close()
+
+      require("jlog.config").setup({ sidebar = { field_colors = false } })
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+      assert.is_true(vim.wait(2000, function()
+        return name_groups().request_id ~= nil
+      end))
+      assert.are.equal("JLogFieldName", name_groups().request_id)
+      require("jlog.config").setup()
+    end
+  )
+
+  it("should draw a pill field name with inline caps and keep the summaries aligned", function()
+    local ns, lines, caps, columns
+
+    require("jlog.config").setup({ sidebar = { fields = { request_id = { style = "pill" } } } })
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    ns = vim.api.nvim_get_namespaces()["jlog.sidebar"]
+    assert.is_true(vim.wait(2000, function()
+      lines = vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, -1, false)
+      return vim.iter(lines):any(function(line)
+        return line:find("request_id", 1, true) ~= nil
+      end)
+    end))
+    caps, columns = {}, {}
+    for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, ns, 0, -1, { details = true })) do
+      if mark[4].virt_text_pos == "inline" then
+        caps[#caps + 1] = mark[4].virt_text[1][1]
+      end
+    end
+    -- the name column ends where the summary starts: same display column on every row, counting the caps
+    for row, line in ipairs(lines) do
+      local name = ws.sidebar.rows[row] and ws.sidebar.rows[row].value == nil and ws.sidebar.rows[row].name
+      if name then
+        local start = line:find("  %S", 4 + #name)
+        local extra = name == "request_id" and vim.fn.strdisplaywidth(table.concat(caps)) or 0
+        columns[#columns + 1] = vim.fn.strdisplaywidth(line:sub(1, start)) + extra
+      end
     end
 
-    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
-    assert.is_true(vim.wait(2000, function()
-      return name_groups().request_id ~= nil
-    end))
-    assert.are.equal(highlights.field_group("request_id"), name_groups().request_id)
-    ws:close()
-
-    require("jlog.config").setup({ view = { field_colors = false } })
-    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
-    assert.is_true(vim.wait(2000, function()
-      return name_groups().request_id ~= nil
-    end))
-    assert.are.equal("JLogFieldName", name_groups().request_id)
+    assert.are.same({ "\u{e0b6}", "\u{e0b4}" }, caps)
+    assert.is_true(#columns > 1)
+    assert.are.same(vim.fn.uniq(vim.fn.sort(vim.deepcopy(columns))), { columns[1] })
     require("jlog.config").setup()
   end)
 

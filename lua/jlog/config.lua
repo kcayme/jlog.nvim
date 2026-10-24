@@ -39,9 +39,21 @@
 
 ---@alias JLogSidebarPosition "left"|"right"
 
+---@class JLogSidebarFormatContext
+---@field name string field path as FIELDS lists it
+---@field distinct integer distinct values counted for the field
+
+---@class JLogSidebarField
+---@field style JLogFieldStyle|nil
+---@field format (fun(ctx: JLogSidebarFormatContext): string, string|nil)|nil returns the name's text and an optional highlight group
+
 ---@class JLogSidebarOptions
 ---@field width integer
 ---@field position JLogSidebarPosition
+---@field field_colors boolean color each field name in FIELDS by field; false uses `JLogFieldName`
+---@field style JLogFieldStyle default style of field names in FIELDS
+---@field fields table<string, JLogSidebarField> per field path or role (`time`, `level`, `message`, `status`)
+---@field pill JLogPillOptions caps of `pill` field names
 
 ---@class JLogFacetsOptions
 ---@field top_values integer
@@ -95,7 +107,14 @@ M.defaults = {
   compact = { style = "plain", order = {}, fields = {}, pill = { left = "\238\130\182", right = "\238\130\180" } },
   view = { mode = "compact", sort = "desc", field_colors = true },
   unwrap = { enable = true, max_depth = 4 },
-  sidebar = { width = 45, position = "right" },
+  sidebar = {
+    width = 45,
+    position = "right",
+    field_colors = true,
+    style = "plain",
+    fields = {},
+    pill = { left = "\238\130\182", right = "\238\130\180" },
+  },
   facets = { top_values = 10 },
   paging = { size = 100000, overlap = 2000 },
   progress = "auto",

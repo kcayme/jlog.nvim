@@ -1,5 +1,5 @@
+local field_label = require("jlog.ui.field_label")
 local filter = require("jlog.query.filter")
-local highlight_groups = require("jlog.ui.highlights")
 local keymaps = require("jlog.ui.keymaps")
 
 ---@class JLogFilterError
@@ -140,26 +140,27 @@ end
 
 ---@param sidebar JLogSidebar
 ---@param lines string[]
----@param highlights {[1]: integer, [2]: integer, [3]: integer, [4]: string}[] row, start col, end col, group
+---@param highlights {[1]: integer, [2]: integer, [3]: integer, [4]: string, [5]: string|nil}[] row, start col, end col, group, pill cap group
 ---@param width integer text cells of the sidebar window
 local function add_fields(sidebar, lines, highlights, width)
   local count_group = sidebar.stale and "JLogFieldStale" or "JLogFieldCount"
-  local colors = sidebar.ws.opts.view.field_colors
-  local name
+  local opts = sidebar.ws.opts
+  local pill = opts.sidebar.pill
+  local name, group, cap_group, caps
   local head
   local count
 
   for _, facet in ipairs(sidebar.facets) do
-    name = filter.escape_field(facet.name)
-    head = (sidebar.expanded[facet.name] and "▾ " or "▸ ") .. string.format("%-" .. NAME_WIDTH .. "s", name) .. "  "
-    lines[#lines + 1] = truncate(head .. summary(facet, width - vim.fn.strdisplaywidth(head)), width)
+    name, group, cap_group = field_label.of(opts, facet.name, facet.distinct)
+    -- a pill's caps are inline virtual text: they take cells the padding and the line width give up
+    caps = cap_group and vim.fn.strdisplaywidth(pill.left .. pill.right) or 0
+    head = (sidebar.expanded[facet.name] and "▾ " or "▸ ")
+      .. name
+      .. string.rep(" ", NAME_WIDTH - caps - vim.fn.strdisplaywidth(name))
+      .. "  "
+    lines[#lines + 1] = truncate(head .. summary(facet, width - caps - vim.fn.strdisplaywidth(head)), width - caps)
     sidebar.rows[#lines] = { name = facet.name }
-    highlights[#highlights + 1] = {
-      #lines - 1,
-      4,
-      math.min(4 + #name, #lines[#lines]),
-      colors and highlight_groups.field_group(facet.name) or "JLogFieldName",
-    }
+    highlights[#highlights + 1] = { #lines - 1, 4, math.min(4 + #name, #lines[#lines]), group, cap_group }
     if sidebar.stale then
       highlights[#highlights + 1] = { #lines - 1, math.min(#head, #lines[#lines]), -1, count_group }
     end
@@ -237,6 +238,29 @@ local function show_hints(sidebar, insert)
   end
 end
 
+---Draw a pill field name's caps as inline virtual text around its highlight `hl`, if it has a cap group.
+---@param sidebar JLogSidebar
+---@param hl {[1]: integer, [2]: integer, [3]: integer, [4]: string, [5]: string|nil}
+local function add_caps(sidebar, hl)
+  local pill = sidebar.ws.opts.sidebar.pill
+
+  if not hl[5] then
+    return
+  end
+  if pill.left ~= "" then
+    vim.api.nvim_buf_set_extmark(sidebar.bufnr, hl_ns, hl[1], hl[2], {
+      virt_text = { { pill.left, hl[5] } },
+      virt_text_pos = "inline",
+    })
+  end
+  if pill.right ~= "" then
+    vim.api.nvim_buf_set_extmark(sidebar.bufnr, hl_ns, hl[1], hl[3], {
+      virt_text = { { pill.right, hl[5] } },
+      virt_text_pos = "inline",
+    })
+  end
+end
+
 ---Rewrite the buffer from state and facets; FIELDS edits are discarded and a FIELDS cursor stays on its row.
 ---@param progress string|nil shown after the FIELDS header while the counts are partial
 Sidebar.render = function(self, progress)
@@ -287,6 +311,7 @@ Sidebar.render = function(self, progress)
       end_col = hl[3] == -1 and #lines[hl[1] + 1] or hl[3],
       hl_group = hl[4],
     })
+    add_caps(self, hl)
   end
   if progress then
     vim.api.nvim_buf_set_extmark(self.bufnr, hl_ns, fields_row - 1, 0, {

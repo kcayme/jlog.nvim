@@ -71,8 +71,15 @@ local function each_tree(entries)
   end
 end
 
----Median ms for jlog to parse `text` into entries with their field trees.
-local function jlog_parse(text, format)
+---Median ms for jlog to load `text` into entries, as opening a file does.
+local function jlog_load(text, format)
+  return median(function()
+    source.build(text, format)
+  end)
+end
+
+---Median ms for jlog to load `text` and build every entry's field tree, which the plugin does only for rendered lines.
+local function jlog_tree(text, format)
   return median(function()
     each_tree(source.build(text, format))
   end)
@@ -170,13 +177,15 @@ local function bench_jsonl(size)
     return table.concat(gen.jsonl_lines(size, true), "\n") .. "\n"
   end)
   local pure_lines = vim.split(read_file(pure_path), "\n", { plain = true, trimempty = true })
-  local jlog_ms = jlog_parse(read_file(path), "jsonl")
+  local text = read_file(path)
+  local load_ms, tree_ms = jlog_load(text, "jsonl"), jlog_tree(text, "jsonl")
 
   workspace_rows(input, path)
 
   rows.parsing[#rows.parsing + 1] = {
     input,
-    ms_cell(jlog_ms),
+    ms_cell(load_ms),
+    ms_cell(tree_ms),
     ms_cell(median(function()
       for _, line in ipairs(pure_lines) do
         vim.json.decode(line)
@@ -220,11 +229,17 @@ local out = {
   "",
 }
 
-table_lines(out, "| input | jlog (ms) | vim.json.decode (ms) | jq (ms) |", "|---|---:|---:|---:|", rows.parsing)
-out[#out + 1] =
-  "jlog builds its entries and each entry's field tree; it keeps key order and number literals as written."
-out[#out + 1] = "vim.json.decode decodes each line; jq runs `jq -c .`."
-out[#out + 1] = "jq does not build jlog's entry model or continuation lines."
+table_lines(
+  out,
+  "| input | jlog load (ms) | jlog + field tree (ms) | vim.json.decode (ms) | jq (ms) |",
+  "|---|---:|---:|---:|---:|",
+  rows.parsing
+)
+out[#out + 1] = "jlog load is what opening a file does: split lines, keep prefixes and continuation lines, and find each "
+  .. "line's JSON with vim.json.decode."
+out[#out + 1] = "jlog + field tree adds jlog's own parse, which keeps key order and number literals as written, and unwraps "
+  .. "double-encoded JSON; the plugin does this only for the lines it renders."
+out[#out + 1] = "vim.json.decode decodes each line and jq runs `jq -c .`; neither keeps key order or number literals."
 out[#out + 1] =
   "vim.json.decode and jq read a prefix-free copy of the same lines, since they cannot parse prefixed or continuation lines."
 if not has_jq then

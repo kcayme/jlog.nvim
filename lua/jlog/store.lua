@@ -338,7 +338,10 @@ Store.count = function(self, on_done)
         end
       end
     end
-    if not stalled and vim.uv.now() - progress.at > workers.stall_ms then
+    if not own[1] and workers.in_flight() < workers.limit() then
+      -- not waiting on workers, so time spent filling a batch is not a stall
+      progress.at = vim.uv.now()
+    elseif not stalled and vim.uv.now() - progress.at > workers.stall_ms then
       -- batches still out are dropped, so their late results are never merged
       stalled = true
       for _, out in ipairs(own) do

@@ -882,6 +882,8 @@ describe("workspace", function()
     local chunk_bytes = parallel.chunk_bytes
     local min_bytes = parallel.min_bytes
     local line_reader = parallel.line_reader
+    local run = workers.run
+    local stall_ms = workers.stall_ms
     local path
 
     before_each(function()
@@ -894,6 +896,8 @@ describe("workspace", function()
       parallel.chunk_bytes = chunk_bytes
       parallel.min_bytes = min_bytes
       parallel.line_reader = line_reader
+      workers.run = run
+      workers.stall_ms = stall_ms
       workers.disabled = nil
       config.setup()
       vim.fn.delete(path)
@@ -1003,6 +1007,44 @@ describe("workspace", function()
         assert.are.equal(entry.json_at, entries[index].json_at)
         assert.are.same(entry.cont, entries[index].cont)
       end
+    end)
+    it("should not fall back into a new page after a stalled load is replaced", function()
+      local base, lists, ws, old, old_size
+
+      require("jlog").setup({ paging = { size = 6000, overlap = 2 } })
+      workers.disabled = true
+      ws = assert(workspace.open({ path = path }))
+      assert.is_true(ws:goto_page(2))
+      assert.is_true(vim.wait(10000, function()
+        return not ws.loading and ws.page == 2
+      end))
+      base = ws.entries
+      ws:close()
+      workers.disabled = nil
+
+      workers.stall_ms = 200
+      workers.run = function() end
+      lists = spy_readers()
+      ws = assert(workspace.open({ path = path }))
+      assert.is_true(vim.wait(5000, function()
+        return lists[#lists]
+      end, 1))
+      old = lists[#lists]
+      assert.is_true(ws:goto_page(2))
+      old_size = #old
+      assert.is_true(vim.wait(5000, function()
+        return not ws.loading and ws.page == 2
+      end))
+      vim.wait(400)
+
+      assert.are.equal(old_size, #old)
+      assert.are.equal(#base, #ws.entries)
+      for index, entry in ipairs(base) do
+        assert.are.equal(entry.src, ws.entries[index].src)
+        assert.are.equal(entry.json_at, ws.entries[index].json_at)
+        assert.are.same(entry.cont, ws.entries[index].cont)
+      end
+      ws:close()
     end)
   end)
 end)

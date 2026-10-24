@@ -41,6 +41,8 @@ local function on_work_done(id, ok, result)
 end
 
 M.disabled = nil
+-- milliseconds a caller waits on workers without progress before doing the work on the main thread
+M.stall_ms = 5000
 
 ---@return integer
 M.limit = function()

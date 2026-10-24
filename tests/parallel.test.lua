@@ -11,13 +11,15 @@ local function load(text, threaded)
   local counter = facets.counter()
   local read = parallel.line_reader(text, 1, 1, #text)
   local fraction, waiting
+  local give_up = vim.uv.now() + 5000
   local function count_entry(entry, decoded)
     facets.add(counter, entry_model.flatten(entry, decoded))
   end
 
   workers.disabled = not threaded or nil
   fraction = read(entries, count_entry, 200)
-  while fraction do
+  -- bounded, so a load that never finishes fails instead of hanging
+  while fraction and vim.uv.now() < give_up do
     fraction, waiting = read(entries, count_entry, nil, counter)
     if waiting then
       vim.wait(10)
@@ -47,6 +49,7 @@ describe("parallel", function()
   local min_bytes = parallel.min_bytes
   local run = workers.run
   local in_flight = workers.in_flight
+  local stall_ms = workers.stall_ms
 
   before_each(function()
     parallel.min_bytes = 0
@@ -58,6 +61,7 @@ describe("parallel", function()
     workers.disabled = nil
     workers.run = run
     workers.in_flight = in_flight
+    workers.stall_ms = stall_ms
   end)
 
   it("should build the same entries and counts as a main-thread load", function()
@@ -166,5 +170,51 @@ describe("parallel", function()
     assert.is_true(waiting)
     assert.is_not_nil(fraction)
     assert.are.equal(0, #entries)
+  end)
+  it("should finish on the main thread when a chunk never comes back", function()
+    local text = table.concat(gen.nested_lines(1000), "\n")
+    local base = load(text, false)
+    local read = parallel.line_reader(text, 1, 1, #text)
+    local entries = {}
+    local late = {}
+    local give_up = vim.uv.now() + 5000
+    local fraction, waiting, size
+
+    workers.disabled = nil
+    workers.stall_ms = 50
+    workers.run = function(job, payload, on_result)
+      late[#late + 1] = function()
+        on_result(nil, require("jlog.jobs")[job](payload))
+      end
+    end
+    fraction = read(entries, nil, 200)
+    while fraction and vim.uv.now() < give_up do
+      fraction, waiting = read(entries, nil, nil, facets.counter())
+      if waiting then
+        vim.wait(10)
+      end
+    end
+    size = #entries
+    for _, deliver in ipairs(late) do
+      deliver()
+    end
+    read(entries, nil, nil, facets.counter())
+
+    assert.is_nil(fraction)
+    assert.is_true(#late > 0)
+    assert.is_true(vim.deep_equal(base, entries))
+    assert.are.equal(size, #entries)
+  end)
+
+  it("should finish on the main thread when no worker slot frees up", function()
+    local text = table.concat(gen.nested_lines(1000), "\n")
+    local base = load(text, false)
+
+    workers.stall_ms = 50
+    workers.in_flight = function()
+      return 99
+    end
+
+    assert.is_true(vim.deep_equal(base, load(text, true)))
   end)
 end)

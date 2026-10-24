@@ -124,6 +124,7 @@ describe("store", function()
     local in_flight = workers.in_flight
     local defer_fn = vim.defer_fn
     local batch_bytes = store_mod.count_batch_bytes
+    local stall_ms = workers.stall_ms
 
     local function build_lines()
       local lines = {}
@@ -176,6 +177,7 @@ describe("store", function()
       workers.in_flight = in_flight
       vim.defer_fn = defer_fn
       store_mod.count_batch_bytes = batch_bytes
+      workers.stall_ms = stall_ms
     end)
 
     it("should count a large match on workers with the same uncapped counts", function()
@@ -266,6 +268,41 @@ describe("store", function()
 
       assert.is_true(calls > 2)
       assert.are.same(exact(expected), exact(actual))
+    end)
+    it("should count on the main thread when batches never come back", function()
+      local late = {}
+      local calls = 0
+      local expected, counter, before
+
+      store_mod.count_batch_bytes = 4096
+      expected = count_all(false)
+      workers.stall_ms = 50
+      workers.run = function(job, payload, on_result)
+        late[#late + 1] = function()
+          on_result(nil, require("jlog.jobs")[job](payload))
+        end
+      end
+      workers.disabled = nil
+      store:query(function()
+        return true
+      end, nil, function() end)
+      store:count(function(result)
+        calls = calls + 1
+        counter = result
+      end)
+      assert.is_true(vim.wait(5000, function()
+        return counter ~= nil
+      end, 10))
+      before = facets.result(counter, 5)
+      for _, deliver in ipairs(late) do
+        deliver()
+      end
+      vim.wait(100)
+
+      assert.is_true(#late > 0)
+      assert.are.equal(1, calls)
+      assert.are.same(exact(expected), exact(before))
+      assert.are.same(before, facets.result(counter, 5))
     end)
   end)
 end)

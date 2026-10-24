@@ -261,8 +261,9 @@ end
 
 ---Send a batch of entries to a worker; its `done`, `err` and `result` are set when it reports.
 ---@param list JLogEntry[]
+---@param progress { at: integer } its `at` set to `vim.uv.now()` when the batch reports
 ---@return table batch
-local function dispatch_batch(list)
+local function dispatch_batch(list, progress)
   local batch = { entries = list }
   local items = {}
 
@@ -272,6 +273,7 @@ local function dispatch_batch(list)
   end
   workers.run("count_entries", vim.mpack.encode({ entries = items }), function(err, result)
     batch.done, batch.err, batch.result = true, err, result
+    progress.at = vim.uv.now()
   end)
 
   return batch
@@ -284,6 +286,8 @@ Store.count = function(self, on_done)
   local counting = { counter = facets.counter(), matched = self.matched, next_index = 1 }
   -- threaded path: batches out, batch being filled, and its text size
   local own, building, building_bytes = {}, {}, 0
+  -- when a batch was last dispatched or returned; past `workers.stall_ms` the rest is counted here
+  local progress, stalled = { at = vim.uv.now() }, false
   local tick_threaded
   local function tick()
     local deadline = utils.tick_deadline(M.timing.tick_ns)
@@ -334,8 +338,16 @@ Store.count = function(self, on_done)
         end
       end
     end
+    if not stalled and vim.uv.now() - progress.at > workers.stall_ms then
+      -- batches still out are dropped, so their late results are never merged
+      stalled = true
+      for _, out in ipairs(own) do
+        count_here(counting.counter, out.entries)
+      end
+      own = {}
+    end
     repeat
-      usable = workers.available()
+      usable = workers.available() and not stalled
       if usable and (#own >= workers.limit() or workers.in_flight() >= workers.limit()) then
         blocked = true
 
@@ -357,7 +369,8 @@ Store.count = function(self, on_done)
       end
       complete = building_bytes >= M.count_batch_bytes or (counting.next_index > #entries and building[1] ~= nil)
       if complete and usable then
-        own[#own + 1] = dispatch_batch(building)
+        own[#own + 1] = dispatch_batch(building, progress)
+        progress.at = vim.uv.now()
       elseif complete then
         count_here(counting.counter, building)
       end

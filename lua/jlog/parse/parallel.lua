@@ -40,10 +40,12 @@ end
 
 ---@param text string
 ---@param chunk JLogChunk
-local function dispatch(text, chunk)
-  -- the callback holds only the chunk, so a dropped load keeps neither the text nor its entries alive
+---@param progress { at: integer } its `at` set to `vim.uv.now()` when the job reports
+local function dispatch(text, chunk, progress)
+  -- the callback holds only the chunk and progress, so a dropped load keeps neither the text nor its entries alive
   workers.run("parse_lines", vim.mpack.encode({ text = text:sub(chunk.first, chunk.last) }), function(err, result)
     chunk.done, chunk.err, chunk.result = true, err, result
+    progress.at = vim.uv.now()
   end)
 end
 
@@ -103,9 +105,23 @@ M.line_reader = function(text, pos, lnum, stop)
   local chunks = {}
   local cut = pos
   local fallback = false
+  -- when it last dispatched, received or appended
+  local progress = { at = vim.uv.now() }
 
   local function fraction()
     return pos <= stop and (pos - start) / (stop - start + 1) or nil
+  end
+
+  ---Give up on workers when waiting for them has made no progress for `workers.stall_ms`.
+  ---@return boolean stalled
+  local function stalled()
+    if vim.uv.now() - progress.at <= workers.stall_ms then
+      return false
+    end
+    -- the chunks still out are dropped, so their late results are never read; their lines are parsed here
+    fallback, chunks, cut = true, {}, pos
+
+    return true
   end
 
   return function(entries, on_json, count, counter)
@@ -126,15 +142,16 @@ M.line_reader = function(text, pos, lnum, stop)
       chunk = cut_chunk(text, cut, stop)
       cut = chunk.next_pos
       chunks[#chunks + 1] = chunk
-      dispatch(text, chunk)
+      dispatch(text, chunk, progress)
+      progress.at = vim.uv.now()
     end
     chunk = chunks[1]
     if not chunk then
       -- no chunk out and work remains: the cap is full of other jobs
-      return fraction(), cut <= stop or nil
+      return fraction(), cut <= stop and not stalled() or nil
     end
     if not chunk.done then
-      return fraction(), true
+      return fraction(), not stalled() or nil
     end
     if chunk.err then
       -- the chunks still out are dropped; their lines are parsed here from `pos` on
@@ -150,6 +167,7 @@ M.line_reader = function(text, pos, lnum, stop)
     -- a slice per call, so the caller checks its tick budget between slices of a chunk
     pos, appended = append_slice(entries, text, chunk, pos, lnum, LINES_PER_CALL)
     lnum = lnum + appended
+    progress.at = vim.uv.now()
     if chunk.next_line > #chunk.positions then
       table.remove(chunks, 1)
       pos = chunk.next_pos

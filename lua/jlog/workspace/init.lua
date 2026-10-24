@@ -2,9 +2,9 @@ local config = require("jlog.config")
 local detect = require("jlog.parse.detect")
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
-local filter = require("jlog.query.filter")
 local layout = require("jlog.workspace.layout")
 local pages = require("jlog.parse.pages")
+local query = require("jlog.workspace.query")
 local reader = require("jlog.parse.reader")
 local sidebar_mod = require("jlog.ui.sidebar")
 local source = require("jlog.parse.source")
@@ -66,6 +66,11 @@ Workspace.__index = Workspace
 Workspace.focus_sidebar = layout.focus_sidebar
 Workspace.toggle_sidebar = layout.toggle_sidebar
 Workspace.open_raw = layout.open_raw
+Workspace.apply = query.apply
+Workspace.add_filter = query.add_filter
+Workspace.clear_filters = query.clear_filters
+Workspace.set_group = query.set_group
+Workspace.toggle_reverse = query.toggle_reverse
 
 local M = {}
 
@@ -140,72 +145,6 @@ local function read_source(path, bufnr)
   return table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
 end
 
----@param lines string[]
----@param errors {lnum: integer, msg: string}[]
----@return string[] valid
----@return JLogFilterError[] invalid
-local function split_invalid(lines, errors)
-  local bad = {}
-  local valid = {}
-  local invalid = {}
-
-  for _, err in ipairs(errors) do
-    bad[err.lnum] = err.msg
-  end
-  for lnum, line in ipairs(lines) do
-    if bad[lnum] then
-      invalid[#invalid + 1] = { text = line, msg = bad[lnum] }
-    elseif line:find("%S") then
-      valid[#valid + 1] = line
-    end
-  end
-
-  return valid, invalid
-end
-
----@param ws JLogWorkspace
----@param shown integer
----@return string
-local function winbar_text(ws, shown)
-  local parts = { "jlog", ws.format, shown .. "/" .. #ws.entries }
-
-  if ws.pages and ws.page then
-    parts[#parts + 1] = "page " .. ws.page .. "/" .. (ws.pages:count() or "…")
-  end
-  if #ws.state.filters > 0 then
-    parts[#parts + 1] = table.concat(ws.state.filters, " · ")
-  end
-  if ws.state.group then
-    parts[#parts + 1] = "group: " .. ws.state.group
-  end
-
-  return table.concat(parts, " · ")
-end
-
----@param ws JLogWorkspace
----@param counter JLogFacetCounter
-local function publish_facets(ws, counter)
-  ws.sidebar.facets = facets.result(counter, ws.opts.facets.top_values)
-  for _, facet in ipairs(ws.sidebar.facets) do
-    ws.fields_seen[facet.name] = true
-  end
-  ws.published.names = #counter.names
-end
-
----Rewrite the sidebar from state, unless it holds FILTERS or GROUP BY edits not applied yet.
----@param ws JLogWorkspace
-local function render_sidebar(ws)
-  if not vim.bo[ws.sidebar.bufnr].modified then
-    ws.sidebar:render()
-  end
-end
-
----An action that sets filters or the group replaces what was typed in the sidebar.
----@param ws JLogWorkspace
-local function discard_sidebar_edits(ws)
-  vim.bo[ws.sidebar.bufnr].modified = false
-end
-
 ---Show newly found fields while a load or apply runs, at most every `timing.publish_ns`; unsaved edits are kept.
 ---@param ws JLogWorkspace
 ---@param counter JLogFacetCounter
@@ -221,197 +160,8 @@ local function publish_partial(ws, counter, progress)
     return
   end
   ws.published.at = now
-  publish_facets(ws, counter)
+  query.publish_facets(ws, counter)
   ws.sidebar:render(progress)
-end
-
----Filter, group and render, then count facets; work past the first ~12ms tick continues later, a newer apply wins.
----@param on_done fun()|nil called once the view has rendered
----@param counted JLogFacetCounter|nil facets of every entry, counted while loading; used when no filter applies
-Workspace.apply = function(self, on_done, counted)
-  local state = self.state
-  local field = state.group and filter.unescape_field(state.group)
-  local counts = layout.window_in_tab(self, self.sidebar.bufnr) ~= nil
-  local lines = vim.deepcopy(state.filters)
-  local pred, errors, invalid
-  local prefilled
-
-  -- lines that failed before stay pending until edited, so re-validate them with the rest
-  for _, err in ipairs(self.sidebar.errors) do
-    lines[#lines + 1] = err.text
-  end
-  pred, errors = filter.compile(lines)
-  state.filters, invalid = split_invalid(lines, errors)
-  self.sidebar:set_errors(invalid)
-  -- every entry matches, so the load's counts are this apply's counts
-  prefilled = counts and counted ~= nil and #state.filters == 0
-  self.store:set_counts(prefilled and counted or nil)
-  -- the sidebar keeps the last counts until this apply's are counted
-  self.sidebar.stale = counts and not prefilled
-  if self.sidebar.stale then
-    render_sidebar(self)
-  end
-
-  local function publish(items, shown)
-    local generation = self.store.generation
-    local cursor_entry = self.view:entry_at_cursor()
-
-    if prefilled then
-      publish_facets(self, counted)
-    end
-    self.shown = shown
-    self.view:set_winbar(winbar_text(self, shown))
-    render_sidebar(self)
-    -- counting does not wait for the render: a superseded render never calls its on_done
-    if self.sidebar.stale then
-      self.store:count(function(counter)
-        self.sidebar.stale = false
-        publish_facets(self, counter)
-        -- unsaved FILTERS edits are kept; the next sync renders the counts
-        render_sidebar(self)
-      end)
-    end
-    self.view:render(items, function()
-      -- a newer apply that has not rendered yet supersedes this render too
-      if self.store.generation ~= generation or self.closed then
-        return
-      end
-      self.rendered = generation
-      if cursor_entry then
-        self.view:goto_entry(cursor_entry)
-      end
-      if on_done then
-        on_done()
-      end
-    end)
-  end
-
-  self.store:query(pred, field, publish)
-end
-
----@param clause string
-Workspace.add_filter = function(self, clause)
-  table.insert(self.state.filters, clause)
-  discard_sidebar_edits(self)
-  self:apply()
-end
-
-Workspace.clear_filters = function(self)
-  self.state.filters = {}
-  self.sidebar:set_errors({})
-  discard_sidebar_edits(self)
-  self:apply()
-end
-
----@param field string|nil nil clears the group
-Workspace.set_group = function(self, field)
-  self.state.group = field ~= "" and field or nil
-  discard_sidebar_edits(self)
-  self:apply()
-end
-
--- shortcut: re-runs the whole apply; keep the last matches if reversing 500k entries feels slow
-Workspace.toggle_reverse = function(self)
-  self.state.reverse = not self.state.reverse
-  self:apply()
-end
-
----Show the new entries `from..` in a flat view without a full apply. Returns false when an apply is needed.
----@param ws JLogWorkspace
----@param old_count integer entry count before the append
----@param old_key string|nil key of the last old entry before the append
----@return boolean
-local function extend_view(ws, old_count, old_key)
-  local entries, view, counter = ws.entries, ws.view, ws.store.counter
-  local pred = filter.compile(ws.state.filters)
-  local changed = old_key ~= nil and entry_model.key(entries[old_count]) ~= old_key
-  local indexes = {}
-  local refresh, entry, decoded, shown, matches
-  local ctx = {
-    get = function(path)
-      return entry_model.get(entry, decoded, path, ws.opts)
-    end,
-  }
-
-  for index = changed and old_count or old_count + 1, #entries do
-    entry = entries[index]
-    decoded = entry_model.decode(entry)
-    ctx.raw = entry_model.key(entry)
-    matches = pred(ctx)
-    shown = view.entry_item[index] ~= nil
-    if shown and not matches then
-      return false
-    end
-    if shown then
-      refresh = index
-    elseif matches then
-      indexes[#indexes + 1] = index
-    end
-    if matches and index > old_count then
-      ws.store:count_appended(index, entry, decoded)
-    end
-  end
-
-  if ws.state.reverse then
-    view:prepend(vim.fn.reverse(indexes), refresh)
-  else
-    view:append(indexes, refresh)
-  end
-  ws.shown = #view.items
-  view:set_winbar(winbar_text(ws, ws.shown))
-  if counter then
-    publish_facets(ws, counter)
-    render_sidebar(ws)
-  end
-
-  return true
-end
-
----@param view JLogView
----@param index integer entry index to land on, or the nearest one that is shown
-local function goto_nearest(view, index)
-  for distance = 0, #view.ws.entries do
-    for _, candidate in ipairs({ index - distance, index + distance }) do
-      if view.entry_item[candidate] then
-        view:goto_entry(candidate)
-
-        return
-      end
-    end
-  end
-end
-
----Swap in rebuilt entries, keeping state: expanded entries and the cursor entry are found again by key.
----@param ws JLogWorkspace
----@param entries JLogEntry[]
-local function replace_entries(ws, entries)
-  local old, state = ws.entries, ws.state
-  local cursor = ws.view:entry_at_cursor()
-  local cursor_key = cursor and entry_model.key(old[cursor])
-  local new_index, expanded = {}, {}
-  local entry_key, target
-
-  if cursor_key or next(state.expanded) then
-    for index, entry in ipairs(entries) do
-      entry_key = entry_model.key(entry)
-      new_index[entry_key] = new_index[entry_key] or index
-    end
-  end
-  for index in pairs(state.expanded) do
-    target = new_index[entry_model.key(old[index])]
-    if target then
-      expanded[target] = true
-    end
-  end
-  state.expanded = expanded
-  ws.entries = entries
-  utils.release_compiled()
-  cursor = cursor_key and new_index[cursor_key] or cursor
-  ws:apply(function()
-    if cursor then
-      goto_nearest(ws.view, cursor)
-    end
-  end)
 end
 
 ---Parse the rest of the source into `entries` in chunks across event-loop ticks, then call `on_done` once.
@@ -517,7 +267,7 @@ end
 ---@param ws JLogWorkspace
 local function refresh_winbar(ws)
   if not ws.loading and ws.rendered == ws.store.generation then
-    ws.view:set_winbar(winbar_text(ws, ws.shown))
+    ws.view:set_winbar(query.winbar_text(ws, ws.shown))
   end
 end
 
@@ -600,7 +350,7 @@ local function load_page(ws, page, keep)
 
       ws.page, ws.core = page, core_of(range)
       if keep then
-        replace_entries(ws, loaded)
+        query.replace_entries(ws, loaded)
 
         return
       end
@@ -705,7 +455,7 @@ local function rebuild(ws)
     ws.pages, ws.page, ws.core, ws.target_page = nil, nil, nil, nil
     vim.defer_fn(function()
       load_rest(ws, {}, reader.source(text, ws.format, order, M.timing.tick_ns), function(loaded)
-        replace_entries(ws, loaded)
+        query.replace_entries(ws, loaded)
       end)
     end, 0)
   end
@@ -766,7 +516,7 @@ Workspace.reload = function(self)
   if not shown then
     return
   end
-  if self.state.group or self.rendered ~= self.store.generation or not extend_view(self, old_count, old_key) then
+  if self.state.group or self.rendered ~= self.store.generation or not query.extend(self, old_count, old_key) then
     -- the last entry took continuation lines, so its old lines must not be reused
     if old_key and entry_model.key(self.entries[old_count]) ~= old_key then
       self.view:forget(old_count)

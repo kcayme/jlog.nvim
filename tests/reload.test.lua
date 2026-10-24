@@ -1,6 +1,7 @@
 local store = require("jlog.query.store")
 local view = require("jlog.ui.view")
 local workspace = require("jlog.workspace")
+local loader = require("jlog.workspace.loader")
 
 local function wait(cond)
   assert.is_true(vim.wait(2000, cond, 20))
@@ -8,7 +9,7 @@ end
 
 describe("reload", function()
   local notify = vim.notify
-  local timing = vim.deepcopy(workspace.timing)
+  local timing = vim.deepcopy(loader.timing)
   local store_timing = vim.deepcopy(store.timing)
   local view_tick_ns = view.tick_ns
   local path
@@ -22,7 +23,7 @@ describe("reload", function()
 
   after_each(function()
     vim.notify = notify
-    workspace.timing = vim.deepcopy(timing)
+    loader.timing = vim.deepcopy(timing)
     store.timing = vim.deepcopy(store_timing)
     view.tick_ns = view_tick_ns
     if ws then
@@ -73,7 +74,7 @@ describe("reload", function()
     wait(function()
       return not ws.loading and ws.rendered == ws.store.generation and not ws.sidebar.stale
     end)
-    workspace.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
+    loader.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
     store.timing = { tick_ns = 0 }
     ws:add_filter("level=ERROR")
     wait(function()

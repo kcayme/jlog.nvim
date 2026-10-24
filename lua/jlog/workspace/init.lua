@@ -3,11 +3,9 @@ local detect = require("jlog.parse.detect")
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local layout = require("jlog.workspace.layout")
-local pages = require("jlog.parse.pages")
+local loader = require("jlog.workspace.loader")
 local query = require("jlog.workspace.query")
-local reader = require("jlog.parse.reader")
 local sidebar_mod = require("jlog.ui.sidebar")
-local source = require("jlog.parse.source")
 local store_mod = require("jlog.query.store")
 local view_mod = require("jlog.ui.view")
 local watcher = require("jlog.workspace.watcher")
@@ -71,29 +69,18 @@ Workspace.add_filter = query.add_filter
 Workspace.clear_filters = query.clear_filters
 Workspace.set_group = query.set_group
 Workspace.toggle_reverse = query.toggle_reverse
+Workspace.goto_page = loader.goto_page
+Workspace.reload = loader.reload
 
 local M = {}
 
 local HEAD_LIMIT = 65536
--- how long a load waiting on worker threads sleeps before it checks again
-local WAIT_MS = 2
 -- the default (200) pays collection debt in one 50-80ms tick at 500k lines; 400 keeps ticks under ~35ms
 local GC_STEPMUL = 400
-
--- lines or array elements parsed before the first screen
-M.load_sizes = { first = 2000 }
--- tick_ns: work per tick before yielding (keeps ticks ~16ms); publish_ns: how often new fields reach the sidebar
-M.timing = { tick_ns = 12e6, publish_ns = 250e6 }
--- how long open may index to find page 1 before its first screen
-M.open_index_ns = 150e6
 
 ---@type table<string, JLogWorkspace>
 local registry = {}
 
--- shortcut: a sync read of 100MB takes tens of ms; read async if that ever matters
----@param path string
----@return string|nil
----@return string|nil err
 -- the user's stepmul while any workspace is open, nil otherwise
 local saved_stepmul
 
@@ -111,417 +98,6 @@ local function restore_gc()
     -- selene: allow(incorrect_standard_library_use)
     collectgarbage("setstepmul", saved_stepmul)
     saved_stepmul = nil
-  end
-end
-
-local function read_file(path)
-  local fd, err = vim.uv.fs_open(path, "r", 438)
-  local stat, data
-
-  if not fd then
-    return nil, err
-  end
-  stat, err = vim.uv.fs_fstat(fd)
-  if stat then
-    data, err = vim.uv.fs_read(fd, stat.size, 0)
-  end
-  vim.uv.fs_close(fd)
-
-  return data, err
-end
-
----@param path string|nil
----@param bufnr integer|nil
----@return string|nil
----@return string|nil err
-local function read_source(path, bufnr)
-  if path then
-    return read_file(path)
-  end
-  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
-    return nil, "no file or valid buffer to open"
-  end
-
-  return table.concat(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false), "\n")
-end
-
----Show newly found fields while a load or apply runs, at most every `timing.publish_ns`; unsaved edits are kept.
----@param ws JLogWorkspace
----@param counter JLogFacetCounter
----@param progress string
-local function publish_partial(ws, counter, progress)
-  local now = vim.uv.hrtime()
-
-  -- a counter only gains names, so a count above the published one means new fields
-  if #counter.names <= ws.published.names or now - ws.published.at < M.timing.publish_ns then
-    return
-  end
-  if not layout.window_in_tab(ws, ws.sidebar.bufnr) or vim.bo[ws.sidebar.bufnr].modified then
-    return
-  end
-  ws.published.at = now
-  query.publish_facets(ws, counter)
-  ws.sidebar:render(progress)
-end
-
----Parse the rest of the source into `entries` in chunks across event-loop ticks, then call `on_done` once.
----@param ws JLogWorkspace
----@param entries JLogEntry[] mutated
----@param read JLogReader
----@param on_done fun(entries: JLogEntry[])
----@param counter JLogFacetCounter|nil counts the facets of the loaded JSON entries, from the load's own decode
----@param token table|nil the load stops, dropping what it read, once `ws.load_token` is another load's
----@param notified boolean|nil a load past its first tick says so once, and again when it is done
-local function load_rest(ws, entries, read, on_done, counter, token, notified)
-  local deadline = vim.uv.hrtime() + M.timing.tick_ns
-  local fraction, progress, waiting
-  local count_entry = counter
-    and function(entry, decoded)
-      facets.add(counter, entry_model.flatten(entry, decoded))
-    end
-
-  if ws.closed or (token and ws.load_token ~= token) then
-    return
-  end
-  repeat
-    fraction, waiting = read(entries, count_entry, nil, counter)
-  until not fraction or waiting or vim.uv.hrtime() >= deadline
-  if fraction then
-    progress = "loading " .. math.floor(fraction * 100) .. "%"
-    if not notified then
-      vim.notify("jlog: loading…", vim.log.levels.INFO)
-    end
-    -- with a filter set, the sidebar shows the filtered counts of the last apply instead
-    if counter and #ws.state.filters == 0 then
-      publish_partial(ws, counter, progress)
-    end
-    vim.defer_fn(function()
-      load_rest(ws, entries, read, on_done, counter, token, true)
-    end, waiting and WAIT_MS or 0)
-
-    return
-  end
-
-  if notified then
-    vim.notify("jlog: loaded " .. #entries .. " entries", vim.log.levels.INFO)
-  end
-  ws.loading = nil
-  on_done(entries)
-  if ws.reload_pending then
-    ws.reload_pending = nil
-    ws:reload()
-  end
-end
-
----Record whether the loaded file lists the newest first; a toggled sort stays toggled.
----@param ws JLogWorkspace
----@param order "asc"|"desc"|"none"
-local function set_stored_order(ws, order)
-  if (order == "desc") ~= ws.stored_newest_first then
-    ws.stored_newest_first = order == "desc"
-    ws.state.reverse = not ws.state.reverse
-  end
-end
-
----A page index over `text`, or nil for an unordered loki export, which is sorted whole instead.
----@param text string
----@param format JLogFormat
----@param order "asc"|"desc"|"none"
----@param opts JLogOptions
----@return JLogPageIndex|nil
-local function new_index(text, format, order, opts)
-  if format == "loki" and order == "none" then
-    return nil
-  end
-
-  return pages.new(text, format, opts.paging, (opts.view.sort == "desc") ~= (order == "desc"))
-end
-
----Whether `index` has more than one page, or nil while that is not known yet.
----@param index JLogPageIndex
----@return boolean|nil
-local function is_paged(index)
-  if index:count() == 1 then
-    return false
-  end
-
-  return index:known() >= 1 or nil
-end
-
----@param range JLogPageRange
----@return integer[]
-local function core_of(range)
-  return {
-    range.core_first_line or range.core_first_element,
-    range.core_last_line or range.core_last_element,
-  }
-end
-
----The page shown holds the end of the source, where appended lines go.
----@param ws JLogWorkspace
----@return boolean
-local function holds_end(ws)
-  return ws.page == (ws.pages.from_end and 1 or ws.pages:count())
-end
-
----@param ws JLogWorkspace
-local function refresh_winbar(ws)
-  if not ws.loading and ws.rendered == ws.store.generation then
-    ws.view:set_winbar(query.winbar_text(ws, ws.shown))
-  end
-end
-
----Finish a collector cycle in time-boxed steps, or a replaced ~100MB text is collected in one long tick.
----@param ws JLogWorkspace
----@param on_done fun()|nil
-local function collect(ws, on_done)
-  local deadline = vim.uv.hrtime() + M.timing.tick_ns
-  local collected
-
-  if ws.closed then
-    return
-  end
-  repeat
-    -- selene: allow(incorrect_standard_library_use)
-    collected = collectgarbage("step", 0)
-  until collected or vim.uv.hrtime() >= deadline
-  if collected then
-    if on_done then
-      vim.defer_fn(on_done, 0)
-    end
-
-    return
-  end
-  vim.defer_fn(function()
-    collect(ws, on_done)
-  end, 0)
-end
-
----Scan `index` in ticks while it is `ws.indexing`; `on_known(paged)` runs once paging is known (or done: `wait_done`).
----@param ws JLogWorkspace
----@param index JLogPageIndex
----@param on_known fun(paged: boolean)|nil
----@param wait_done boolean|nil
-local function scan_pages(ws, index, on_known, wait_done)
-  local done
-
-  if ws.closed or ws.indexing ~= index then
-    return
-  end
-  done = index:scan(vim.uv.hrtime() + M.timing.tick_ns)
-  if on_known and (done or (not wait_done and is_paged(index))) then
-    on_known(is_paged(index) == true)
-    on_known = nil
-  end
-  if not done then
-    vim.defer_fn(function()
-      scan_pages(ws, index, on_known, wait_done)
-    end, 0)
-
-    return
-  end
-  ws.indexing = nil
-  if ws.index_notified then
-    ws.index_notified = nil
-    vim.notify("jlog: indexed " .. index:count() .. " pages", vim.log.levels.INFO)
-  end
-  -- an index rebuilt after an append replaces the one in use
-  if ws.pages and ws.pages ~= index then
-    ws.pages = index
-    collect(ws)
-  end
-  refresh_winbar(ws)
-end
-
----Load page `page` of `ws.pages` in ticks, then show it; `keep` keeps the cursor entry and expanded entries by key.
----@param ws JLogWorkspace
----@param page integer
----@param keep boolean|nil
-local function load_page(ws, page, keep)
-  local range = ws.pages:range(page)
-  local read = reader.page(ws.pages.text, ws.format, range)
-  local counter = facets.counter()
-  local token = {}
-
-  ws.loading, ws.load_token, ws.target_page = true, token, page
-  vim.defer_fn(function()
-    load_rest(ws, {}, read, function(loaded)
-      local winid
-
-      ws.page, ws.core = page, core_of(range)
-      if keep then
-        query.replace_entries(ws, loaded)
-
-        return
-      end
-      ws.state.expanded = {}
-      ws.entries = loaded
-      utils.release_compiled()
-      ws:apply(function()
-        winid = vim.fn.bufwinid(ws.view.bufnr)
-        if winid ~= -1 then
-          vim.api.nvim_win_set_cursor(winid, { 1, 0 })
-        end
-      end, counter)
-    end, counter, token)
-  end, 0)
-end
-
----The page whose own entries hold source position `src`, else 1.
----@param index JLogPageIndex
----@param src integer|nil
----@return integer
-local function page_holding(index, src)
-  local core
-
-  for page = 1, src and index:count() or 0 do
-    core = core_of(index:range(page))
-    if src >= core[1] and src <= core[2] then
-      return page
-    end
-  end
-
-  return 1
-end
-
----Show page `page`, keeping filters, group and mode; false when that page is not indexed (yet).
----@param page integer
----@return boolean
-Workspace.goto_page = function(self, page)
-  local range = self.pages and page % 1 == 0 and self.pages:range(page)
-
-  if not range then
-    vim.notify("jlog: " .. (self.indexing and "still indexing pages" or ("no page " .. page)), vim.log.levels.WARN)
-
-    return false
-  end
-  -- a page load still running is dropped for this one
-  load_page(self, page)
-
-  return true
-end
-
----Index the text again with the lines appended since, in a tick of its own: joining ~100MB takes ~20ms.
----@param ws JLogWorkspace
-local function reindex(ws)
-  local base = ws.indexing or ws.pages
-  local index
-
-  -- shortcut: the whole text is indexed again per append; extend the index in place if appends get frequent
-  if ws.closed or not ws.appended or not base then
-    return
-  end
-  index = pages.new(base.text .. table.concat(ws.appended), ws.format, ws.opts.paging, base.from_end)
-  ws.appended = nil
-  ws.indexing = index
-  vim.defer_fn(function()
-    scan_pages(ws, index)
-  end, 0)
-end
-
----Re-read a rewritten source and index it again; a paged one returns to the page holding the cursor entry.
----@param ws JLogWorkspace
-local function rebuild(ws)
-  local text, err = read_source(ws.path, ws.bufnr)
-  local order, index
-
-  if err then
-    -- a missing file is reported by the watcher, which waits for it to come back
-    if not ws.path or vim.uv.fs_stat(ws.path) then
-      vim.notify("jlog: cannot reload: " .. tostring(err), vim.log.levels.WARN)
-    end
-
-    return
-  end
-  if ws.path then
-    watcher.snapshot(ws, text)
-  end
-  order = source.element_order(text, ws.format)
-  index = new_index(text, ws.format, order, ws.opts)
-  ws.indexing, ws.appended = index, nil
-  -- parsed in chunks like at open; the old entries stay shown until the new ones are complete
-  ws.loading = true
-
-  local function on_known(paged)
-    local cursor = ws.view:entry_at_cursor()
-
-    set_stored_order(ws, order)
-    if paged then
-      ws.pages = index
-      load_page(ws, page_holding(index, cursor and ws.entries[cursor].src), true)
-
-      return
-    end
-    ws.pages, ws.page, ws.core, ws.target_page = nil, nil, nil, nil
-    vim.defer_fn(function()
-      load_rest(ws, {}, reader.source(text, ws.format, order, M.timing.tick_ns), function(loaded)
-        query.replace_entries(ws, loaded)
-      end)
-    end, 0)
-  end
-
-  if not index then
-    on_known(false)
-
-    return
-  end
-  vim.defer_fn(function()
-    scan_pages(ws, index, on_known, true)
-  end, 0)
-end
-
----Pick up changes to the source: a grown jsonl file only parses its new lines; anything else is rebuilt.
-Workspace.reload = function(self)
-  local tail, old_count, old_key, shown
-
-  if self.closed then
-    return
-  end
-  if self.loading then
-    self.reload_pending = true
-
-    return
-  end
-  tail = self.path and self.format == "jsonl" and watcher.read_appended(self) or nil
-  if not tail then
-    rebuild(self)
-
-    return
-  end
-  -- appended lines belong to the page holding the end of the file; another page stays as it is
-  shown = not self.pages or holds_end(self)
-  old_count = #self.entries
-  old_key = old_count > 0 and entry_model.key(self.entries[old_count]) or nil
-  if shown then
-    source.append_lines(self.entries, vim.split(tail:sub(1, -2), "\n", { plain = true }), self.next_lnum)
-  end
-  watcher.advance(self, tail)
-  if tail == "" then
-    return
-  end
-  if self.pages then
-    if not self.appended then
-      self.appended = {}
-      vim.defer_fn(function()
-        collect(self, function()
-          reindex(self)
-        end)
-      end, 0)
-    end
-    self.appended[#self.appended + 1] = tail
-    if shown then
-      self.core[2] = self.next_lnum - 1
-    end
-  end
-  if not shown then
-    return
-  end
-  if self.state.group or self.rendered ~= self.store.generation or not query.extend(self, old_count, old_key) then
-    -- the last entry took continuation lines, so its old lines must not be reused
-    if old_key and entry_model.key(self.entries[old_count]) ~= old_key then
-      self.view:forget(old_count)
-    end
-    self:apply()
   end
 end
 
@@ -585,32 +161,6 @@ M.current = function()
   return nil
 end
 
----Load the rest of the first page, or of a source that is not paged, after the first screen.
----@param ws JLogWorkspace
----@param entries JLogEntry[] read so far; `ws.entries` when `early`
----@param read JLogReader
----@param early boolean the entries read so far are shown already
----@param counter JLogFacetCounter counts of `entries` when `early`
-local function load_first(ws, entries, read, early, counter)
-  local token = {}
-
-  ws.loading, ws.load_token = true, token
-  vim.defer_fn(function()
-    if early then
-      load_rest(ws, entries, read, function()
-        ws:apply(nil, counter)
-      end, counter, token)
-
-      return
-    end
-    -- shown once loaded and ordered, counted by that apply
-    load_rest(ws, entries, read, function(loaded)
-      ws.entries = loaded
-      ws:apply()
-    end, nil, token)
-  end, 0)
-end
-
 ---Open (or focus) the workspace for a file or buffer: view on the left, sidebar on the right.
 ---@param target JLogOpenTarget
 ---@return JLogWorkspace|nil
@@ -620,10 +170,7 @@ M.open = function(target)
   local path = target.path and vim.fn.fnamemodify(target.path, ":p")
   local key = path or ("buf:" .. tostring(target.bufnr))
   local existing = registry[key]
-  local text, format, err, ws
-  local order, read, early, more
-  local index, paged, range, deadline, tail
-  local entries = {}
+  local text, format, err, ws, slice
   local counter = facets.counter()
   local function count_entry(entry, decoded)
     facets.add(counter, entry_model.flatten(entry, decoded))
@@ -635,7 +182,7 @@ M.open = function(target)
     return existing
   end
 
-  text, err = read_source(path, target.bufnr)
+  text, err = loader.read_source(path, target.bufnr)
   if not text then
     return nil, err
   end
@@ -643,37 +190,15 @@ M.open = function(target)
   if not format then
     return nil, "not a recognized log format"
   end
-  order = source.element_order(text, format)
-  -- index until page 1 is known, so the first screen is page 1; the rest of the index follows in ticks
-  index = new_index(text, format, order, opts)
-  -- page 1 starts where the source does unless it is the end: then the first screen needs no more than a tick of it
-  if index then
-    deadline = vim.uv.hrtime() + (index.from_end and M.open_index_ns or M.timing.tick_ns)
-    repeat
-      index:scan(math.min(deadline, vim.uv.hrtime() + M.timing.tick_ns))
-      paged = is_paged(index)
-    until paged ~= nil or vim.uv.hrtime() >= deadline
-  end
-  range = paged and index:range(1)
-  -- the first elements show early only when they are the top of the view; jsonl reverses
-  early = format == "jsonl" or (order ~= "none" and (opts.view.sort == "desc") == (order == "desc"))
-  -- a page from the file's end shows newest first: its first screen is the page's last lines, then the whole page
-  tail = range and format == "jsonl" and index.from_end
-  read = tail and reader.tail(text, range, M.load_sizes.first)
-    or range and reader.page(text, format, range)
-    or reader.source(text, format, order, M.timing.tick_ns)
-  -- only the first lines or elements are parsed before the first screen; the rest follows in chunks
-  if not index or paged ~= nil or not index.from_end then
-    more = read(entries, early and count_entry or nil, M.load_sizes.first)
-  end
+  slice = loader.prepare(text, format, opts, count_entry)
 
   ws = setmetatable({
     key = key,
     path = path,
     bufnr = target.bufnr,
     format = format,
-    entries = (early or not more) and entries or {},
-    stored_newest_first = order == "desc",
+    entries = (slice.early or not slice.more) and slice.entries or {},
+    stored_newest_first = slice.order == "desc",
     opts = opts,
     rendered = 0,
     timer = vim.uv.new_timer(),
@@ -683,12 +208,12 @@ M.open = function(target)
       filters = {},
       group = nil,
       mode = opts.view.mode,
-      reverse = (opts.view.sort == "desc") ~= (order == "desc"),
+      reverse = (opts.view.sort == "desc") ~= (slice.order == "desc"),
       expanded = {},
     },
   }, Workspace)
-  if paged then
-    ws.pages, ws.page, ws.core = index, 1, core_of(range)
+  if slice.paged then
+    ws.pages, ws.page, ws.core = slice.index, 1, loader.core_of(slice.range)
   end
   ws.store = store_mod.new(ws)
   ws.view = view_mod.new(ws)
@@ -720,32 +245,8 @@ M.open = function(target)
     watcher.buffer(ws)
   end
   -- the first slice was counted as it was parsed; the load goes on counting into the same counter
-  ws:apply(nil, early and counter or nil)
-  if index and not index.done then
-    ws.indexing = index
-    vim.defer_fn(function()
-      -- once paging is known: page 1 loads, or the load goes on from the first slice (none if page 1 is the end)
-      scan_pages(ws, index, paged == nil and function(has_pages)
-        if has_pages then
-          ws.pages = index
-          load_page(ws, 1)
-
-          return
-        end
-        load_first(ws, entries, read, early, counter)
-      end or nil)
-    end, 0)
-  end
-  if paged == nil and ws.indexing then
-    -- page 1 is not known yet: the start of the source, or an empty view rather than the wrong end of the log
-    ws.loading, ws.index_notified = true, true
-    vim.notify("jlog: indexing pages…", vim.log.levels.INFO)
-  elseif tail and range.core_last_line - range.first_src + 1 > M.load_sizes.first then
-    load_page(ws, 1)
-  elseif not tail and more then
-    load_first(ws, entries, read, early, counter)
-  end
-
+  ws:apply(nil, slice.early and counter or nil)
+  loader.start(ws, slice, counter)
   return ws
 end
 

@@ -5,6 +5,7 @@ local store = require("jlog.query.store")
 local view = require("jlog.ui.view")
 local workers = require("jlog.workers")
 local workspace = require("jlog.workspace")
+local loader = require("jlog.workspace.loader")
 
 local gen = dofile("bench/gen.lua")
 
@@ -17,7 +18,7 @@ local function header_texts(bufnr)
 end
 
 describe("workspace", function()
-  local timing = vim.deepcopy(workspace.timing)
+  local timing = vim.deepcopy(loader.timing)
   local store_timing = vim.deepcopy(store.timing)
   local view_tick_ns = view.tick_ns
 
@@ -25,7 +26,7 @@ describe("workspace", function()
     config.setup()
   end)
   after_each(function()
-    workspace.timing = vim.deepcopy(timing)
+    loader.timing = vim.deepcopy(timing)
     store.timing = vim.deepcopy(store_timing)
     view.tick_ns = view_tick_ns
     pcall(vim.cmd, "silent! tabonly")
@@ -279,7 +280,7 @@ describe("workspace", function()
     assert.is_true(vim.wait(10000, function()
       return not ws.loading
     end))
-    workspace.timing = { tick_ns = 1e12, publish_ns = timing.publish_ns }
+    loader.timing = { tick_ns = 1e12, publish_ns = timing.publish_ns }
     store.timing = { tick_ns = 1e12 }
     -- the placeholder layout fits in one tick: keep this render running past it so the next apply supersedes it
     view.tick_ns = 0
@@ -288,7 +289,7 @@ describe("workspace", function()
       done = done + 1
     end)
     view.tick_ns = view_tick_ns
-    workspace.timing = vim.deepcopy(timing)
+    loader.timing = vim.deepcopy(timing)
     store.timing = vim.deepcopy(store_timing)
     ws.state.filters = { "status=200" }
     ws:apply(function()
@@ -316,7 +317,7 @@ describe("workspace", function()
       return not ws.loading and ws.rendered == ws.store.generation and not ws.sidebar.stale
     end))
     ws.sidebar:expand_field("level")
-    workspace.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
+    loader.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
     store.timing = { tick_ns = 0 }
 
     ws:add_filter("level=ERROR")
@@ -375,7 +376,7 @@ describe("workspace", function()
     assert.is_true(vim.wait(10000, function()
       return not ws.loading and ws.rendered == ws.store.generation and not ws.sidebar.stale
     end))
-    workspace.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
+    loader.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
     store.timing = { tick_ns = 0 }
 
     ws:add_filter("level=ERROR")
@@ -399,11 +400,11 @@ describe("workspace", function()
   end)
 
   describe("chunked jsonl loading", function()
-    local sizes = vim.deepcopy(workspace.load_sizes)
+    local sizes = vim.deepcopy(loader.load_sizes)
     local chunk_size = reader.chunk_size
 
     after_each(function()
-      workspace.load_sizes = sizes
+      loader.load_sizes = sizes
       reader.chunk_size = chunk_size
     end)
 
@@ -421,7 +422,7 @@ describe("workspace", function()
       buf = vim.api.nvim_create_buf(true, false)
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
       -- chunks of 3 lines split entries from their continuation lines
-      workspace.load_sizes = { first = 4 }
+      loader.load_sizes = { first = 4 }
       reader.chunk_size = 3
 
       ws = assert(workspace.open({ bufnr = buf }))
@@ -455,9 +456,9 @@ describe("workspace", function()
       end
       buf = vim.api.nvim_create_buf(true, false)
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-      workspace.load_sizes = { first = 4 }
+      loader.load_sizes = { first = 4 }
       reader.chunk_size = 2
-      workspace.timing = { tick_ns = 0, publish_ns = 0 }
+      loader.timing = { tick_ns = 0, publish_ns = 0 }
       store.timing = { tick_ns = 0 }
 
       ws = assert(workspace.open({ bufnr = buf }))
@@ -520,9 +521,9 @@ describe("workspace", function()
       end
       buf = vim.api.nvim_create_buf(true, false)
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-      workspace.load_sizes = { first = 4 }
+      loader.load_sizes = { first = 4 }
       reader.chunk_size = 2
-      workspace.timing = { tick_ns = 0, publish_ns = 0 }
+      loader.timing = { tick_ns = 0, publish_ns = 0 }
       store.timing = { tick_ns = 0 }
       vim.notify = function(msg)
         if msg:find("load", 1, true) then
@@ -551,7 +552,7 @@ describe("workspace", function()
       end
       buf = vim.api.nvim_create_buf(true, false)
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-      workspace.load_sizes = { first = 4 }
+      loader.load_sizes = { first = 4 }
       reader.chunk_size = 3
       entry_model.decode = function(...)
         decodes = decodes + 1
@@ -586,7 +587,7 @@ describe("workspace", function()
       end
       buf = vim.api.nvim_create_buf(true, false)
       vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-      workspace.load_sizes = { first = 2 }
+      loader.load_sizes = { first = 2 }
       reader.chunk_size = 2
 
       ws = assert(workspace.open({ bufnr = buf }))
@@ -596,11 +597,11 @@ describe("workspace", function()
     end)
   end)
   describe("chunked element loading", function()
-    local sizes = vim.deepcopy(workspace.load_sizes)
+    local sizes = vim.deepcopy(loader.load_sizes)
     local chunk_size = reader.chunk_size
 
     after_each(function()
-      workspace.load_sizes = sizes
+      loader.load_sizes = sizes
       reader.chunk_size = chunk_size
     end)
 
@@ -619,7 +620,7 @@ describe("workspace", function()
       local path = write_loki(elements)
       local ws
 
-      workspace.load_sizes = { first = 50 }
+      loader.load_sizes = { first = 50 }
       reader.chunk_size = 50
       ws = assert(workspace.open({ path = path }))
 
@@ -647,7 +648,7 @@ describe("workspace", function()
         elements[index] = { line = '{"msg":"m' .. index .. '"}', timestamp = stamp, fields = { app = "a" } }
       end
       path = write_loki(elements)
-      workspace.load_sizes = { first = 2 }
+      loader.load_sizes = { first = 2 }
       reader.chunk_size = 2
       ws = assert(workspace.open({ path = path }))
 
@@ -709,7 +710,7 @@ describe("workspace", function()
         elements[index] = { line = "plain " .. index, timestamp = tostring(1000000 + index * 7919 % 9000) }
       end
       path = write_loki(elements)
-      workspace.timing = { tick_ns = 0, publish_ns = 0 }
+      loader.timing = { tick_ns = 0, publish_ns = 0 }
       store.timing = { tick_ns = 0 }
       ws = assert(workspace.open({ path = path }))
       ok = vim.wait(10000, function()
@@ -775,7 +776,7 @@ describe("workspace", function()
         elements[#elements + 1] = loki_line(stamp)
       end
       vim.fn.writefile({ "[" .. table.concat(elements, ",") .. ',{"line', "tail one", "tail two" }, path)
-      workspace.load_sizes = { first = 2 }
+      loader.load_sizes = { first = 2 }
       reader.chunk_size = 2
       ws = assert(workspace.open({ path = path }))
       done = function()
@@ -867,7 +868,7 @@ describe("workspace", function()
         lines[index] = '{"msg":"m' .. index .. '"}'
       end
       vim.fn.writefile({ "[" .. table.concat(lines, ",") .. "]" }, path)
-      workspace.load_sizes = { first = 2 }
+      loader.load_sizes = { first = 2 }
       reader.chunk_size = 2
       ws = assert(workspace.open({ path = path }))
 

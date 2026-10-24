@@ -1,6 +1,7 @@
 local reader = require("jlog.parse.reader")
 local store = require("jlog.query.store")
 local workspace = require("jlog.workspace")
+local loader = require("jlog.workspace.loader")
 
 local function wait(cond)
   assert.is_true(vim.wait(3000, cond, 20))
@@ -21,11 +22,11 @@ end
 
 describe("paging", function()
   local notify = vim.notify
-  local timing = vim.deepcopy(workspace.timing)
+  local timing = vim.deepcopy(loader.timing)
   local store_timing = vim.deepcopy(store.timing)
-  local load_sizes = vim.deepcopy(workspace.load_sizes)
+  local load_sizes = vim.deepcopy(loader.load_sizes)
   local chunk_size = reader.chunk_size
-  local open_index_ns = workspace.open_index_ns
+  local open_index_ns = loader.open_index_ns
   local path
   local ws
 
@@ -41,11 +42,11 @@ describe("paging", function()
 
   after_each(function()
     vim.notify = notify
-    workspace.timing = vim.deepcopy(timing)
+    loader.timing = vim.deepcopy(timing)
     store.timing = vim.deepcopy(store_timing)
-    workspace.load_sizes = vim.deepcopy(load_sizes)
+    loader.load_sizes = vim.deepcopy(load_sizes)
     reader.chunk_size = chunk_size
-    workspace.open_index_ns = open_index_ns
+    loader.open_index_ns = open_index_ns
     if ws then
       ws:close()
       ws = nil
@@ -82,9 +83,9 @@ describe("paging", function()
     local messages = {}
 
     vim.fn.writefile(log_lines(5000), path)
-    workspace.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
+    loader.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
     store.timing = { tick_ns = 0 }
-    workspace.open_index_ns = 0
+    loader.open_index_ns = 0
     vim.notify = function(msg)
       messages[#messages + 1] = msg
     end
@@ -110,7 +111,7 @@ describe("paging", function()
   it("should switch pages while page 1 is still loading", function()
     require("jlog").setup({ paging = { size = 3000, overlap = 2 } })
     vim.fn.writefile(log_lines(7000), path)
-    workspace.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
+    loader.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
     store.timing = { tick_ns = 0 }
     reader.chunk_size = 10
     ws = workspace.open({ path = path })
@@ -238,16 +239,16 @@ describe("paging", function()
         string.format('{"line":"{\\"msg\\":\\"m%d\\"}","timestamp":"%d","fields":{"app":"a"}}', index, 10000 - index)
     end
     vim.fn.writefile(vim.split("[" .. table.concat(elements, ",\n") .. "]", "\n"), path)
-    workspace.timing.tick_ns = 0
+    loader.timing.tick_ns = 0
     store.timing.tick_ns = 0
-    workspace.load_sizes.first = 3
+    loader.load_sizes.first = 3
     reader.chunk_size = 3
     ws = workspace.open({ path = path })
 
     assert.is_nil(ws.page)
     assert.are.same({ 1, 3 }, { ws.entries[1].src, #ws.entries })
     assert.are.equal(1, ws.view.items[1].idx)
-    workspace.timing = vim.deepcopy(timing)
+    loader.timing = vim.deepcopy(timing)
     store.timing = vim.deepcopy(store_timing)
     wait(settled)
     assert.are.same({ 1, 1, 2002 }, { ws.page, ws.entries[1].src, #ws.entries })

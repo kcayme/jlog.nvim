@@ -953,6 +953,21 @@ describe("view", function()
         assert.are.equal(vim.fn.match(compact_at(v, 4000), "m4000"), vim.api.nvim_win_get_cursor(0)[2])
         wait_complete(v)
       end)
+
+      it("should keep column 0 when a jump lands on a pending row with a leftover search", function()
+        local v = shown(5000)
+        local winid = vim.api.nvim_get_current_win()
+
+        v:render(all(vim.fn.range(1, 5000)))
+        -- shada restores `@/` across sessions, so it can be set without any search
+        vim.fn.setreg("/", "m4000")
+        vim.cmd("normal! 4000G")
+        view.render_visible(winid)
+        assert.is_true(is_compact(v, 4000))
+        assert.are_not.equal(0, vim.fn.match(compact_at(v, 4000), "m4000"))
+        assert.are.same({ 4000, 0 }, vim.api.nvim_win_get_cursor(0))
+        wait_complete(v)
+      end)
     end)
   end)
 

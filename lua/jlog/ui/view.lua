@@ -614,7 +614,7 @@ M.render_visible = function(winid)
   local bufnr = vim.api.nvim_win_get_buf(winid)
   local view = views[bufnr]
   local rewritten = {}
-  local ok, err, row
+  local ok, err, cursor
 
   -- while a render lays out, rows below the written ones are old lines; entries swapped in do not match the rows
   if not view or not next(view.pending) or view.placeholders or view.rendered_entries ~= view.ws.entries then
@@ -629,9 +629,10 @@ M.render_visible = function(winid)
     error(err, 0)
   end
   for _, other in ipairs(vim.fn.win_findbuf(bufnr)) do
-    row = vim.api.nvim_win_get_cursor(other)[1]
-    if rewritten[row] then
-      cursor_to_match(other, row)
+    cursor = vim.api.nvim_win_get_cursor(other)
+    -- only `/` and `n` land past column 0 of the raw text; G, gg and :N land at column 0 and stay there
+    if rewritten[cursor[1]] and cursor[2] > 0 then
+      cursor_to_match(other, cursor[1])
     end
   end
 end

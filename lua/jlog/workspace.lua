@@ -9,6 +9,7 @@ local sidebar_mod = require("jlog.ui.sidebar")
 local source = require("jlog.parse.source")
 local store_mod = require("jlog.store")
 local view_mod = require("jlog.ui.view")
+local utils = require("jlog.utils")
 
 ---@class JLogOpenTarget
 ---@field path string|nil
@@ -549,6 +550,7 @@ local function replace_entries(ws, entries)
   end
   state.expanded = expanded
   ws.entries = entries
+  utils.release_compiled()
   cursor = cursor_key and new_index[cursor_key] or cursor
   ws:apply(function()
     if cursor then
@@ -955,6 +957,7 @@ local function load_page(ws, page, keep)
       end
       ws.state.expanded = {}
       ws.entries = loaded
+      utils.release_compiled()
       ws:apply(function()
         winid = vim.fn.bufwinid(ws.view.bufnr)
         if winid ~= -1 then
@@ -1241,6 +1244,7 @@ Workspace.close = function(self)
       pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
     end
   end
+  utils.release_compiled()
 end
 
 ---Field paths seen in facets so far, for completion.

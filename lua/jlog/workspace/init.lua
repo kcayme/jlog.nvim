@@ -247,6 +247,7 @@ M.open = function(target)
   -- the first slice was counted as it was parsed; the load goes on counting into the same counter
   ws:apply(nil, slice.early and counter or nil)
   loader.start(ws, slice, counter)
+
   return ws
 end
 

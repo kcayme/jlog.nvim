@@ -405,9 +405,9 @@ M.core_of = function(range)
 end
 
 ---Show page `page`, keeping filters, group and mode; false when that page is not indexed (yet).
+---@param ws JLogWorkspace
 ---@param page integer
 ---@return boolean
----@param ws JLogWorkspace
 M.goto_page = function(ws, page)
   local range = ws.pages and page % 1 == 0 and ws.pages:range(page)
 

@@ -140,7 +140,7 @@ end
 
 ---@param sidebar JLogSidebar
 ---@param lines string[]
----@param highlights {[1]: integer, [2]: integer, [3]: integer, [4]: string, [5]: string|nil}[] row, start col, end col, group, pill cap group
+---@param highlights {[1]: integer, [2]: integer, [3]: integer, [4]: string, [5]: string|nil}[] row, cols, group, cap
 ---@param width integer text cells of the sidebar window
 local function add_fields(sidebar, lines, highlights, width)
   local count_group = sidebar.stale and "JLogFieldStale" or "JLogFieldCount"

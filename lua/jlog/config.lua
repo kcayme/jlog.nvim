@@ -45,7 +45,7 @@
 
 ---@class JLogSidebarField
 ---@field style JLogFieldStyle|nil
----@field format (fun(ctx: JLogSidebarFormatContext): string, string|nil)|nil returns the name's text and an optional highlight group
+---@field format (fun(ctx: JLogSidebarFormatContext): string, string|nil)|nil the name's text and an optional group
 
 ---@class JLogSidebarOptions
 ---@field width integer

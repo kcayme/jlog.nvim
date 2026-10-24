@@ -287,6 +287,35 @@ M.append_lines = function(entries, lines, first_lnum, on_json)
   end
 end
 
+---Up to `count` lines of `text` from `pos`, stopping once past `stop`; the last line may lack its newline.
+---@param text string
+---@param pos integer
+---@param count integer
+---@param stop integer last byte to read
+---@return string[] lines
+---@return integer next_pos
+M.take_lines = function(text, pos, count, stop)
+  local lines = {}
+  local newline
+
+  for _ = 1, count do
+    if pos > stop then
+      break
+    end
+    newline = text:find("\n", pos, true)
+    if not newline then
+      lines[#lines + 1] = text:sub(pos)
+      pos = #text + 1
+
+      break
+    end
+    lines[#lines + 1] = text:sub(pos, newline - 1)
+    pos = newline + 1
+  end
+
+  return lines, pos
+end
+
 M.older_first = older_first
 
 ---Read up to `count` elements of a JSON array, one `json.parse` per element, so no whole-array tree is built.

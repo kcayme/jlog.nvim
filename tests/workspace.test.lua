@@ -1,7 +1,11 @@
 local config = require("jlog.config")
+local parallel = require("jlog.parse.parallel")
 local store = require("jlog.store")
 local view = require("jlog.ui.view")
+local workers = require("jlog.workers")
 local workspace = require("jlog.workspace")
+
+local gen = dofile("bench/gen.lua")
 
 local function header_texts(bufnr)
   local ns = vim.api.nvim_create_namespace("jlog.view.header")
@@ -871,6 +875,64 @@ describe("workspace", function()
       end))
       assert.are.equal(10, ws.view.items[1].idx)
       vim.fn.delete(path)
+    end)
+  end)
+
+  describe("threaded load", function()
+    local chunk_bytes = parallel.chunk_bytes
+    local min_bytes = parallel.min_bytes
+    local path
+
+    before_each(function()
+      parallel.min_bytes = 0
+      parallel.chunk_bytes = 4096
+      path = vim.fn.tempname() .. ".jsonl"
+      vim.fn.writefile(gen.nested_lines(20000), path)
+    end)
+    after_each(function()
+      parallel.chunk_bytes = chunk_bytes
+      parallel.min_bytes = min_bytes
+      workers.disabled = nil
+      vim.fn.delete(path)
+    end)
+
+    ---@param threaded boolean
+    ---@return JLogEntry[]
+    local function loaded_entries(threaded)
+      local ws
+
+      workers.disabled = not threaded or nil
+      ws = assert(workspace.open({ path = path }))
+      assert.is_true(vim.wait(10000, function()
+        return not ws.loading and ws.indexing == nil
+      end))
+      ws:close()
+
+      return ws.entries
+    end
+
+    it("should drop chunks in flight when the workspace closes", function()
+      local ws = assert(workspace.open({ path = path }))
+
+      assert.is_true(vim.wait(2000, function()
+        return workers.in_flight() > 0
+      end, 1))
+      ws:close()
+      assert.is_true(vim.wait(1000, function()
+        return workers.in_flight() == 0
+      end))
+    end)
+
+    it("should load a threaded page with the same entries as a main-thread page", function()
+      local base = loaded_entries(false)
+      local entries = loaded_entries(true)
+
+      assert.are.equal(#base, #entries)
+      for index, entry in ipairs(base) do
+        assert.are.equal(entry.src, entries[index].src)
+        assert.are.equal(entry.json_at, entries[index].json_at)
+        assert.are.same(entry.cont, entries[index].cont)
+      end
     end)
   end)
 end)

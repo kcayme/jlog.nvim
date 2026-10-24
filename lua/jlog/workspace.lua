@@ -4,6 +4,7 @@ local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")
 local pages = require("jlog.parse.pages")
+local parallel = require("jlog.parse.parallel")
 local sidebar_mod = require("jlog.ui.sidebar")
 local source = require("jlog.parse.source")
 local store_mod = require("jlog.store")
@@ -554,36 +555,8 @@ local function replace_entries(ws, entries)
   end)
 end
 
----@param text string
----@param pos integer
----@param count integer
----@param stop integer last byte to read
----@return string[] lines
----@return integer next_pos
-local function take_lines(text, pos, count, stop)
-  local lines = {}
-  local newline
-
-  for _ = 1, count do
-    if pos > stop then
-      break
-    end
-    newline = text:find("\n", pos, true)
-    if not newline then
-      lines[#lines + 1] = text:sub(pos)
-      pos = #text + 1
-
-      break
-    end
-    lines[#lines + 1] = text:sub(pos, newline - 1)
-    pos = newline + 1
-  end
-
-  return lines, pos
-end
-
----Reads `count` more units (default `load_sizes.chunk`) into `entries`; returns the fraction read, nil when done.
----@alias JLogReader fun(entries: JLogEntry[], on_json: function|nil, count: integer|nil): number|nil
+---Reads `count` more units (default `load_sizes.chunk`) into `entries`; returns the fraction read (nil when done) and true while waiting on workers.
+---@alias JLogReader fun(entries: JLogEntry[], on_json: function|nil, count: integer|nil, counter: JLogFacetCounter|nil): number|nil, boolean|nil
 
 ---@param text string
 ---@param pos integer byte position of the next unparsed line
@@ -596,7 +569,7 @@ local function line_reader(text, pos, lnum, stop)
   return function(entries, on_json, count)
     local lines
 
-    lines, pos = take_lines(text, pos, count or M.load_sizes.chunk, stop)
+    lines, pos = source.take_lines(text, pos, count or M.load_sizes.chunk, stop)
     source.append_lines(entries, lines, lnum, on_json)
     lnum = lnum + #lines
 
@@ -655,7 +628,7 @@ end
 ---@param notified boolean|nil a load past its first tick says so once, and again when it is done
 local function load_rest(ws, entries, read, on_done, counter, token, notified)
   local deadline = vim.uv.hrtime() + M.timing.tick_ns
-  local fraction, progress
+  local fraction, progress, waiting
   local count_entry = counter
     and function(entry, decoded)
       facets.add(counter, entry_model.flatten(entry, decoded))
@@ -665,8 +638,8 @@ local function load_rest(ws, entries, read, on_done, counter, token, notified)
     return
   end
   repeat
-    fraction = read(entries, count_entry)
-  until not fraction or vim.uv.hrtime() >= deadline
+    fraction, waiting = read(entries, count_entry, nil, counter)
+  until not fraction or waiting or vim.uv.hrtime() >= deadline
   if fraction then
     progress = "loading " .. math.floor(fraction * 100) .. "%"
     if not notified then
@@ -775,7 +748,7 @@ local function source_reader(text, format, order)
   local read
 
   if format == "jsonl" then
-    return line_reader(text, 1, 1, #text)
+    return (#text >= parallel.min_bytes and parallel.line_reader or line_reader)(text, 1, 1, #text)
   end
   read = element_reader(text, 1, format, 1, nil, #text)
 
@@ -816,7 +789,12 @@ end
 ---@return JLogReader
 local function page_reader(text, format, range)
   if format == "jsonl" then
-    return line_reader(text, range.first, range.first_src, range.last)
+    return (range.last - range.first + 1 >= parallel.min_bytes and parallel.line_reader or line_reader)(
+      text,
+      range.first,
+      range.first_src,
+      range.last
+    )
   end
 
   -- the first element is read from the array's `[`

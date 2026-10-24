@@ -235,15 +235,15 @@ table_lines(
   "|---|---:|---:|---:|---:|",
   rows.parsing
 )
-out[#out + 1] = "jlog load is what opening a file does: split lines, keep prefixes and continuation lines, and find each "
+out[#out + 1] = "- jlog load is what opening a file does: split lines, keep prefixes and continuation lines, and find each "
   .. "line's JSON with vim.json.decode."
-out[#out + 1] = "jlog + field tree adds jlog's own parse, which keeps key order and number literals as written, and unwraps "
+out[#out + 1] = "- jlog + field tree adds jlog's own parse, which keeps key order and number literals as written, and unwraps "
   .. "double-encoded JSON; the plugin does this only for the lines it renders."
-out[#out + 1] = "vim.json.decode decodes each line and jq runs `jq -c .`; neither keeps key order or number literals."
+out[#out + 1] = "- vim.json.decode decodes each line and jq runs `jq -c .`; neither keeps key order or number literals."
 out[#out + 1] =
-  "vim.json.decode and jq read a prefix-free copy of the same lines, since they cannot parse prefixed or continuation lines."
+  "- vim.json.decode and jq read a prefix-free copy of the same lines, since they cannot parse prefixed or continuation lines."
 if not has_jq then
-  out[#out + 1] = "Notice: jq is not on PATH, the jq column was skipped."
+  out[#out + 1] = "- Notice: jq is not on PATH, the jq column was skipped."
 end
 out[#out + 1] = ""
 out[#out + 1] = "## Workspace"
@@ -257,9 +257,9 @@ table_lines(
   "|---|---:|---:|---:|---:|",
   rows.workspace
 )
-out[#out + 1] = "Search is the bare term `licence`, filter is `status>=500`, group is by `request_id`."
+out[#out + 1] = "- Search is the bare term `licence`, filter is `status>=500`, group is by `request_id`."
 out[#out + 1] =
-  "Search, filter and group run on the page a file opens on (page 1, the newest; at most paging.size plus overlap)."
-out[#out + 1] = "Open to screen stops at the first screen, not the whole load."
+  "- Search, filter and group run on the page a file opens on (page 1, the newest; at most paging.size plus overlap)."
+out[#out + 1] = "- Open to screen stops at the first screen, not the whole load."
 
 io.write(table.concat(out, "\n"), "\n")

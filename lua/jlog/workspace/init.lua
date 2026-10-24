@@ -9,7 +9,7 @@ local sidebar_mod = require("jlog.ui.sidebar")
 local source = require("jlog.parse.source")
 local store_mod = require("jlog.query.store")
 local view_mod = require("jlog.ui.view")
-local watcher = require("jlog.watcher")
+local watcher = require("jlog.workspace.watcher")
 local utils = require("jlog.utils")
 
 ---@class JLogOpenTarget

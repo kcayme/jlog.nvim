@@ -1,10 +1,27 @@
 local M = {}
 
+-- the event loop pass the shared tick deadline belongs to, by its cached loop time, and that deadline
+local pass_time, pass_deadline
+
 ---@param text string
 ---@param pos integer
 ---@return integer pos first non-whitespace byte at or after `pos`
 M.skip_space = function(text, pos)
   return (text:find("[^ \t\r\n]", pos)) or #text + 1
+end
+
+---Where a background job's tick stops: jobs run in one event loop pass share the first one's budget.
+---@param tick_ns number the job's own budget; 0 does one unit of work per tick
+---@return number deadline `vim.uv.hrtime()` to stop at
+M.tick_deadline = function(tick_ns)
+  local now = vim.uv.hrtime()
+
+  -- `vim.uv.now()` is cached per loop pass, so it is the same for every timer callback in it
+  if vim.uv.now() ~= pass_time then
+    pass_time, pass_deadline = vim.uv.now(), now + tick_ns
+  end
+
+  return math.min(pass_deadline, now + tick_ns)
 end
 
 ---Show `lines` in a read-only float centered in the editor and sized to them; its buffer is wiped on close.

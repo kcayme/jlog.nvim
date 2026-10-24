@@ -1,6 +1,7 @@
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local group = require("jlog.query.group")
+local utils = require("jlog.utils")
 
 ---@class JLogStoreSource
 ---@field entries JLogEntry[]
@@ -99,7 +100,8 @@ Store.query = function(self, pred, field, on_items)
   end
 
   -- group.build in a coroutine that yields when the tick is up; a build spanning ticks reports in a tick of its own
-  local function finish()
+  ---@param sync boolean|nil run by the query's own first tick
+  local function finish(sync)
     local build_deadline
     local yielded = false
     local build
@@ -132,7 +134,9 @@ Store.query = function(self, pred, field, on_items)
       if stale() then
         return
       end
-      build_deadline = vim.uv.hrtime() + M.timing.tick_ns
+      -- the query's own first tick keeps its full budget: the pass's may be spent by callbacks run before it
+      build_deadline = sync and vim.uv.hrtime() + M.timing.tick_ns or utils.tick_deadline(M.timing.tick_ns)
+      sync = false
       ok, items, shown = coroutine.resume(build)
       if not ok then
         error(items, 0)
@@ -160,7 +164,7 @@ Store.query = function(self, pred, field, on_items)
 
   ---@param sync boolean|nil the first tick, run by query itself: work that fits in it finishes at once
   local function step(sync)
-    local deadline = vim.uv.hrtime() + M.timing.tick_ns
+    local deadline = sync and vim.uv.hrtime() + M.timing.tick_ns or utils.tick_deadline(M.timing.tick_ns)
     local last
 
     if stale() then
@@ -172,7 +176,7 @@ Store.query = function(self, pred, field, on_items)
       next_index = last + 1
     until next_index > count or vim.uv.hrtime() >= deadline
     if next_index > count and sync then
-      finish()
+      finish(true)
 
       return
     end
@@ -219,7 +223,7 @@ Store.count = function(self, on_done)
   local generation = self.generation
   local counting = { counter = facets.counter(), matched = self.matched, next_index = 1 }
   local function tick()
-    local deadline = vim.uv.hrtime() + M.timing.tick_ns
+    local deadline = utils.tick_deadline(M.timing.tick_ns)
     local entries = self.source.entries
     local last, entry
 

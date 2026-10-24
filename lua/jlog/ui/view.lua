@@ -620,6 +620,8 @@ M.render_visible = function(winid)
   if not view or not next(view.pending) or view.placeholders or view.rendered_entries ~= view.ws.entries then
     return
   end
+  -- the visible rows always render, but take from the pass's budget so the jobs after them spend less
+  utils.tick_deadline(M.tick_ns)
   vim.bo[bufnr].modifiable = true
   ok, err = pcall(vim.api.nvim_win_call, winid, function()
     render_window_rows(view, rewritten)
@@ -822,7 +824,7 @@ View.render = function(self, items, on_done)
       return
     end
     vim.bo[self.bufnr].modifiable = true
-    ok, err = pcall(fill_rows, vim.uv.hrtime() + M.tick_ns)
+    ok, err = pcall(fill_rows, utils.tick_deadline(M.tick_ns))
     vim.bo[self.bufnr].modifiable = false
     if not ok then
       error(err, 0)

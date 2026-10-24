@@ -1,6 +1,6 @@
 local config = require("jlog.config")
 local parallel = require("jlog.parse.parallel")
-local store = require("jlog.store")
+local store = require("jlog.query.store")
 local view = require("jlog.ui.view")
 local workers = require("jlog.workers")
 local workspace = require("jlog.workspace")

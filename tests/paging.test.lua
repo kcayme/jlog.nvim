@@ -1,4 +1,4 @@
-local store = require("jlog.store")
+local store = require("jlog.query.store")
 local workspace = require("jlog.workspace")
 
 local function wait(cond)

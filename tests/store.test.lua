@@ -3,7 +3,7 @@ local entry_model = require("jlog.parse.entry")
 local filter = require("jlog.query.filter")
 local source = require("jlog.parse.source")
 local facets = require("jlog.query.facets")
-local store_mod = require("jlog.store")
+local store_mod = require("jlog.query.store")
 local workers = require("jlog.workers")
 
 local TEXT = table.concat({

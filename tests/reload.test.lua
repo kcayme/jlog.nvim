@@ -1,4 +1,4 @@
-local store = require("jlog.store")
+local store = require("jlog.query.store")
 local view = require("jlog.ui.view")
 local workspace = require("jlog.workspace")
 

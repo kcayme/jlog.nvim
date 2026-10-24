@@ -7,7 +7,7 @@ local pages = require("jlog.parse.pages")
 local parallel = require("jlog.parse.parallel")
 local sidebar_mod = require("jlog.ui.sidebar")
 local source = require("jlog.parse.source")
-local store_mod = require("jlog.store")
+local store_mod = require("jlog.query.store")
 local view_mod = require("jlog.ui.view")
 local utils = require("jlog.utils")
 

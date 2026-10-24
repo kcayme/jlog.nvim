@@ -136,7 +136,7 @@ end
 ---@param ws JLogWorkspace
 local function wait_settled(ws)
   assert(vim.wait(120000, function()
-    return not ws.loading and ws.indexing == nil and ws.rendered == ws.generation
+    return not ws.loading and ws.indexing == nil and ws.rendered == ws.store.generation
   end, 1))
 end
 

@@ -243,7 +243,7 @@ local out = {
   "",
 }
 
-table_lines(out, "| input | jlog | vim.json.decode | jq |", "|---|---:|---:|---:|", rows.parsing)
+table_lines(out, "| input | jlog (ms) | vim.json.decode (ms) | jq (ms) |", "|---|---:|---:|---:|", rows.parsing)
 out[#out + 1] =
   "jlog builds its entries and each entry's field tree; it keeps key order and number literals as written."
 out[#out + 1] =
@@ -260,7 +260,12 @@ out[#out + 1] = ""
 out[#out + 1] =
   "What a user waits for in the plugin, in median ms; nothing in jq or `vim.json.decode` does the same work."
 out[#out + 1] = ""
-table_lines(out, "| input | open to screen | search | filter | group |", "|---|---:|---:|---:|---:|", rows.workspace)
+table_lines(
+  out,
+  "| input | open to screen (ms) | search (ms) | filter (ms) | group (ms) |",
+  "|---|---:|---:|---:|---:|",
+  rows.workspace
+)
 out[#out + 1] = "Search is the bare term `licence`, filter is `status>=500`, group is by `request_id`."
 out[#out + 1] =
   "Search, filter and group run on the page a file opens on (page 1, the newest; at most paging.size plus overlap)."

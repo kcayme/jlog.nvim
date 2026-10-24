@@ -6,7 +6,7 @@ Median of 5 runs after 1 warm-up; NVIM v0.12.6; jq-1.8.2.
 
 Median ms for each contender to read the whole input into records.
 
-| input | jlog | vim.json.decode | jq |
+| input | jlog (ms) | vim.json.decode (ms) | jq (ms) |
 |---|---:|---:|---:|
 | jsonl 10k | 78 | 12 | 53 |
 | jsonl 100k | 1082 | 131 | 499 |
@@ -24,7 +24,7 @@ For jsonl, vim.json.decode and jq read a prefix-free copy of the same lines, sin
 
 What a user waits for in the plugin, in median ms; nothing in jq or `vim.json.decode` does the same work.
 
-| input | open to screen | search | filter | group |
+| input | open to screen (ms) | search (ms) | filter (ms) | group (ms) |
 |---|---:|---:|---:|---:|
 | jsonl 10k | 17 | 5 | 6 |
 | jsonl 100k | 38 | 70 | 81 |

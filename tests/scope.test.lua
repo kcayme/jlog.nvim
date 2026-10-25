@@ -199,6 +199,28 @@ describe("scope", function()
     assert.is_true(vim.tbl_contains(status_texts(), "  1:2  2:2  3:2  4:1  (]m next match, A all)"))
   end)
 
+  it("should highlight the page shown and dim pages without matches in the counts", function()
+    local ns = vim.api.nvim_create_namespace("jlog.status")
+    local groups = {}
+
+    ws = workspace.open({ path = path })
+    wait(settled)
+    ws:add_filter("msg=m33 OR msg=m3")
+    wait(function()
+      return ws.page_counts ~= nil
+    end)
+    for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, ns, 0, -1, { details = true })) do
+      for _, line in ipairs(mark[4].virt_lines) do
+        for _, chunk in ipairs(line) do
+          groups[chunk[1]] = chunk[2] or false
+        end
+      end
+    end
+    assert.are.equal("JLogPageCurrent", groups["1:1"])
+    assert.are.equal("JLogHint", groups["2:0"])
+    assert.are.equal(false, groups["4:1"])
+  end)
+
   it("should wrap the page counts to the sidebar width", function()
     local width, counts
 

@@ -508,7 +508,7 @@ local function count_lines(ws, width)
     end
     table.insert(lines[#lines], {
       cell,
-      page == ws.page and ws.scope ~= "all" and "JLogFieldCount" or count == 0 and "JLogHint" or nil,
+      page == ws.page and ws.scope ~= "all" and "JLogPageCurrent" or count == 0 and "JLogHint" or nil,
     })
     used = used + #cell
   end
@@ -552,7 +552,7 @@ local function page_lines(sidebar)
       {
         ws.scope == "all" and ("  all of " .. ws.pages:count())
           or ("  " .. ws.page .. "/" .. (ws.pages:count() or "…")),
-        "JLogFieldCount",
+        "JLogPageCurrent",
       },
       { #moves > 0 and ("  (" .. table.concat(moves, ", ") .. ")") or "", "JLogHint" },
     },

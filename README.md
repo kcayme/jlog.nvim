@@ -350,7 +350,7 @@ linked group's color, reversed and bold, so the level reads as a colored label i
 | `JLogHint` | sidebar examples on empty FILTERS / GROUP BY / LIMIT lines, `:w to apply`, and the SORT order | `Comment` |
 | `JLogWinbar` | jlog winbar text | `WinBar` |
 | `JLogOverlap` | entries a page shares with its neighbours | `Comment` |
-| `JLogPageCurrent` | the page shown, beside the sidebar's PAGE and in its per-page counts | `CursorLineNr` |
+| `JLogPageCurrent` | the page shown, beside the sidebar's PAGE and in its per-page counts | `Normal` |
 
 ## Benchmark
 

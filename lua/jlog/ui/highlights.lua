@@ -33,7 +33,7 @@ M.GROUPS = {
   { name = "JLogHint", link = "Comment" },
   { name = "JLogWinbar", link = "WinBar" },
   { name = "JLogOverlap", link = "Comment" },
-  { name = "JLogPageCurrent", link = "CursorLineNr" },
+  { name = "JLogPageCurrent", link = "Normal" },
   { name = "JLogStatus2xx", link = "DiagnosticOk" },
   { name = "JLogStatus3xx", link = "DiagnosticInfo" },
   { name = "JLogStatus4xx", link = "DiagnosticWarn" },

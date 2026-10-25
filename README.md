@@ -235,7 +235,7 @@ require("jlog").setup({
   },
   facets = { top_values = 10 },
   -- size and overlap: source lines (JSONL) or array elements
-  paging = { size = 100000, overlap = 2000, filter_scope = "all" },
+  paging = { size = 100000, overlap = 500, filter_scope = "all" },
   progress = "auto", -- "auto" (progress messages on Neovim 0.12+), "notify" (always vim.notify) or "off"
   keymaps = {
     toggle_entry = "<CR>",

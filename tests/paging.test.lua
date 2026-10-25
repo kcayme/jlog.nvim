@@ -145,7 +145,7 @@ describe("paging", function()
     assert.is_nil(ws.scan)
   end)
 
-  it("should keep filters and land on the page's first own entry, past the overlap, when changing page", function()
+  it("should keep filters and land on the last overlap entry above the page's own when changing page", function()
     local winid
 
     ws = workspace.open({ path = path })
@@ -158,11 +158,30 @@ describe("paging", function()
       return settled() and ws.page == 2
     end)
     assert.are.same({ "msg~m" }, ws.state.filters)
-    -- m27 and m26 are page 1's overlap above it
+    -- m27 and m26 are page 1's overlap above m25, page 2's first own entry; m26 is the line nearest the edge
     assert.is_truthy(vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, 1, false)[1]:find("m27", 1, true))
-    assert.are.equal(3, vim.api.nvim_win_get_cursor(winid)[1])
-    assert.are.equal(3, vim.fn.line("w0", winid))
-    assert.is_truthy(vim.api.nvim_buf_get_lines(ws.view.bufnr, 2, 3, false)[1]:find("m25", 1, true))
+    assert.are.equal(2, vim.api.nvim_win_get_cursor(winid)[1])
+    assert.are.equal(2, vim.fn.line("w0", winid))
+    assert.is_truthy(vim.api.nvim_buf_get_lines(ws.view.bufnr, 1, 2, false)[1]:find("m26", 1, true))
+  end)
+
+  it("should land on the first own entry when no overlap is above it", function()
+    local winid
+
+    ws = workspace.open({ path = path })
+    wait(settled)
+    winid = vim.fn.bufwinid(ws.view.bufnr)
+    assert.is_true(ws:goto_page(2))
+    wait(function()
+      return settled() and ws.page == 2
+    end)
+    assert.is_true(ws:goto_page(1))
+    wait(function()
+      return settled() and ws.page == 1
+    end)
+    -- page 1 is the newest: its overlap, m24 and m25, is below its own entries
+    assert.are.equal(1, vim.api.nvim_win_get_cursor(winid)[1])
+    assert.is_truthy(vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, 1, false)[1]:find("m35", 1, true))
   end)
 
   it("should refuse a page that is not indexed yet", function()

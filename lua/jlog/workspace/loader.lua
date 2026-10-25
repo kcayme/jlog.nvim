@@ -232,23 +232,28 @@ local function scan_pages(ws, index, on_known, wait_done)
   ws.sidebar:show_status()
 end
 
----Put the cursor on the page's first own entry at the top of window `winid`, past the neighbour's dimmed overlap.
+---Put the cursor on the last overlap entry above the page's own entries, at the top of window `winid`.
 ---@param ws JLogWorkspace
 ---@param winid integer
 local function land_on_core(ws, winid)
   local view = ws.view
+  -- the first row of the last overlap entry before the page's own entries: the neighbour's line nearest the edge
+  local edge
   local item, src
 
   for row, item_index in ipairs(view.line_item) do
     item = view.items[item_index]
     src = item.kind == "entry" and ws.entries[item.idx].src
     if src and src >= ws.core[1] and src <= ws.core[2] then
-      vim.api.nvim_win_set_cursor(winid, { row, 0 })
+      vim.api.nvim_win_set_cursor(winid, { edge or row, 0 })
       vim.api.nvim_win_call(winid, function()
         vim.cmd("normal! zt")
       end)
 
       return
+    end
+    if src and view.item_line[item_index] == row then
+      edge = row
     end
   end
   vim.api.nvim_win_set_cursor(winid, { 1, 0 })

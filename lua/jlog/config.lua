@@ -164,7 +164,7 @@ M.defaults = {
     sections = { "sort", "page", "filters", "group", "limit", "fields" },
   },
   facets = { top_values = 10 },
-  paging = { size = 100000, overlap = 2000, filter_scope = "all" },
+  paging = { size = 100000, overlap = 500, filter_scope = "all" },
   progress = "auto",
   keymaps = {
     toggle_entry = "<CR>",

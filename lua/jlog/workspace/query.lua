@@ -1,8 +1,8 @@
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")
+local gc = require("jlog.core.gc")
 local layout = require("jlog.workspace.layout")
-local utils = require("jlog.core.utils")
 
 local M = {}
 
@@ -265,7 +265,7 @@ M.replace_entries = function(ws, entries)
   end
   state.expanded = expanded
   ws.entries = entries
-  utils.release_compiled()
+  gc.release_compiled()
   cursor = cursor_key and new_index[cursor_key] or cursor
   ws:apply(function()
     if cursor then

@@ -2,6 +2,7 @@ local config = require("jlog.config")
 local detect = require("jlog.parse.detect")
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
+local gc = require("jlog.core.gc")
 local layout = require("jlog.workspace.layout")
 local loader = require("jlog.workspace.loader")
 local progress_mod = require("jlog.core.progress")
@@ -10,7 +11,6 @@ local sidebar_mod = require("jlog.ui.sidebar")
 local store_mod = require("jlog.query.store")
 local view_mod = require("jlog.ui.view")
 local watcher = require("jlog.workspace.watcher")
-local utils = require("jlog.core.utils")
 
 ---@class JLogOpenTarget
 ---@field path string|nil
@@ -76,31 +76,9 @@ Workspace.reload = loader.reload
 local M = {}
 
 local HEAD_LIMIT = 65536
--- the default (200) pays collection debt in one 50-80ms tick at 500k lines; 400 keeps ticks under ~35ms
-local GC_STEPMUL = 400
 
 ---@type table<string, JLogWorkspace>
 local registry = {}
-
--- the user's stepmul while any workspace is open, nil otherwise
-local saved_stepmul
-
----Collect in smaller, steadier steps while a workspace exists: GC settings are global, so only then.
-local function tune_gc()
-  if saved_stepmul == nil then
-    -- selene: allow(incorrect_standard_library_use)
-    saved_stepmul = collectgarbage("setstepmul", GC_STEPMUL)
-  end
-end
-
----Give the user's stepmul back once the last workspace is gone.
-local function restore_gc()
-  if saved_stepmul ~= nil and next(registry) == nil then
-    -- selene: allow(incorrect_standard_library_use)
-    collectgarbage("setstepmul", saved_stepmul)
-    saved_stepmul = nil
-  end
-end
 
 ---Close the workspace tab, wipe its buffers and forget it. Also runs when its tab is closed some other way.
 Workspace.close = function(self)
@@ -109,7 +87,7 @@ Workspace.close = function(self)
   end
   self.closed = true
   registry[self.key] = nil
-  restore_gc()
+  gc.drop()
   -- work stopped by the close never reports done; end its progress messages here
   progress_mod.cancel(self.key)
   pcall(vim.api.nvim_del_augroup_by_id, self.augroup)
@@ -131,7 +109,7 @@ Workspace.close = function(self)
       pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
     end
   end
-  utils.release_compiled()
+  gc.release_compiled()
 end
 
 ---Field paths seen in facets so far, for completion.
@@ -224,7 +202,7 @@ M.open = function(target)
   layout.create(ws, path)
 
   registry[key] = ws
-  tune_gc()
+  gc.hold()
   ws.augroup = vim.api.nvim_create_augroup("jlog.workspace." .. key, { clear = true })
   -- tabpage handles are not reliably in the event data: check whether our own tab is gone
   vim.api.nvim_create_autocmd("TabClosed", {

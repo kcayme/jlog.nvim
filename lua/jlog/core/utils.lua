@@ -2,8 +2,6 @@ local M = {}
 
 -- the event loop pass the shared tick deadline belongs to, by its cached loop time, and that deadline
 local pass_time, pass_deadline
--- nil when Neovim is built with PUC Lua instead of LuaJIT
-local has_jit, jit = pcall(require, "jit")
 
 ---@param text string
 ---@param pos integer
@@ -24,14 +22,6 @@ M.tick_deadline = function(tick_ns)
   end
 
   return math.min(pass_deadline, now + tick_ns)
-end
-
----Free what a dropped page or workspace leaves pinned in LuaJIT's compiled code: its traces keep the closures
----they ran (and the entries those closures captured) alive as constants until the trace cache is flushed.
-M.release_compiled = function()
-  if has_jit then
-    jit.flush()
-  end
 end
 
 ---Show `lines` in a read-only float centered in the editor and sized to them; its buffer is wiped on close.

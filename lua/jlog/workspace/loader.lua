@@ -1,12 +1,12 @@
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
+local gc = require("jlog.core.gc")
 local layout = require("jlog.workspace.layout")
 local pages = require("jlog.parse.pages")
 local progress_mod = require("jlog.core.progress")
 local query = require("jlog.workspace.query")
 local reader = require("jlog.parse.reader")
 local source = require("jlog.parse.source")
-local utils = require("jlog.core.utils")
 local watcher = require("jlog.workspace.watcher")
 
 ---@class JLogFirstSlice
@@ -176,16 +176,11 @@ end
 ---@param on_done fun()|nil
 local function collect(ws, on_done)
   local deadline = vim.uv.hrtime() + M.timing.tick_ns
-  local collected
 
   if ws.closed then
     return
   end
-  repeat
-    -- selene: allow(incorrect_standard_library_use)
-    collected = collectgarbage("step", 0)
-  until collected or vim.uv.hrtime() >= deadline
-  if collected then
+  if gc.step(deadline) then
     if on_done then
       vim.defer_fn(on_done, 0)
     end
@@ -256,7 +251,7 @@ local function load_page(ws, page, keep)
       end
       ws.state.expanded = {}
       ws.entries = loaded
-      utils.release_compiled()
+      gc.release_compiled()
       ws:apply(function()
         winid = vim.fn.bufwinid(ws.view.bufnr)
         if winid ~= -1 then

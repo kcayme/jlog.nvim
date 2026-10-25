@@ -1,5 +1,6 @@
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
+local gc = require("jlog.core.gc")
 local group = require("jlog.query.group")
 local progress_mod = require("jlog.core.progress")
 local utils = require("jlog.core.utils")
@@ -199,10 +200,7 @@ Store.query = function(self, pred, field, on_items)
     end
     -- let the collector finish its cycle in time-boxed steps, or its debt lands on finish in one long tick
     if next_index > count and not collected then
-      repeat
-        -- selene: allow(incorrect_standard_library_use)
-        collected = collectgarbage("step", 0)
-      until collected or vim.uv.hrtime() >= deadline
+      collected = gc.step(deadline)
     end
     if next_index > count and collected then
       -- grouping and the first render get a tick of their own

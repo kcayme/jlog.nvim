@@ -190,4 +190,75 @@ describe("filter", function()
       assert.are.same({ "k\ney", values }, { filter.facet_of(table.concat(clauses, " OR ")) })
     end)
   end)
+
+  describe("defer_regex", function()
+    local function deferred(lines, fields, raw)
+      local pred = filter.compile(type(lines) == "table" and lines or { lines }, { defer_regex = true })
+
+      return pred(ctx(fields, raw))
+    end
+
+    it("should treat a deferred regex term as satisfied, negated or not", function()
+      for _, line in ipairs({ "msg~boom", "-msg~boom", "boom", "-boom" }) do
+        assert.is_true(deferred(line, { msg = "calm" }, "calm"), line)
+      end
+      assert.is_false(deferred("status>=500 boom", { status = 200 }, "boom"))
+    end)
+
+    it("should report exact only when no term was deferred", function()
+      assert.is_true(select(3, filter.compile({ "status>=500" }, { defer_regex = true })))
+      assert.is_false(select(3, filter.compile({ "status>=500 msg~x" }, { defer_regex = true })))
+      assert.is_false(select(3, filter.compile({ "a=1", "OR boom" }, { defer_regex = true })))
+      assert.is_true(select(3, filter.compile({ "msg~x" })))
+    end)
+
+    it("should never reject what the full predicate accepts", function()
+      local filters = {
+        { "msg~boom" },
+        { "-msg~boom" },
+        { "status>=500 OR boom" },
+        { "-boom status=200" },
+        { "level=error", "OR -msg~^ok" },
+        { "status!=200 -path~health" },
+      }
+      local entries = {
+        { { msg = "boom here", status = 500, level = "ERROR", path = "/a" }, "boom here" },
+        { { msg = "ok fine", status = 200, level = "INFO", path = "/health" }, "ok fine" },
+        { { msg = "quiet", status = 404, level = "WARN", path = "/b" }, "quiet" },
+      }
+      local full, loose
+
+      for _, lines in ipairs(filters) do
+        full = filter.compile(lines)
+        loose = filter.compile(lines, { defer_regex = true })
+        for _, entry in ipairs(entries) do
+          if full(ctx(entry[1], entry[2])) then
+            assert.is_true(loose(ctx(entry[1], entry[2])), table.concat(lines, " / ") .. " on " .. entry[2])
+          end
+        end
+      end
+    end)
+
+    it("should compile a deferred filter in a worker thread, which has no vim.regex", function()
+      local root = vim.fn.fnamemodify("lua", ":p")
+      local result
+      local work = vim.uv.new_work(function(path)
+        package.path = path
+        local pred, errors, exact = require("jlog.query.filter").compile(
+          { "msg~x status>=500" },
+          { defer_regex = true }
+        )
+
+        return type(pred) .. " " .. #errors .. " " .. tostring(exact)
+      end, function(res)
+        result = res
+      end)
+
+      work:queue(package.path .. ";" .. root .. "?.lua;" .. root .. "?/init.lua")
+      assert.is_true(vim.wait(5000, function()
+        return result ~= nil
+      end))
+      assert.are.equal("function 0 false", result)
+    end)
+  end)
 end)

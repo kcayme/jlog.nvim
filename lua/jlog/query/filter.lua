@@ -10,6 +10,7 @@ local M = {}
 ---@field op "="|"!="|">"|">="|"<"|"<="|"~"|nil
 ---@field value string
 ---@field re any|nil compiled vim.regex for `~` and bare terms
+---@field deferred boolean|nil a `~` or bare term compiled with `defer_regex`: it matches anything
 ---@field num number|nil numeric form of `value`, when it is one
 ---@field epoch number|nil `value` as seconds since the epoch, for `>`, `>=`, `<`, `<=` on a typed time
 ---@field lower string|nil lowercased `value`, for the case-insensitive `level` field
@@ -106,11 +107,19 @@ local function read_term(line, pos)
   return nil, false, nil, "unterminated quote"
 end
 
-local function finish_term(term)
+---@class JLogCompileOptions
+---@field defer_regex boolean|nil compile `~` and bare terms to match anything, for threads without `vim.regex`
+
+---@param term JLogTerm
+---@param opts JLogCompileOptions|nil
+---@return string|nil err
+local function finish_term(term, opts)
   local ok
   local re
 
-  if term.op == "~" or not term.field then
+  if (term.op == "~" or not term.field) and opts and opts.defer_regex then
+    term.deferred = true
+  elseif term.op == "~" or not term.field then
     -- honors the user's 'ignorecase', like `/` does; no \C
     ok, re = pcall(vim.regex, term.value)
     if not ok then
@@ -133,11 +142,12 @@ local function finish_term(term)
 end
 
 ---@param line string
+---@param opts JLogCompileOptions|nil
 ---@return JLogTerm[][]|nil alternatives
 ---@return string|nil err
 ---@return integer|nil err_start first byte of the part that failed
 ---@return integer|nil err_end its last byte
-M.parse = function(line)
+M.parse = function(line, opts)
   local alternatives = { {} }
   local pos = 1
   local term
@@ -173,7 +183,7 @@ M.parse = function(line)
         return nil, "nothing before AND", start, pos - 1
       end
     else
-      err = finish_term(term)
+      err = finish_term(term, opts)
       if err then
         return nil, err, start, pos - 1
       end
@@ -259,7 +269,7 @@ end
 
 local function matches_alternative(alternative, ctx)
   for _, term in ipairs(alternative) do
-    if matches_term(term, ctx) == term.neg then
+    if not term.deferred and matches_term(term, ctx) == term.neg then
       return false
     end
   end
@@ -353,27 +363,35 @@ M.explicit = function(lines)
 end
 
 ---@param lines string[]
+---@param opts JLogCompileOptions|nil
 ---@return fun(ctx: JLogMatchCtx): boolean
 ---@return {lnum: integer, last: integer, msg: string}[] lines `lnum`..`last` form the group that failed
-M.compile = function(lines)
+---@return boolean exact false when a term was deferred: the predicate may accept entries the full one rejects
+M.compile = function(lines, opts)
   local parsed = {}
   local errors = {}
+  local exact = true
   local alternatives
   local err
 
   for _, group in ipairs(M.groups(lines)) do
-    alternatives, err = M.parse(group.text)
+    alternatives, err = M.parse(group.text, opts)
     if err then
       errors[#errors + 1] = { lnum = group.first, last = group.last, msg = err }
     else
       parsed[#parsed + 1] = alternatives
+      for _, alternative in ipairs(alternatives) do
+        for _, term in ipairs(alternative) do
+          exact = exact and not term.deferred
+        end
+      end
     end
   end
 
   if #parsed == 0 then
     return function()
       return true
-    end, errors
+    end, errors, exact
   end
 
   return function(ctx)
@@ -392,7 +410,8 @@ M.compile = function(lines)
 
     return true
   end,
-    errors
+    errors,
+    exact
 end
 
 ---The field and values of a line made only of `field=value` alternatives on one field, e.g. `status=500 OR status=502`.

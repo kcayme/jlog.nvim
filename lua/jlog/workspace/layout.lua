@@ -37,7 +37,7 @@ local function open_sidebar_window(ws)
   })
   local wo = vim.wo[winid][0]
 
-  wo.number = false
+  wo.number = ws.opts.sidebar.line_numbers
   wo.relativenumber = false
   wo.wrap = false
   wo.winfixwidth = true

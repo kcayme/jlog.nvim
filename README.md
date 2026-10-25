@@ -186,6 +186,7 @@ require("jlog").setup({
   sidebar = {
     width = 45,
     position = "right",
+    line_numbers = false, -- show line numbers in the sidebar
     fields = { -- how FIELDS lists and styles field names
       colors = true, -- false: every name uses JLogFieldName
       style = "plain", -- "plain", "inverted" or "pill", like compact fields

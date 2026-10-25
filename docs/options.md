@@ -25,6 +25,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `unwrap.max_depth` | `integer` | `4` | Maximum levels of nested unwrapping. |
 | `sidebar.width` | `integer` | `45` | Sidebar width in columns. |
 | `sidebar.position` | `JLogSidebarPosition` | `"right"` | Sidebar side: `"left"` or `"right"`. |
+| `sidebar.line_numbers` | `boolean` | `false` | Show line numbers in the sidebar window. FIELDS lines are fitted to the narrower text area. |
 | `sidebar.sections` | `JLogSidebarSection[]` | `{ "filters", "group", "limit", "sort", "fields" }` | Sidebar sections in the order shown: `"filters"`, `"group"`, `"limit"`, `"sort"`, `"fields"`. A section left out is hidden; `:w` then leaves its filters, group or limit as the field actions and `:JLog` commands set them. `setup` warns about unknown or repeated names and drops them, and falls back to the default order with a warning when the value is not a list. |
 | `sidebar.fields.pinned` | `string[]` | `{}` | Fields listed first in FIELDS, in this order: a field path as FIELDS shows it, or a role (`time`, `level`, `message`, `status`) standing for its keys in `fields`. Fields not in the log are skipped. |
 | `sidebar.fields.sort` | `JLogFieldSort` | `"alphabetical"` | Order of the other fields: `"alphabetical"`, or `"count"` (in the most entries first, ties by name). A count sort is applied once the counts are final; while a file loads or a filter is counted, rows keep their place and new fields are added at the end. Labels of timestamped exports come after the other fields either way. |

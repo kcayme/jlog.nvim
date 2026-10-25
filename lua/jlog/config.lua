@@ -65,6 +65,7 @@
 ---@class JLogSidebarOptions
 ---@field width integer
 ---@field position JLogSidebarPosition
+---@field line_numbers boolean show line numbers in the sidebar window
 ---@field fields JLogSidebarFieldsOptions how FIELDS shows its field names
 ---@field sections JLogSidebarSection[] sections in the order shown; one left out is hidden
 
@@ -136,6 +137,7 @@ M.defaults = {
   sidebar = {
     width = 45,
     position = "right",
+    line_numbers = false,
     fields = {
       colors = true,
       style = "plain",

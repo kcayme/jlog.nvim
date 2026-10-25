@@ -24,6 +24,18 @@ describe("sidebar", function()
     return texts
   end
 
+  it("should show line numbers in the sidebar only when sidebar.line_numbers is set", function()
+    require("jlog.config").setup()
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    assert.is_false(vim.wo[vim.fn.bufwinid(ws.sidebar.bufnr)].number)
+    ws:close()
+
+    require("jlog.config").setup({ sidebar = { line_numbers = true } })
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    require("jlog.config").setup()
+    assert.is_true(vim.wo[vim.fn.bufwinid(ws.sidebar.bufnr)].number)
+  end)
+
   it("should separate empty sections with a blank line", function()
     require("jlog.config").setup()
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })

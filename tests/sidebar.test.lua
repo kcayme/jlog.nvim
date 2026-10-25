@@ -29,10 +29,10 @@ describe("sidebar", function()
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
 
     assert.are.same(
-      { "", "FILTERS", "", "", "GROUP BY", "", "", "FIELDS" },
-      vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, 8, false)
+      { "", "FILTERS", "", "", "GROUP BY", "", "", "LIMIT", "", "", "", "FIELDS" },
+      vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, 12, false)
     )
-    assert.are.same({ filters = {} }, ws.sidebar:read())
+    assert.are.same({ filters = {}, limits = {} }, ws.sidebar:read())
   end)
 
   it("should show the sort order as virtual lines above FIELDS, outside the buffer text", function()
@@ -426,6 +426,95 @@ describe("sidebar", function()
     assert.are.equal(ws.view.bufnr, vim.api.nvim_get_current_buf())
   end)
 
+  ---Replace the text of a LIMIT line as typing would, keeping its line and so its label.
+  local function set_limit(row, text)
+    local line = vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, row, row + 1, false)[1]
+
+    vim.api.nvim_buf_set_text(ws.sidebar.bufnr, row, 0, row, #line, { text })
+  end
+
+  describe("limits", function()
+    it("should keep the labels when a whole LIMIT line is deleted, and clear only that limit", function()
+      local sb
+
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+      sb = ws.sidebar.bufnr
+      set_limit(row_of("LIMIT") + 1, "4")
+      set_limit(row_of("LIMIT") + 2, "2")
+      vim.api.nvim_buf_set_lines(sb, row_of("LIMIT") + 1, row_of("LIMIT") + 2, false, {})
+      ws.sidebar:sync()
+
+      assert.is_nil(ws.state.limit)
+      assert.are.equal(2, ws.state.group_limit)
+      assert.are.same({ "LIMIT", "", "2" }, vim.api.nvim_buf_get_lines(sb, row_of("LIMIT"), row_of("LIMIT") + 3, false))
+    end)
+
+    it("should apply the entries and groups limits typed under LIMIT, and show them after a redraw", function()
+      local sb
+
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+      sb = ws.sidebar.bufnr
+      vim.api.nvim_buf_set_lines(sb, row_of("GROUP BY") + 1, row_of("GROUP BY") + 2, false, { "request_id" })
+      set_limit(row_of("LIMIT") + 1, "3")
+      set_limit(row_of("LIMIT") + 2, "2")
+      vim.api.nvim_buf_call(sb, function()
+        vim.cmd("write")
+      end)
+
+      assert.are.equal("request_id", ws.state.group)
+      assert.are.equal(2, ws.state.group_limit)
+      assert.are.equal(3, ws.state.limit)
+      assert.is_true(vim.wait(5000, function()
+        return ws.rendered == ws.store.generation
+      end))
+      assert.is_true(ws.shown <= 3)
+      assert.are.same(
+        { "LIMIT", "3", "2" },
+        vim.api.nvim_buf_get_lines(sb, row_of("LIMIT"), row_of("LIMIT") + 3, false)
+      )
+    end)
+
+    it("should warn and keep the old LIMIT when it is not a positive whole number, and clear it when blank", function()
+      local sb
+      local notify = vim.notify
+      local warnings = {}
+
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+      sb = ws.sidebar.bufnr
+      ws.state.limit = 5
+      vim.notify = function(message)
+        warnings[#warnings + 1] = message
+      end
+      set_limit(row_of("LIMIT") + 1, "-2")
+      ws.sidebar:sync()
+      vim.notify = notify
+
+      assert.are.equal(5, ws.state.limit)
+      assert.is_truthy(warnings[1]:find("LIMIT", 1, true))
+
+      set_limit(row_of("LIMIT") + 1, "")
+      ws.sidebar:sync()
+      assert.is_nil(ws.state.limit)
+    end)
+  end)
+
+  it("should clear filters, group and limits with X, discarding unsaved edits", function()
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    ws.state.limit = 3
+    ws.state.group_limit = 2
+    ws:add_filter("level=ERROR")
+    ws:set_group("request_id")
+    set_limit(row_of("LIMIT") + 1, "7")
+    vim.api.nvim_set_current_win(vim.fn.bufwinid(ws.view.bufnr))
+    vim.api.nvim_feedkeys("X", "x", false)
+
+    assert.are.same({}, ws.state.filters)
+    assert.is_nil(ws.state.group)
+    assert.is_nil(ws.state.group_limit)
+    assert.is_nil(ws.state.limit)
+    assert.is_false(vim.bo[ws.sidebar.bufnr].modified)
+  end)
+
   describe("hints", function()
     local function hints(bufnr)
       local found = {}
@@ -441,17 +530,21 @@ describe("sidebar", function()
       return found
     end
 
-    it("should show examples on empty FILTERS and GROUP BY lines and how to apply on the first row", function()
+    it("should show examples on empty FILTERS, GROUP BY and LIMIT lines and how to apply on the first row", function()
       ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
       assert.are.same({
         { row = 0, text = ":w to apply | ? help" },
         { row = 2, text = "status>=500 level=ERROR -health" },
         { row = 5, text = "request_id" },
+        { row = 8, text = "100" },
+        { row = 9, text = "10, with a GROUP BY" },
       }, hints(ws.sidebar.bufnr))
     end)
 
     it("should hide an example once its section is set", function()
       ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+      ws.state.limit = 5
+      ws.state.group_limit = 2
       ws:add_filter("level=ERROR")
       ws:set_group("request_id")
       assert.are.same({ { row = 0, text = ":w to apply | ? help" } }, hints(ws.sidebar.bufnr))
@@ -470,7 +563,12 @@ describe("sidebar", function()
       vim.api.nvim_buf_call(sb, function()
         vim.api.nvim_exec_autocmds("TextChanged", { buffer = sb })
       end)
-      assert.are.same({ { row = 0, text = ":w to apply | ? help" }, { row = 5, text = "request_id" } }, hints(sb))
+      assert.are.same({
+        { row = 0, text = ":w to apply | ? help" },
+        { row = 5, text = "request_id" },
+        { row = 8, text = "100" },
+        { row = 9, text = "10, with a GROUP BY" },
+      }, hints(sb))
     end)
   end)
 

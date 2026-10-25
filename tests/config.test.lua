@@ -47,7 +47,7 @@ describe("config", function()
     it("should warn and fall back to the default order when sections is not a list of names", function()
       local opts = config.setup({ sidebar = { sections = "fields" } })
 
-      assert.are.same({ "filters", "group", "sort", "fields" }, opts.sidebar.sections)
+      assert.are.same({ "filters", "group", "limit", "sort", "fields" }, opts.sidebar.sections)
       assert.are.equal(1, #warnings)
       assert.is_truthy(warnings[1]:find("sidebar.sections", 1, true))
     end)

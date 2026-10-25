@@ -21,24 +21,35 @@ local keymaps = require("jlog.ui.keymaps")
 ---@field rows table<integer, JLogSidebarRow> buffer line (1-based) -> FIELDS row
 ---@field width integer|nil text cells the FIELDS lines were last fitted to
 ---@field stale boolean the facets are the last apply's, kept while the current apply counts its own
+---@field limit_marks table<string, integer> LIMIT label -> extmark id of the label drawn on its value line
 local Sidebar = {}
 Sidebar.__index = Sidebar
 
 local M = {}
 
-local HEADERS = { filters = "FILTERS", group = "GROUP BY", fields = "FIELDS" }
+local HEADERS = { filters = "FILTERS", group = "GROUP BY", limit = "LIMIT", fields = "FIELDS" }
 local COUNTING = "counting…"
 local INLINE_VALUES = 3
 local NAME_WIDTH = 14
 -- cells left empty at the right edge, so field lines do not run into the window border
 local RIGHT_PADDING = 2
 
-local HINTS = { [HEADERS.filters] = "status>=500 level=ERROR -health", [HEADERS.group] = "request_id" }
+-- LIMIT's lines: the label drawn before the value, the state field it sets, and the example shown while it is unset
+local LIMITS = {
+  { label = "entries", field = "limit", example = "100" },
+  { label = "groups", field = "group_limit", example = "10, with a GROUP BY" },
+}
+
+local HINTS = {
+  [HEADERS.filters] = "status>=500 level=ERROR -health",
+  [HEADERS.group] = "request_id",
+}
 
 local ns = vim.api.nvim_create_namespace("jlog.filter")
 local hl_ns = vim.api.nvim_create_namespace("jlog.sidebar")
 local sort_ns = vim.api.nvim_create_namespace("jlog.sort")
 local hint_ns = vim.api.nvim_create_namespace("jlog.hint")
+local limit_ns = vim.api.nvim_create_namespace("jlog.limit")
 
 ---@type table<integer, JLogSidebar>
 local sidebars = {}
@@ -207,6 +218,41 @@ local function find_row(rows, anchor)
   return field_row
 end
 
+---A typed limit as a number: blank clears it; not a positive whole number warns and keeps `current`.
+---@param text string|nil
+---@param current integer|nil
+---@param what string names the limit in the warning
+---@return integer|nil
+local function parse_limit(text, current, what)
+  local limit = tonumber(text)
+
+  if not text then
+    return nil
+  end
+  if not limit or limit < 1 or limit % 1 ~= 0 then
+    vim.notify(("jlog: %s: expected a positive whole number, got %q"):format(what, text), vim.log.levels.WARN)
+
+    return current
+  end
+
+  return limit
+end
+
+---The 0-based row of `label`'s LIMIT line, or nil once an edit deleted it.
+---@param sidebar JLogSidebar
+---@param label string
+---@return integer|nil
+local function limit_row(sidebar, label)
+  local id = sidebar.limit_marks[label]
+  local mark = id and vim.api.nvim_buf_get_extmark_by_id(sidebar.bufnr, limit_ns, id, { details = true }) or {}
+
+  if not mark[1] or mark[3].invalid then
+    return nil
+  end
+
+  return mark[1]
+end
+
 ---@param opts JLogOptions
 ---@param name JLogSidebarSection
 ---@return boolean
@@ -222,13 +268,13 @@ local function show_hints(sidebar, insert)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
   local opts = sidebar.ws.opts
   local help = opts.keymaps.help
-  local editable = shows(opts, "filters") or shows(opts, "group")
+  local editable = shows(opts, "filters") or shows(opts, "group") or shows(opts, "limit")
   -- here rather than in the winbar, which statusline plugins such as lualine take over
   local parts = vim.tbl_filter(function(part)
     return part ~= ""
   end, { editable and ":w to apply" or "", help and (help .. " help") or "" })
   local how = table.concat(parts, " | ")
-  local text, hint
+  local text, hint, row_of_limit
 
   vim.api.nvim_buf_clear_namespace(bufnr, hint_ns, 0, -1)
   if how ~= "" then
@@ -242,6 +288,13 @@ local function show_hints(sidebar, insert)
     hint = HINTS[text]
     if hint and not insert and lines[row + 1] and vim.trim(lines[row + 1]) == "" then
       vim.api.nvim_buf_set_extmark(bufnr, hint_ns, row, 0, { virt_text = { { hint, "JLogHint" } } })
+    end
+  end
+  -- a LIMIT line with no value: the example goes after its label
+  for _, limit in ipairs(LIMITS) do
+    row_of_limit = limit_row(sidebar, limit.label)
+    if row_of_limit and not insert and vim.trim(lines[row_of_limit + 1]) == "" then
+      vim.api.nvim_buf_set_extmark(bufnr, hint_ns, row_of_limit, 0, { virt_text = { { limit.example, "JLogHint" } } })
     end
   end
 end
@@ -283,6 +336,7 @@ Sidebar.render = function(self, progress)
   local cursor = winid ~= -1 and vim.api.nvim_win_get_cursor(winid)
   local anchor = cursor and self.rows[cursor[1]]
   local fields_row, anchor_row
+  local limit_rows = {}
 
   progress = progress or (self.stale and COUNTING or nil)
   self.width = width
@@ -309,6 +363,12 @@ Sidebar.render = function(self, progress)
       end
     elseif section == "group" then
       vim.list_extend(lines, { HEADERS.group, state.group or "" })
+    elseif section == "limit" then
+      lines[#lines + 1] = HEADERS.limit
+      for _, limit in ipairs(LIMITS) do
+        lines[#lines + 1] = state[limit.field] and tostring(state[limit.field]) or ""
+        limit_rows[limit.label] = #lines - 1
+      end
     elseif section == "fields" then
       lines[#lines + 1] = HEADERS.fields
       fields_row = #lines
@@ -318,6 +378,19 @@ Sidebar.render = function(self, progress)
 
   vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, lines)
   vim.bo[self.bufnr].modified = false
+  vim.api.nvim_buf_clear_namespace(self.bufnr, limit_ns, 0, -1)
+  self.limit_marks = {}
+  for _, limit in ipairs(LIMITS) do
+    if limit_rows[limit.label] then
+      -- virtual, so an edit cannot delete it; it stays left of what is typed at the start of the line
+      self.limit_marks[limit.label] = vim.api.nvim_buf_set_extmark(self.bufnr, limit_ns, limit_rows[limit.label], 0, {
+        virt_text = { { ("  %-7s "):format(limit.label) } },
+        virt_text_pos = "inline",
+        right_gravity = false,
+        invalidate = true,
+      })
+    end
+  end
   vim.diagnostic.set(ns, self.bufnr, diagnostics)
   anchor_row = anchor and find_row(self.rows, anchor)
   if anchor_row then
@@ -326,7 +399,7 @@ Sidebar.render = function(self, progress)
 
   vim.api.nvim_buf_clear_namespace(self.bufnr, hl_ns, 0, -1)
   for row, line in ipairs(lines) do
-    if line == HEADERS.filters or line == HEADERS.group or line == HEADERS.fields then
+    if line == HEADERS.filters or line == HEADERS.group or line == HEADERS.limit or line == HEADERS.fields then
       highlights[#highlights + 1] = { row - 1, 0, -1, "JLogSectionHeader" }
     end
   end
@@ -404,14 +477,14 @@ Sidebar.show_sort = function(self)
   vim.api.nvim_buf_set_extmark(self.bufnr, sort_ns, #lines - 1, 0, { virt_lines = { {}, sort_line } })
 end
 
----Filters and group typed under their headers, wherever those are; without a GROUP BY header a blank ends filters.
----@return {filters: string[], group: string|nil}
+---What is typed under each header, limits by their label's line, unchecked; without GROUP BY a blank ends filters.
+---@return {filters: string[], group: string|nil, limits: table<string, string>}
 Sidebar.read = function(self)
-  local spec = { filters = {} }
+  local spec = { filters = {}, limits = {} }
   local lines = vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)
   local has_group = false
   local section
-  local text
+  local text, row, value
 
   for _, line in ipairs(lines) do
     has_group = has_group or vim.trim(line) == HEADERS.group
@@ -425,6 +498,8 @@ Sidebar.read = function(self)
       section = "filters"
     elseif text == HEADERS.group then
       section = "group"
+    elseif text == HEADERS.limit then
+      section = "limit"
     elseif text == "" then
       if not has_group and section == "filters" then
         section = nil
@@ -433,6 +508,13 @@ Sidebar.read = function(self)
       spec.filters[#spec.filters + 1] = text
     elseif section == "group" and not spec.group then
       spec.group = text
+    end
+  end
+  for _, limit in ipairs(LIMITS) do
+    row = limit_row(self, limit.label)
+    value = row and vim.trim(lines[row + 1])
+    if value and value ~= "" then
+      spec.limits[limit.label] = value
     end
   end
 
@@ -444,7 +526,7 @@ Sidebar.set_errors = function(self, errors)
   self.errors = errors
 end
 
----Apply what the user typed in FILTERS and GROUP BY.
+---Apply what the user typed in FILTERS, GROUP BY and LIMIT.
 Sidebar.sync = function(self)
   local spec = self:read()
   local opts = self.ws.opts
@@ -457,6 +539,12 @@ Sidebar.sync = function(self)
   end
   if shows(opts, "group") then
     self.ws.state.group = spec.group
+  end
+  if shows(opts, "limit") then
+    for _, limit in ipairs(LIMITS) do
+      self.ws.state[limit.field] =
+        parse_limit(spec.limits[limit.label], self.ws.state[limit.field], "LIMIT " .. limit.label)
+    end
   end
   -- applied now, so the apply may rewrite the buffer
   vim.bo[self.bufnr].modified = false
@@ -518,8 +606,10 @@ end
 ---@return JLogSidebar
 M.new = function(ws)
   local bufnr = vim.api.nvim_create_buf(false, true)
-  local sidebar =
-    setmetatable({ bufnr = bufnr, ws = ws, facets = {}, expanded = {}, errors = {}, rows = {}, stale = false }, Sidebar)
+  local sidebar = setmetatable(
+    { bufnr = bufnr, ws = ws, facets = {}, expanded = {}, errors = {}, rows = {}, stale = false, limit_marks = {} },
+    Sidebar
+  )
 
   vim.bo[bufnr].buftype = "acwrite"
   vim.bo[bufnr].filetype = "jlog_sidebar"

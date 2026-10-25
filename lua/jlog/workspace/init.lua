@@ -20,6 +20,8 @@ local watcher = require("jlog.workspace.watcher")
 ---@class JLogWorkspaceState
 ---@field filters string[] valid filter clauses, one per line (AND between lines)
 ---@field group string|nil
+---@field limit integer|nil entries shown at most, the first in display order
+---@field group_limit integer|nil groups shown at most, the first in display order
 ---@field mode JLogViewMode
 ---@field reverse boolean
 ---@field expanded table<integer, boolean> entry index -> toggled away from `mode`
@@ -68,6 +70,7 @@ Workspace.open_raw = layout.open_raw
 Workspace.apply = query.apply
 Workspace.add_filter = query.add_filter
 Workspace.clear_filters = query.clear_filters
+Workspace.clear_all = query.clear_all
 Workspace.set_group = query.set_group
 Workspace.toggle_reverse = query.toggle_reverse
 Workspace.goto_page = loader.goto_page

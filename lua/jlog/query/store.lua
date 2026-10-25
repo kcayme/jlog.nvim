@@ -126,6 +126,8 @@ Store.query = function(self, pred, field, on_items)
         end,
         field = field,
         reverse = state.reverse,
+        limit = state.limit,
+        group_limit = state.group_limit,
         newest_first = source.stored_newest_first,
         get = function(index)
           return group_values[index]

@@ -54,6 +54,9 @@ many entries match and the active filters and group.
 
 - **FILTERS** and **GROUP BY** are typed in the buffer and applied with `:w` (or by leaving insert mode). One filter
   clause per line, ANDed; an empty section shows an example.
+- **LIMIT** has two labelled lines, applied with `:w` too: a number after `entries` shows the first N entries in
+  display order (it follows SORT), and one after `groups` the first N groups of a GROUP BY. With both, the last group
+  can be cut short. The labels cannot be edited; leave a value blank for no limit. FIELDS still counts every match.
 - **SORT** shows the current order. It is not part of the buffer, so it cannot be edited; `R` reverses it.
 - **FIELDS** lists every field with its top values and counts: `<CR>` on a value adds it as a filter, `g` on a field
   groups by it. After a filter or group, the lines show first and the counts follow, dimmed and marked `counting…`
@@ -110,6 +113,7 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
 | `E` | log view | Toggle the whole view between compact and expanded |
 | `gf` | log view | Show the entry's raw source text in a float (press again in the float to jump to the source line, JSONL only) |
 | `R` | log view, sidebar | Reverse order |
+| `X` | log view, sidebar | Clear filters, group and limits |
 | `]]` / `[[` | log view | Next / previous entry |
 | `]e` / `[e` | log view | Next / previous ERROR-level entry |
 | `]p` / `[p` | log view | Next / previous page of a paged log |
@@ -185,7 +189,7 @@ require("jlog").setup({
     },
     -- sections in the order shown, e.g. { "fields", "filters", "group" }; one left out is hidden, and :w then keeps
     -- the filters or group that field actions and commands set
-    sections = { "filters", "group", "sort", "fields" },
+    sections = { "filters", "group", "limit", "sort", "fields" },
   },
   facets = { top_values = 10 },
   paging = { size = 100000, overlap = 2000 }, -- source lines (JSONL) or array elements
@@ -195,6 +199,7 @@ require("jlog").setup({
     toggle_mode = "E",
     raw = "gf",
     reverse = "R",
+    clear = "X",
     next_entry = "]]",
     prev_entry = "[[",
     next_error = "]e",
@@ -289,11 +294,11 @@ linked group's color, reversed and bold, so the level reads as a colored label i
 | `JLogPrefix` | text before embedded JSON | `Comment` |
 | `JLogPlain` | non-JSON entries and continuation lines | `Comment` |
 | `JLogGroupHeader` | group headers (virtual lines and closed group folds) | `Title` |
-| `JLogSectionHeader` | sidebar `FILTERS` / `GROUP BY` / `SORT` / `FIELDS` | `Title` |
+| `JLogSectionHeader` | sidebar `FILTERS` / `GROUP BY` / `LIMIT` / `SORT` / `FIELDS` | `Title` |
 | `JLogFieldName` | field names in the FIELDS section, when `sidebar.fields.colors = false` | `Identifier` |
 | `JLogFieldCount` | counts in the FIELDS section | `Comment` |
 | `JLogFieldStale` | FIELDS counts kept from the last apply while new ones are counted | `NonText` |
-| `JLogHint` | sidebar examples on empty FILTERS / GROUP BY lines, `:w to apply`, and the SORT order | `Comment` |
+| `JLogHint` | sidebar examples on empty FILTERS / GROUP BY / LIMIT lines, `:w to apply`, and the SORT order | `Comment` |
 | `JLogWinbar` | jlog winbar text | `WinBar` |
 | `JLogOverlap` | entries a page shares with its neighbours | `Comment` |
 

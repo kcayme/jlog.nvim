@@ -23,7 +23,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `unwrap.max_depth` | `integer` | `4` | Maximum levels of nested unwrapping. |
 | `sidebar.width` | `integer` | `45` | Sidebar width in columns. |
 | `sidebar.position` | `JLogSidebarPosition` | `"right"` | Sidebar side: `"left"` or `"right"`. |
-| `sidebar.sections` | `JLogSidebarSection[]` | `{ "filters", "group", "sort", "fields" }` | Sidebar sections in the order shown: `"filters"`, `"group"`, `"sort"`, `"fields"`. A section left out is hidden; `:w` then leaves its filters or group as the field actions and `:JLog` commands set them. `setup` warns about unknown or repeated names and drops them, and falls back to the default order with a warning when the value is not a list. |
+| `sidebar.sections` | `JLogSidebarSection[]` | `{ "filters", "group", "limit", "sort", "fields" }` | Sidebar sections in the order shown: `"filters"`, `"group"`, `"limit"`, `"sort"`, `"fields"`. A section left out is hidden; `:w` then leaves its filters, group or limit as the field actions and `:JLog` commands set them. `setup` warns about unknown or repeated names and drops them, and falls back to the default order with a warning when the value is not a list. |
 | `sidebar.fields.pinned` | `string[]` | `{}` | Fields listed first in FIELDS, in this order: a field path as FIELDS shows it, or a role (`time`, `level`, `message`, `status`) standing for its keys in `fields`. Fields not in the log are skipped. |
 | `sidebar.fields.sort` | `JLogFieldSort` | `"alphabetical"` | Order of the other fields: `"alphabetical"`, or `"count"` (in the most entries first, ties by name). A count sort is applied once the counts are final; while a file loads or a filter is counted, rows keep their place and new fields are added at the end. Labels of timestamped exports come after the other fields either way. |
 | `sidebar.fields.colors` | `boolean` | `true` | Color each field name in FIELDS by field, in the same `JLogField1`…`JLogField8` color its keys get in the log view. `false` uses `JLogFieldName`. Independent of `view.field_colors`. |
@@ -41,6 +41,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `keymaps.toggle_mode` | `string\|false` | `"E"` | Toggle compact/expanded for the whole view. |
 | `keymaps.raw` | `string\|false` | `"gf"` | Show the entry's raw text in a float; inside the float, jump to the source line (JSONL only). |
 | `keymaps.reverse` | `string\|false` | `"R"` | Reverse order, in the log view and the sidebar; the sidebar's SORT line shows the key. |
+| `keymaps.clear` | `string\|false` | `"X"` | Clear filters, group and limits in one apply (in the log view and the sidebar). |
 | `keymaps.next_entry` | `string\|false` | `"]]"` | Next entry. |
 | `keymaps.prev_entry` | `string\|false` | `"[["` | Previous entry. |
 | `keymaps.next_error` | `string\|false` | `"]e"` | Next ERROR-level entry. |

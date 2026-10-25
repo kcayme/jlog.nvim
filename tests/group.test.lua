@@ -50,6 +50,53 @@ describe("group.build", function()
     assert.are.equal(3, #list) -- header + 2 entries; groups b and (no request_id) have no match
   end)
 
+  it("should stop at the limit, taking the first entries in display order", function()
+    local list, shown = group.build(#rows, {
+      pred = function()
+        return true
+      end,
+      get = get,
+      reverse = true,
+      limit = 2,
+    })
+    assert.are.equal(2, shown)
+    assert.are.same(
+      { 4, 3 },
+      vim.tbl_map(function(item)
+        return item.idx
+      end, list)
+    )
+  end)
+
+  it("should show only the first groups up to the group limit", function()
+    local list, shown = group.build(#rows, {
+      pred = function()
+        return true
+      end,
+      field = "request_id",
+      get = get,
+      group_limit = 1,
+    })
+    assert.are.equal(2, shown)
+    assert.are.equal(3, #list) -- header of group a and its 2 entries
+    assert.are.equal("a", list[1].group.label)
+  end)
+
+  it("should cut the last group short when the limit is reached inside it", function()
+    local list, shown = group.build(#rows, {
+      pred = function()
+        return true
+      end,
+      field = "request_id",
+      get = get,
+      group_limit = 2,
+      limit = 1,
+    })
+    assert.are.equal(1, shown)
+    assert.are.same({ "header", "entry" }, { list[1].kind, list[2].kind })
+    assert.are.equal(2, #list)
+  end)
+
   it("should label the missing-value group", function()
     local list = group.build(#rows, {
       pred = function()

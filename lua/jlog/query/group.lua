@@ -10,6 +10,8 @@
 ---@field reverse boolean|nil show the stored order reversed
 ---@field newest_first boolean|nil entries are stored newest first; groups are still built in time order
 ---@field checkpoint fun()|nil called every CHECKPOINT_EVERY entries, so a caller can yield a long build
+---@field limit integer|nil show at most this many entries, the first in display order
+---@field group_limit integer|nil show at most this many groups, the first in display order
 
 local entry_model = require("jlog.parse.entry")
 
@@ -41,6 +43,9 @@ local function build_flat(count, args)
     if args.pred(i) then
       size = size + 1
       items[size] = { kind = "entry", idx = i }
+      if size == args.limit then
+        break
+      end
     end
   end
 
@@ -56,6 +61,7 @@ local function build_grouped(count, args)
   local ordered = {}
   local matched = {}
   local missing
+  local groups = 0
   local first, last, step
   -- groups and their entries are collected oldest first, then shown newest first when that is on top
   local newest_on_top = (args.reverse or false) ~= (args.newest_first or false)
@@ -105,10 +111,14 @@ local function build_grouped(count, args)
   end
 
   for _, group in ipairs(ordered) do
+    if groups == args.group_limit or shown == args.limit then
+      break
+    end
     if matched[group] then
       local idxs = group.idxs
       local from, to, direction = 1, #idxs, 1
 
+      groups = groups + 1
       size = size + 1
       items[size] = { kind = "header", group = group }
 
@@ -117,12 +127,16 @@ local function build_grouped(count, args)
       end
       for index = from, to, direction do
         size = size + 1
+        shown = shown + 1
         items[size] = { kind = "entry", idx = idxs[index] }
         if args.checkpoint and size % CHECKPOINT_EVERY == 0 then
           args.checkpoint()
         end
+        -- the total cap can cut the last group short
+        if shown == args.limit then
+          break
+        end
       end
-      shown = shown + #idxs
     end
   end
 

@@ -15,6 +15,7 @@ local HELP = {
       { actions = { "toggle_mode" }, text = "compact/expanded view" },
       { actions = { "raw" }, text = "raw text; in it, jump to the source line" },
       { actions = { "reverse" }, text = "reverse the order" },
+      { actions = { "clear" }, text = "clear filters, group and limits" },
       { actions = { "next_entry", "prev_entry" }, text = "next/previous entry" },
       { actions = { "next_error", "prev_error" }, text = "next/previous error" },
       { actions = { "next_page", "prev_page" }, text = "next/previous page" },
@@ -26,11 +27,12 @@ local HELP = {
   {
     title = "Sidebar",
     rows = {
-      { key = ":w", text = "apply FILTERS and GROUP BY" },
+      { key = ":w", text = "apply FILTERS, GROUP BY and LIMIT" },
       { actions = { "add_filter" }, text = "on a value: add it as a filter" },
       { actions = { "toggle_sidebar" }, text = "hide the sidebar" },
       { actions = { "group_by" }, text = "on a field: group by it" },
       { actions = { "reverse" }, text = "reverse the order" },
+      { actions = { "clear" }, text = "clear filters, group and limits" },
       { actions = { "help" }, text = "this guide" },
       { actions = { "close" }, text = "close" },
     },
@@ -108,6 +110,9 @@ local SCOPES = {
     reverse = function(ws)
       ws:toggle_reverse()
     end,
+    clear = function(ws)
+      ws:clear_all()
+    end,
     next_entry = function(ws)
       ws.view:move("entry", 1)
     end,
@@ -147,6 +152,9 @@ local SCOPES = {
     end,
     reverse = function(ws)
       ws:toggle_reverse()
+    end,
+    clear = function(ws)
+      ws:clear_all()
     end,
     toggle_sidebar = function(ws)
       ws:toggle_sidebar()

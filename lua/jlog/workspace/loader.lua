@@ -461,7 +461,13 @@ M.reload = function(ws)
   if not shown then
     return
   end
-  if ws.state.group or ws.rendered ~= ws.store.generation or not query.extend(ws, old_count, old_key) then
+  -- shortcut: a limited view re-applies on each append; extend could trim instead if that feels slow
+  if
+    ws.state.group
+    or ws.state.limit
+    or ws.rendered ~= ws.store.generation
+    or not query.extend(ws, old_count, old_key)
+  then
     -- the last entry took continuation lines, so its old lines must not be reused
     if old_key and entry_model.key(ws.entries[old_count]) ~= old_key then
       ws.view:forget(old_count)

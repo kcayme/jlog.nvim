@@ -61,7 +61,12 @@ M.winbar_text = function(ws, shown)
     parts[#parts + 1] = table.concat(ws.state.filters, " · ")
   end
   if ws.state.group then
-    parts[#parts + 1] = "group: " .. ws.state.group
+    parts[#parts + 1] = "group: "
+      .. ws.state.group
+      .. (ws.state.group_limit and (" (" .. ws.state.group_limit .. " groups)") or "")
+  end
+  if ws.state.limit then
+    parts[#parts + 1] = "limit " .. ws.state.limit
   end
 
   return table.concat(parts, " · ")
@@ -144,6 +149,18 @@ end
 ---@param ws JLogWorkspace
 M.clear_filters = function(ws)
   ws.state.filters = {}
+  ws.sidebar:set_errors({})
+  discard_sidebar_edits(ws)
+  ws:apply()
+end
+
+---Clear filters, group and both limits in one apply.
+---@param ws JLogWorkspace
+M.clear_all = function(ws)
+  ws.state.filters = {}
+  ws.state.group = nil
+  ws.state.group_limit = nil
+  ws.state.limit = nil
   ws.sidebar:set_errors({})
   discard_sidebar_edits(ws)
   ws:apply()

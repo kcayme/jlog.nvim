@@ -114,6 +114,24 @@ describe("paging", function()
     assert.is_nil(page_mark())
   end)
 
+  it("should count only the page's own entries in the winbar, overlap left out", function()
+    require("jlog").setup({ paging = { size = 10, overlap = 2, filter_scope = "page" } })
+    ws = workspace.open({ path = path })
+    wait(settled)
+    -- page 1 holds m26..m35 of its own, and m24, m25 as overlap
+    assert.are.equal(12, #ws.entries)
+    assert.is_truthy(ws.view.winbar_text:find(" 10/10 ", 1, true))
+    assert.is_true(ws:goto_page(2))
+    wait(function()
+      return settled() and ws.page == 2
+    end)
+    -- page 2 holds m16..m25, and m14, m15, m26, m27 as overlap: m27 shows dimmed but is page 1's
+    ws:add_filter("msg=m27 OR msg=m20")
+    wait(settled)
+    assert.are.equal(2, #ws.view.items)
+    assert.is_truthy(ws.view.winbar_text:find(" 1/10 ", 1, true))
+  end)
+
   it("should load every entry into one view when paging is false", function()
     require("jlog").setup({ paging = false })
     ws = workspace.open({ path = path })

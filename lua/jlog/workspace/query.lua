@@ -62,11 +62,66 @@ local function goto_nearest(view, index)
   end
 end
 
+---The index of the first of `ws.entries` (kept in file order) whose source position is at least `src`.
 ---@param ws JLogWorkspace
+---@param src integer
+---@return integer
+local function first_from(ws, src)
+  local entries = ws.entries
+  local low, high = 1, #entries + 1
+  local mid
+
+  while low < high do
+    mid = math.floor((low + high) / 2)
+    if entries[mid].src < src then
+      low = mid + 1
+    else
+      high = mid
+    end
+  end
+
+  return low
+end
+
+---How many of `ws.entries` the page holds of its own, the overlap with its neighbours left out.
+---@param ws JLogWorkspace
+---@return integer
+local function own_total(ws)
+  if not ws.core then
+    return #ws.entries
+  end
+
+  return first_from(ws, ws.core[2] + 1) - first_from(ws, ws.core[1])
+end
+
+---How many entries `items` shows of the page's own range; `shown` counts them all when there is no page.
+---@param ws JLogWorkspace
+---@param items JLogItem[]
 ---@param shown integer
+---@return integer
+local function own_shown(ws, items, shown)
+  local count = 0
+  local src
+
+  if not ws.core then
+    return shown
+  end
+  for _, item in ipairs(items) do
+    src = item.kind == "entry" and ws.entries[item.idx].src
+    if src and src >= ws.core[1] and src <= ws.core[2] then
+      count = count + 1
+    end
+  end
+
+  return count
+end
+
+---Shown and total entries count the page's own range only, as the counts under PAGE do.
+---@param ws JLogWorkspace
+---@param shown integer from `own_shown`
 ---@return string
 M.winbar_text = function(ws, shown)
-  local parts = { "jlog", ws.format, shown .. "/" .. #ws.entries }
+  local parts = { "jlog", ws.format, shown .. "/" .. own_total(ws) }
   local total, fraction = scope.total(ws)
 
   if ws.scope == "all" then
@@ -152,8 +207,8 @@ M.apply = function(ws, on_done, counted, keep_counts)
     local generation = ws.store.generation
     local cursor_entry = ws.view:entry_at_cursor()
 
-    ws.shown = shown
-    ws.view:set_winbar(M.winbar_text(ws, shown))
+    ws.shown = own_shown(ws, items, shown)
+    ws.view:set_winbar(M.winbar_text(ws, ws.shown))
     ws.sidebar:refresh(prefilled and { counter = counted } or nil)
     scope.override_facets(ws)
     -- counting does not wait for the render: a superseded render never calls its on_done
@@ -319,7 +374,7 @@ M.extend = function(ws, old_count, old_key)
   else
     view:append(indexes, refresh)
   end
-  ws.shown = #view.items
+  ws.shown = own_shown(ws, view.items, #view.items)
   view:set_winbar(M.winbar_text(ws, ws.shown))
   if counter then
     ws.sidebar:refresh({ counter = counter, partial = true })

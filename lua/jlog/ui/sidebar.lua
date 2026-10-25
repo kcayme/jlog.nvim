@@ -483,7 +483,7 @@ Sidebar.refresh = function(self, update)
   self:render(update and update.progress)
 end
 
----The filter's matches on each page, wrapped to `width`: empty pages dimmed, the page shown highlighted.
+---The filter's matches on each page, wrapped to `width`: the page shown highlighted, the others dimmed.
 ---@param ws table workspace
 ---@param width integer
 ---@return table[][]
@@ -508,7 +508,7 @@ local function count_lines(ws, width)
     end
     table.insert(lines[#lines], {
       cell,
-      page == ws.page and ws.scope ~= "all" and "JLogPageCurrent" or count == 0 and "JLogHint" or nil,
+      page == ws.page and ws.scope ~= "all" and "JLogPageCurrent" or "JLogHint",
     })
     used = used + #cell
   end

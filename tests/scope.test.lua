@@ -199,7 +199,7 @@ describe("scope", function()
     assert.is_true(vim.tbl_contains(status_texts(), "  1:2  2:2  3:2  4:1  (]m next match, A all)"))
   end)
 
-  it("should highlight the page shown and dim pages without matches in the counts", function()
+  it("should highlight the page shown and dim every other page in the counts", function()
     local ns = vim.api.nvim_create_namespace("jlog.status")
     local groups = {}
 
@@ -218,7 +218,7 @@ describe("scope", function()
     end
     assert.are.equal("JLogPageCurrent", groups["1:1"])
     assert.are.equal("JLogHint", groups["2:0"])
-    assert.are.equal(false, groups["4:1"])
+    assert.are.equal("JLogHint", groups["4:1"])
   end)
 
   it("should wrap the page counts to the sidebar width", function()

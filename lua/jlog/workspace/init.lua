@@ -4,13 +4,13 @@ local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local layout = require("jlog.workspace.layout")
 local loader = require("jlog.workspace.loader")
-local progress_mod = require("jlog.progress")
+local progress_mod = require("jlog.core.progress")
 local query = require("jlog.workspace.query")
 local sidebar_mod = require("jlog.ui.sidebar")
 local store_mod = require("jlog.query.store")
 local view_mod = require("jlog.ui.view")
 local watcher = require("jlog.workspace.watcher")
-local utils = require("jlog.utils")
+local utils = require("jlog.core.utils")
 
 ---@class JLogOpenTarget
 ---@field path string|nil

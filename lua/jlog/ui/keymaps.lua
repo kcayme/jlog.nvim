@@ -1,4 +1,4 @@
-local utils = require("jlog.utils")
+local utils = require("jlog.core.utils")
 
 local M = {}
 

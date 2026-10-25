@@ -2,7 +2,7 @@ local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")
 local layout = require("jlog.workspace.layout")
-local utils = require("jlog.utils")
+local utils = require("jlog.core.utils")
 
 local M = {}
 

@@ -2,11 +2,11 @@ local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local layout = require("jlog.workspace.layout")
 local pages = require("jlog.parse.pages")
-local progress_mod = require("jlog.progress")
+local progress_mod = require("jlog.core.progress")
 local query = require("jlog.workspace.query")
 local reader = require("jlog.parse.reader")
 local source = require("jlog.parse.source")
-local utils = require("jlog.utils")
+local utils = require("jlog.core.utils")
 local watcher = require("jlog.workspace.watcher")
 
 ---@class JLogFirstSlice

@@ -1,4 +1,4 @@
-local progress = require("jlog.progress")
+local progress = require("jlog.core.progress")
 
 describe("progress", function()
   local real_has = vim.fn.has

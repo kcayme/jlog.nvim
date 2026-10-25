@@ -1,5 +1,5 @@
 local json = require("jlog.parse.json")
-local utils = require("jlog.utils")
+local utils = require("jlog.core.utils")
 
 ---@class JLogPageRange
 ---@field first integer first byte of the page's text, overlap included

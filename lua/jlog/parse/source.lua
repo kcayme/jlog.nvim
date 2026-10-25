@@ -1,6 +1,6 @@
 local json = require("jlog.parse.json")
 local pages = require("jlog.parse.pages")
-local utils = require("jlog.utils")
+local utils = require("jlog.core.utils")
 
 ---@class JLogEntry
 ---@field src integer source line (jsonl) or 1-based element index (loki/array)

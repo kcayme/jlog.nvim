@@ -1,8 +1,8 @@
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local group = require("jlog.query.group")
-local progress_mod = require("jlog.progress")
-local utils = require("jlog.utils")
+local progress_mod = require("jlog.core.progress")
+local utils = require("jlog.core.utils")
 local workers = require("jlog.worker")
 
 ---@class JLogStoreSource

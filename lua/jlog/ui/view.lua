@@ -1,9 +1,9 @@
 local entry_model = require("jlog.parse.entry")
 local cache = require("jlog.ui.cache")
 local keymaps = require("jlog.ui.keymaps")
-local progress_mod = require("jlog.progress")
+local progress_mod = require("jlog.core.progress")
 local render = require("jlog.ui.render")
-local utils = require("jlog.utils")
+local utils = require("jlog.core.utils")
 
 ---@class JLogView
 ---@field bufnr integer

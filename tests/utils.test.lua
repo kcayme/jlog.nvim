@@ -1,4 +1,4 @@
-local utils = require("jlog.utils")
+local utils = require("jlog.core.utils")
 
 describe("utils.tick_deadline", function()
   it("should share one deadline between jobs run in the same loop pass", function()

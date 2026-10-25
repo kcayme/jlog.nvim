@@ -7,6 +7,7 @@ on:
     paths:
       - README.md
       - docs/options.md
+      - docs/highlights.md
       - .github/workflows/vimdoc.yml
   workflow_dispatch:
 
@@ -25,14 +26,17 @@ jobs:
           set -euo pipefail
           test -f README.md
           test -f docs/options.md
+          test -f docs/highlights.md
 
           # Strip the H1 plugin-name line from README: panvimdoc uses the plugin
           # name as the doc title, so keeping it would produce double-prefix tags.
-          # Also strip the demo <video>: it has no meaning in vimdoc.
-          sed -e '/^# jlog\.nvim$/d' -e '/^<video /d' README.md > .doc-source.md
+          # Also strip the demo <img>: it has no meaning in vimdoc.
+          sed -e '/^# jlog\.nvim$/d' -e '/^<img /d' README.md > .doc-source.md
           printf "\n\n" >> .doc-source.md
-          # Demote options.md so it nests under the README content.
+          # Demote options.md and highlights.md so they nest under the README content.
           sed 's/^#/##/' docs/options.md >> .doc-source.md
+          printf "\n\n" >> .doc-source.md
+          sed 's/^#/##/' docs/highlights.md >> .doc-source.md
 
       - name: Check for duplicate headings
         run: |

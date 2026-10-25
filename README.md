@@ -3,6 +3,8 @@
 Read JSON server and container logs in Neovim. Logs pulled from servers, containers and CI are often unformatted, one
 giant line, and double-encoded; jlog makes them readable, filterable and groupable without leaving the editor.
 
+<video src="docs/demo.webm" controls width="100%"></video>
+
 ## Features
 
 - **Any JSON log:** JSONL, JSON arrays and timestamped log exports; double-encoded JSON is unwrapped, and nothing is

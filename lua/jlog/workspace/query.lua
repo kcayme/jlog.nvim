@@ -90,13 +90,16 @@ end
 ---@param ws JLogWorkspace
 ---@param on_done fun()|nil called once the view has rendered
 ---@param counted JLogFacetCounter|nil facets of every entry, counted while loading; used when no filter applies
-M.apply = function(ws, on_done, counted)
+---@param keep_counts boolean|nil the matches cannot change (only the order does): keep final field counts
+M.apply = function(ws, on_done, counted, keep_counts)
   local state = ws.state
   local field = state.group and filter.unescape_field(state.group)
   local counts = layout.window_in_tab(ws, ws.sidebar.bufnr) ~= nil
   local lines = vim.deepcopy(state.filters)
   local pred, errors, invalid
   local prefilled
+  -- only final counts can be kept: a count still running is stopped by this apply's query
+  local keep = keep_counts and not ws.sidebar.stale
 
   -- lines that failed before stay pending until edited, so re-validate them with the rest
   for _, err in ipairs(ws.sidebar.errors) do
@@ -107,9 +110,11 @@ M.apply = function(ws, on_done, counted)
   ws.sidebar:set_errors(invalid)
   -- every entry matches, so the load's counts are this apply's counts
   prefilled = counts and counted ~= nil and #state.filters == 0
-  ws.store:set_counts(prefilled and counted or nil)
-  -- the sidebar keeps the last counts until this apply's are counted
-  ws.sidebar.stale = counts and not prefilled
+  if not keep then
+    ws.store:set_counts(prefilled and counted or nil)
+    -- the sidebar keeps the last counts until this apply's are counted
+    ws.sidebar.stale = counts and not prefilled
+  end
   if ws.sidebar.stale then
     render_sidebar(ws)
   end
@@ -175,13 +180,14 @@ M.set_group = function(ws, field)
   ws:apply()
 end
 
--- shortcut: re-runs the whole apply; keep the last matches if reversing 500k entries feels slow
+-- shortcut: re-runs the filter scan (not the counts); keep the last matches if reversing 500k entries feels slow
 ---@param ws JLogWorkspace
 M.toggle_reverse = function(ws)
   ws.state.reverse = not ws.state.reverse
   -- the sidebar is not rewritten while it holds unsaved edits, but its sort line follows the order
   ws.sidebar:show_sort()
-  ws:apply()
+  -- the same entries match in either order, so their field counts stay
+  ws:apply(nil, nil, true)
 end
 
 ---Show the new entries `from..` in a flat view without a full apply. Returns false when an apply is needed.

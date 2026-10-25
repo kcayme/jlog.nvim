@@ -304,6 +304,53 @@ describe("workspace", function()
     ws:close()
   end)
 
+  it("should reverse without counting fields again when the counts are already final", function()
+    local ws = assert(workspace.open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") }))
+    local counts, facets, first
+
+    assert.is_true(vim.wait(5000, function()
+      return not ws.loading and ws.rendered == ws.store.generation and not ws.sidebar.stale
+    end))
+    ws:add_filter("level=INFO")
+    assert.is_true(vim.wait(5000, function()
+      return ws.rendered == ws.store.generation and not ws.sidebar.stale
+    end))
+    counts, facets, first = 0, ws.sidebar.facets, ws.view.items[1].idx
+    ws.store.count = function()
+      counts = counts + 1
+    end
+    ws:toggle_reverse()
+    assert.is_false(ws.sidebar.stale)
+    assert.is_true(vim.wait(5000, function()
+      return ws.rendered == ws.store.generation
+    end))
+
+    assert.are.equal(0, counts)
+    assert.are.equal(facets, ws.sidebar.facets)
+    assert.are_not.equal(first, ws.view.items[1].idx)
+    ws:close()
+  end)
+
+  it("should count fields on reverse when the previous counts were not final yet", function()
+    local ws = assert(workspace.open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") }))
+    local counts = 0
+
+    assert.is_true(vim.wait(5000, function()
+      return not ws.loading and ws.rendered == ws.store.generation
+    end))
+    ws.sidebar.stale = true
+    ws.store.count = function()
+      counts = counts + 1
+    end
+    ws:toggle_reverse()
+    assert.is_true(vim.wait(5000, function()
+      return ws.rendered == ws.store.generation
+    end))
+
+    assert.are.equal(1, counts)
+    ws:close()
+  end)
+
   it("should mark the counts stale while a chunked scan runs", function()
     local lines = {}
     local buf, ws, marks

@@ -3,21 +3,16 @@ local json = require("jlog.parse.json")
 
 local M = {}
 
----@class JLogScanSpan
----@field src integer source line of the entry's first line
----@field first integer absolute byte of its first line
----@field last integer absolute byte of its last line's end, continuation lines included
+-- spans are flat lists (src, first byte, last byte per entry), which decode far faster than a table per entry
 
 ---@class JLogChunkMatch
----@field lead JLogScanSpan[] matching lines before the chunk's first JSON line, each as a plain entry
+---@field lead integer[] matching lines before the first JSON line, as plain entries; the caller may join them up
 ---@field lead_last integer absolute byte where those lines end, 0 when there are none
----@field spans JLogScanSpan[] matching entries from the first JSON line on
+---@field spans integer[] spans of matching entries from the first JSON line on
 ---@field last_json_src integer|nil source line of the chunk's last JSON line
 ---@field lines integer lines in the chunk, blank ones included; an empty chunk is one blank line
 
----The entries of a JSONL chunk that `pred` accepts, as `source.append_lines` would build them.
----Lines before the chunk's first JSON line go to `lead`, each matched as a plain entry: only the caller knows whether
----they are plain entries or continue the previous chunk's last entry.
+---The entries of a JSONL chunk that `pred` accepts, as `source.append_lines` builds them.
 ---@param text string the chunk, lines joined by "\n"
 ---@param first_src integer source line of its first line
 ---@param first_byte integer absolute byte of its first line
@@ -29,7 +24,9 @@ M.match = function(text, first_src, first_byte, pred, opts)
   local lead, spans = {}, {}
   local lead_last = 0
   local index = 1
-  local line, line_end, newline, json_at, decoded, entry, open, last_json_src
+  -- where the last matching entry's end byte is in `spans`, while its continuation lines may follow
+  local open
+  local line, line_end, newline, json_at, decoded, entry, last_json_src, count
   local ctx = {}
 
   -- simple top-level values are read from the text, the rest from the line's decode
@@ -52,15 +49,19 @@ M.match = function(text, first_src, first_byte, pred, opts)
       entry = { raw = line, body = line, json_at = json_at }
       ctx.raw = line
       if json_at then
-        last_json_src = src
-        open = pred(ctx) and { src = src, first = pos, last = line_end } or nil
-        spans[#spans + 1] = open
+        last_json_src, open = src, nil
+        if pred(ctx) then
+          count = #spans
+          spans[count + 1], spans[count + 2], spans[count + 3] = src, pos, line_end
+          open = count + 3
+        end
       elseif open then
-        open.last = line_end
+        spans[open] = line_end
       elseif not last_json_src then
         lead_last = line_end
         if pred(ctx) then
-          lead[#lead + 1] = { src = src, first = pos, last = line_end }
+          count = #lead
+          lead[count + 1], lead[count + 2], lead[count + 3] = src, pos, line_end
         end
       end
     end

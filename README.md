@@ -209,7 +209,7 @@ require("jlog").setup({
     position = "right",
     line_numbers = false, -- show line numbers in the sidebar
     -- apply FILTERS, GROUP BY and LIMIT edits without :w, once edits pause for debounce_ms
-    auto_apply = { enable = false, debounce_ms = 300 },
+    auto_apply = { enable = false, debounce_ms = 600 },
     fields = { -- how FIELDS lists and styles field names
       colors = true, -- false: every name uses JLogFieldName
       style = "plain", -- "plain", "inverted" or "pill", like compact fields

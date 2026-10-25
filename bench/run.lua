@@ -12,7 +12,7 @@ local SIZES = { 10000, 100000, 500000 }
 local opts = config.options
 local has_jq = vim.fn.executable("jq") == 1
 -- parsing: jlog against vim.json.decode and jq; workspace: what a user waits for in the plugin, no jq equivalent
-local rows = { parsing = {}, workspace = {} }
+local rows = { parsing = {}, workspace = {}, scan = {} }
 
 local function write_file(path, text)
   local fd = assert(io.open(path, "wb"))
@@ -168,6 +168,65 @@ local function workspace_rows(input, path)
   rows.workspace[#rows.workspace + 1] = row
 end
 
+---Median ms from applying `filter` to every page's matches counted, and the longest stall the scan caused in any run.
+---@param ws JLogWorkspace
+---@param filter string
+---@return number ms
+---@return number stall_ms
+local function scan_median(ws, filter)
+  local stall = 0
+  local ms = median(function()
+    local timer = vim.uv.new_timer()
+    local last = now_ms()
+    local start
+
+    ws:clear_filters()
+    wait_settled(ws)
+    collectgarbage("collect")
+    start = now_ms()
+    ws:add_filter(filter)
+    -- the scan starts once the page has rendered; a 1ms timer that fires late measures how long it kept the loop busy
+    wait_settled(ws)
+    last = now_ms()
+    timer:start(1, 1, function()
+      stall = math.max(stall, now_ms() - last)
+      last = now_ms()
+    end)
+    assert(vim.wait(120000, function()
+      return ws.scan ~= nil and ws.scan.done
+    end, 1))
+    timer:stop()
+    timer:close()
+
+    return now_ms() - start
+  end)
+
+  return ms, stall
+end
+
+---One row of the cross-page count: an exact filter and a regex-only one, counted on every page of a paged file.
+local function scan_rows(input, path)
+  local ws = assert(workspace.open({ path = path }))
+  local exact_ms, exact_stall, regex_ms, regex_stall, heap
+
+  wait_settled(ws)
+  exact_ms, exact_stall = scan_median(ws, "status>=500")
+  regex_ms, regex_stall = scan_median(ws, "licence")
+  collectgarbage("collect")
+  heap = collectgarbage("count") / 1024
+  rows.scan[#rows.scan + 1] = {
+    input,
+    ms_cell(exact_ms),
+    ms_cell(exact_stall),
+    ms_cell(regex_ms),
+    ms_cell(regex_stall),
+    string.format("%.0f", heap),
+    string.format("%.0f", vim.uv.fs_stat(path).size / 1024 / 1024),
+  }
+  ws:close()
+  collectgarbage("collect")
+end
+
 local function bench_jsonl(size)
   local input = string.format("jsonl %dk", size / 1000)
   local path = ensure("app-" .. size .. ".jsonl", function()
@@ -202,6 +261,20 @@ opts = config.options
 for _, size in ipairs(SIZES) do
   bench_jsonl(size)
 end
+-- after the parsing rows, whose texts and line lists would otherwise stay live and slow every collection
+collectgarbage("collect")
+for _, size in ipairs(SIZES) do
+  if size > config.options.paging.size then
+    scan_rows(string.format("jsonl %dk", size / 1000), DATA_DIR .. "/app-" .. size .. ".jsonl")
+  end
+end
+-- arrays scan on the main thread, page by page
+scan_rows(
+  "array 500k",
+  ensure("array-500000.json", function()
+    return "[\n" .. table.concat(gen.jsonl_lines(500000, true), ",\n") .. "\n]\n"
+  end)
+)
 
 ---Append a Markdown table of `list` to `out`, with its header and alignment rows.
 local function table_lines(out, header, align, list)
@@ -261,5 +334,23 @@ out[#out + 1] = "- Search is the bare term `licence`, filter is `status>=500`, g
 out[#out + 1] =
   "- Search, filter and group run on the page a file opens on (page 1, the newest; at most paging.size plus overlap)."
 out[#out + 1] = "- Open to screen stops at the first screen, not the whole load."
+
+out[#out + 1] = ""
+out[#out + 1] = "## Cross-page count"
+out[#out + 1] = ""
+out[#out + 1] =
+  "Median ms from applying a filter on a paged file to its matches counted on every page, in the background."
+out[#out + 1] = ""
+table_lines(
+  out,
+  "| input | exact filter (ms) | longest stall (ms) | regex filter (ms) | longest stall (ms) | Lua heap (MB) | file (MB) |",
+  "|---|---:|---:|---:|---:|---:|---:|",
+  rows.scan
+)
+out[#out + 1] = "- The exact filter is `status>=500`, matched on worker threads; the regex filter is the bare term `licence`, "
+  .. "whose candidates the main thread confirms. Arrays scan on the main thread."
+out[#out + 1] = "- Longest stall is the longest the main loop was busy in one go while counting, in any run, as a 1ms timer "
+  .. "sees it; applying the filter to the page shown is in the Workspace table."
+out[#out + 1] = "- Lua heap is after a full collection with the workspace open and the count done."
 
 io.write(table.concat(out, "\n"), "\n")

@@ -1,6 +1,7 @@
 local chunk = require("jlog.query.chunk")
 local entry_model = require("jlog.parse.entry")
 local filter = require("jlog.query.filter")
+local gc = require("jlog.core.gc")
 local reader = require("jlog.parse.reader")
 local source = require("jlog.parse.source")
 local utils = require("jlog.core.utils")
@@ -27,8 +28,8 @@ local workers = require("jlog.worker")
 
 local M = {}
 
--- about this many bytes go to one worker job, cut at a newline
-M.chunk_bytes = 4 * 1024 * 1024
+-- bytes per worker job, cut at a newline; larger chunks lengthen the main thread's encode and merge
+M.chunk_bytes = 1024 * 1024
 -- about this many bytes are matched per step on the main thread, when workers are not used
 M.main_chunk_bytes = 64 * 1024
 -- tick_ns: main-thread work per tick; publish_ns: how often progress is reported
@@ -40,6 +41,8 @@ local WAIT_MS = 2
 local CONFIRM_BATCH = 100
 -- array elements read between checks of the tick's time budget
 local READ_BATCH = 500
+-- array scans take a collector step every this many ticks: 144ms worst stalls become 111ms, for 1.5x the time
+local ARRAY_GC_TICKS = 8
 
 ---The chunk starting at `pos`: about `size` bytes, ending at a newline or at the end of `text`.
 ---@param text string
@@ -94,6 +97,7 @@ local function merger(matches)
 
   return function(result)
     local offset = next_lnum - 1
+    local lead, spans = result.lead, result.spans
     local match
 
     -- lines before the chunk's first JSON line continue a JSON entry before them, or are plain entries
@@ -102,12 +106,12 @@ local function merger(matches)
         last_open.last = result.lead_last
       end
     elseif result.lead_last > 0 then
-      for _, span in ipairs(result.lead) do
-        matches[#matches + 1] = { src = span.src + offset, first = span.first, last = span.last }
+      for at = 1, #lead, 3 do
+        matches[#matches + 1] = { src = lead[at] + offset, first = lead[at + 1], last = lead[at + 2] }
       end
     end
-    for _, span in ipairs(result.spans) do
-      match = { src = span.src + offset, first = span.first, last = span.last }
+    for at = 1, #spans, 3 do
+      match = { src = spans[at] + offset, first = spans[at + 1], last = spans[at + 2] }
       matches[#matches + 1] = match
     end
     if result.last_json_src then
@@ -123,8 +127,9 @@ end
 ---@param text string
 ---@param filters string[]
 ---@param opts JLogOptions
+---@param on_progress fun()
 ---@param on_done fun()
-local function confirm(scan, text, filters, opts, on_done)
+local function confirm(scan, text, filters, opts, on_progress, on_done)
   local pred = filter.compile(filters)
   local ctx, set = entry_ctx(opts)
   local candidates = scan.matches
@@ -150,7 +155,10 @@ local function confirm(scan, text, filters, opts, on_done)
       end
       next_index = next_index + CONFIRM_BATCH
     until next_index > #candidates or vim.uv.hrtime() >= deadline
+    -- re-parsing candidates makes garbage fast: paced, its collector cycles stall ~40ms instead of ~130ms on 100MB
+    gc.step(deadline)
     scan.fraction = 0.5 + 0.5 * math.min(next_index - 1, #candidates) / math.max(#candidates, 1)
+    on_progress()
     if next_index <= #candidates then
       vim.defer_fn(step, 0)
 
@@ -203,7 +211,7 @@ local function scan_lines(scan, text, filters, opts, on_progress, on_done)
 
       return
     end
-    confirm(scan, text, filters, opts, on_done)
+    confirm(scan, text, filters, opts, on_progress, on_done)
   end
 
   local function step()
@@ -269,35 +277,45 @@ local function scan_pages(scan, index, format, filters, opts, on_progress, on_do
   local ctx, set = entry_ctx(opts)
   local count = index:count()
   local page = 0
-  local entries, read, range, core_first, core_last
+  local ticks = 0
+  -- entries of the page read so far, and how many of them are matched
+  local entries, matched
+  local read, range, core_first, core_last
 
   local function next_page()
     page = page + 1
     range = index:range(page)
-    entries, read = {}, range and reader.page(index.text, format, range)
+    entries, matched, read = {}, 0, range and reader.page(index.text, format, range)
     core_first = range and (range.core_first_line or range.core_first_element)
     core_last = range and (range.core_last_line or range.core_last_element)
   end
 
   local function step()
     local deadline = utils.tick_deadline(M.timing.tick_ns)
-    local fraction
+    local fraction, entry
 
     if scan.cancelled then
       return
     end
     repeat
       fraction = read(entries, nil, READ_BATCH)
-      if not fraction then
-        for _, entry in ipairs(entries) do
-          set(entry)
-          if entry.src >= core_first and entry.src <= core_last and pred(ctx) then
-            scan.matches[#scan.matches + 1] = { src = entry.src }
-          end
+      -- matched as they are read, so no step matches a whole page
+      for at = matched + 1, #entries do
+        entry = entries[at]
+        set(entry)
+        if entry.src >= core_first and entry.src <= core_last and pred(ctx) then
+          scan.matches[#scan.matches + 1] = { src = entry.src }
         end
+      end
+      matched = #entries
+      if not fraction then
         next_page()
       end
     until not read or vim.uv.hrtime() >= deadline
+    ticks = ticks + 1
+    if ticks % ARRAY_GC_TICKS == 0 then
+      gc.step(deadline)
+    end
     scan.fraction = (page - 1) / count
     on_progress()
     if read then

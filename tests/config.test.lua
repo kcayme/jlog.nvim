@@ -9,6 +9,8 @@ describe("config", function()
     assert.are.equal("<CR>", opts.keymaps.toggle_entry)
     assert.are.same({}, opts.view.ignore_fields)
     assert.are.equal("s", opts.keymaps.ignore_field)
+    assert.are.equal(600, opts.sidebar.auto_apply.debounce_ms)
+    assert.are.equal("]m", opts.keymaps.next_match_page)
   end)
 
   it("should deep-merge user options", function()

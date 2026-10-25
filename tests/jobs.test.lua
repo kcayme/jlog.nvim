@@ -116,13 +116,21 @@ describe("jobs", function()
       return srcs
     end
 
+    ---A flat span list as `{ src, first, last }` tables.
+    local function triples(list)
+      local out = {}
+
+      for at = 1, #list, 3 do
+        out[#out + 1] = { src = list[at], first = list[at + 1], last = list[at + 2] }
+      end
+
+      return out
+    end
+
     local function srcs_of(result)
       local srcs = {}
 
-      for _, span in ipairs(result.lead) do
-        srcs[#srcs + 1] = span.src
-      end
-      for _, span in ipairs(result.spans) do
+      for _, span in ipairs(vim.list_extend(triples(result.lead), triples(result.spans))) do
         srcs[#srcs + 1] = span.src
       end
 
@@ -136,7 +144,7 @@ describe("jobs", function()
       assert.are.same({
         { src = 12, first = 101 + 14, last = 101 + 20 },
         { src = 13, first = 101 + 22, last = 101 + #text - 1 },
-      }, result.spans)
+      }, triples(result.spans))
       assert.are.equal(13, result.last_json_src)
       assert.are.same({}, result.lead)
       assert.is_true(result.exact)
@@ -145,9 +153,9 @@ describe("jobs", function()
     it("should report lines before the first JSON line as lead, each matched as a plain entry", function()
       local result = scan('plain one\n\nplain two\n{"a":1}', {})
 
-      assert.are.same({ { src = 1, first = 1, last = 9 }, { src = 3, first = 12, last = 20 } }, result.lead)
+      assert.are.same({ { src = 1, first = 1, last = 9 }, { src = 3, first = 12, last = 20 } }, triples(result.lead))
       assert.are.equal(20, result.lead_last)
-      assert.are.same({ { src = 4, first = 22, last = 28 } }, result.spans)
+      assert.are.same({ { src = 4, first = 22, last = 28 } }, triples(result.spans))
     end)
 
     it("should match what the full predicate matches, CRLF and continuation lines included", function()

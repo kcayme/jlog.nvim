@@ -460,7 +460,7 @@ end
 ---@field partial boolean|nil the counts are still coming in (loading, or lines appended since the last apply)
 ---@field progress string|nil shown after the FIELDS header, e.g. `loading 40%`
 
----Take new field counts if given, then redraw; unapplied FILTERS or GROUP BY edits are kept, only SORT and PAGE follow them.
+---Take new field counts if given, then redraw; unapplied FILTERS or GROUP BY edits stay, SORT and PAGE follow them.
 ---@param update JLogSidebarUpdate|nil
 Sidebar.refresh = function(self, update)
   local ws = self.ws
@@ -518,8 +518,7 @@ local function count_lines(ws, width)
   return lines
 end
 
----The PAGE lines of a paged log: which page, of how many, the keys that move between pages, and with a filter its
----matches on each page.
+---The PAGE lines of a paged log: the page, the keys that move between pages and, with a filter, matches per page.
 ---@param sidebar JLogSidebar
 ---@return table[][]
 local function page_lines(sidebar)
@@ -568,7 +567,7 @@ local function status_lines(sidebar, section)
   return { { { "SORT", "JLogSectionHeader" }, { "  " .. order, "JLogHint" } } }
 end
 
----Show SORT and PAGE as virtual lines (never in the buffer or `:w`): above the next section's header, else below the end.
+---Show SORT and PAGE as virtual lines (never in the buffer or `:w`): above the next section, else below the end.
 Sidebar.show_status = function(self)
   local sections = self.ws.opts.sidebar.sections
   local lines = vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)

@@ -1,3 +1,4 @@
+local gc = require("jlog.core.gc")
 local scan_mod = require("jlog.query.scan")
 
 local M = {}
@@ -14,12 +15,13 @@ end
 M.cancel = function(ws)
   if ws.scan then
     scan_mod.cancel(ws.scan)
+    -- compiled code keeps the closures it ran, and with them the dropped scan's matches and candidates
+    gc.release_compiled()
   end
   ws.scan, ws.scan_key, ws.scan_index, ws.page_counts = nil, nil, nil, nil
 end
 
 ---Keep the scan made for the current filters and page index; drop any other, and with `start` begin a new one.
----Without filters, a page index fully known, or with the workspace closed, there is no scan.
 ---@param ws JLogWorkspace
 ---@param start boolean
 ---@param on_change fun() called as the scan progresses and once it is done
@@ -36,6 +38,8 @@ M.update = function(ws, start, on_change)
   ws.scan_key, ws.scan_index = key, index
   ws.scan = scan_mod.run(index, ws.format, vim.deepcopy(ws.state.filters), ws.opts, on_change, function(scan)
     ws.page_counts = scan_mod.page_counts(scan, index)
+    -- compiled code keeps the finished scan's closures and every candidate they checked; flushed once they returned
+    vim.defer_fn(gc.release_compiled, 0)
     on_change()
   end)
 end

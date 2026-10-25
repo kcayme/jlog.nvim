@@ -191,11 +191,7 @@ describe("workers", function()
 
     assert.is_nil(got.err)
     result = vim.mpack.decode(got.res)
-    assert.are.same(
-      { 1, 3 },
-      vim.tbl_map(function(span)
-        return span.src
-      end, result.spans)
-    )
+    -- three numbers per match: source line, first byte, last byte
+    assert.are.same({ 1, 1, 14, 3, 31, 44 }, result.spans)
   end)
 end)

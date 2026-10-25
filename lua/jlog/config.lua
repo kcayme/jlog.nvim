@@ -148,7 +148,7 @@ M.defaults = {
     width = 45,
     position = "right",
     line_numbers = false,
-    auto_apply = { enable = false, debounce_ms = 300 },
+    auto_apply = { enable = false, debounce_ms = 600 },
     fields = {
       colors = true,
       style = "plain",

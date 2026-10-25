@@ -97,8 +97,7 @@ M.winbar_text = function(ws, shown)
   return table.concat(parts, " · ")
 end
 
----Count the filters' matches on every page of a paged log, showing the total as it goes; `start` false only drops
----a scan made for other filters or another page index.
+---Count the filters' matches on every page as `scope.update` does, showing the total in the winbar as it goes.
 ---@param ws JLogWorkspace
 ---@param start boolean|nil
 M.update_scan = function(ws, start)

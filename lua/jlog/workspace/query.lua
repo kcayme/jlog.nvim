@@ -182,6 +182,15 @@ M.toggle_reverse = function(ws)
   ws:apply(nil, nil, true)
 end
 
+---Ignore the field `name` in compact lines, or show it again; matches and counts stay, so there is no apply.
+---@param ws JLogWorkspace
+---@param name string field path as FIELDS lists it
+M.toggle_ignore = function(ws, name)
+  ws.state.ignored[name] = not ws.state.ignored[name] or nil
+  ws.sidebar:refresh()
+  ws.view:rerender()
+end
+
 ---Show the new entries `from..` in a flat view without a full apply. Returns false when an apply is needed.
 ---@param ws JLogWorkspace
 ---@param old_count integer entry count before the append

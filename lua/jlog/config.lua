@@ -35,6 +35,7 @@
 ---@field field_colors boolean color each field's key by field, cycling through `JLogField1`..`JLogField8`; false uses `JLogKey`
 ---@field time_format string|false|fun(time: JLogTime): string `os.date` format (`%L` ms), a function, or false
 ---@field time_utc boolean show `time_format` times in UTC instead of local time
+---@field ignore_fields string[] field paths left out of compact lines and dimmed in FIELDS
 
 ---@class JLogUnwrapOptions
 ---@field enable boolean
@@ -99,6 +100,7 @@
 ---@field close string|false
 ---@field add_filter string|false
 ---@field group_by string|false
+---@field ignore_field string|false
 ---@field help string|false
 
 ---@alias JLogProgress "auto"|"notify"|"off"
@@ -137,6 +139,7 @@ M.defaults = {
     field_colors = true,
     time_format = "%Y-%m-%d %H:%M:%S",
     time_utc = false,
+    ignore_fields = {},
   },
   unwrap = { enable = true, max_depth = 4 },
   sidebar = {
@@ -174,6 +177,7 @@ M.defaults = {
     close = "q",
     add_filter = "<CR>",
     group_by = "g",
+    ignore_field = "s",
     help = "?",
   },
 }

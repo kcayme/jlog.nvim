@@ -31,6 +31,7 @@ local HELP = {
       { actions = { "add_filter" }, text = "on a value: add it as a filter" },
       { actions = { "toggle_sidebar" }, text = "hide the sidebar" },
       { actions = { "group_by" }, text = "on a field: group by it" },
+      { actions = { "ignore_field" }, text = "on a field: hide/show it in compact lines" },
       { actions = { "reverse" }, text = "reverse the order" },
       { actions = { "clear" }, text = "clear filters, group and limits" },
       { actions = { "help" }, text = "this guide" },
@@ -167,6 +168,11 @@ local SCOPES = {
     group_by = function(ws)
       if not ws.sidebar:group_at_cursor() then
         feed_default(ws, "group_by")
+      end
+    end,
+    ignore_field = function(ws)
+      if not ws.sidebar:ignore_at_cursor() then
+        feed_default(ws, "ignore_field")
       end
     end,
     help = function(ws)

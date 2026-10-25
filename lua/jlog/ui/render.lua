@@ -45,6 +45,7 @@ local COLLAPSED = { object = "{…}", array = "[…]" }
 ---@field entry JLogEntry|nil the entry handed to format functions
 ---@field after_role boolean|nil the last ordered item was a time, level or message field
 ---@field view JLogViewOptions|nil set only when `view.time_format` is
+---@field ignored table<string, boolean>|nil field paths left out, set only when there are any
 
 -- scratch buffers shared by all builders, reused per line so tables are not regrown (the main GC cost of a render)
 local scratch_parts, scratch_spans = {}, {}
@@ -412,6 +413,9 @@ local push_fields
 local function push_value(line, key, node, text, base)
   local inner = node.inner
 
+  if line.ignored and line.ignored[key] then
+    return
+  end
   if node.t == "object" and #node.keys > 0 then
     push_fields(line, key .. ".", node, text, base)
   elseif node.t == "object" or node.t == "array" then
@@ -479,6 +483,19 @@ local function push_at(line, entry, node, index, role, text, base)
     push_value(line, node.keys[index], node.vals[index], text, base)
   end
   line.after_role = role ~= nil
+end
+
+---`index` unless its key is ignored.
+---@param keys string[]
+---@param index integer|nil
+---@param ignored table<string, boolean>
+---@return integer|nil
+local function kept(keys, index, ignored)
+  if index and ignored[keys[index]] then
+    return nil
+  end
+
+  return index
 end
 
 ---@param slots table<integer, integer>
@@ -584,7 +601,8 @@ end
 ---@param opts JLogOptions
 ---@param lines string[]
 ---@param spans JLogSpan[][]|nil
-local function compact_json(entry, node, prefix, opts, lines, spans)
+---@param ignored table<string, boolean>|nil
+local function compact_json(entry, node, prefix, opts, lines, spans, ignored)
   local line = new_line(spans ~= nil)
   local time_index, level_index, message_index = find_fields(node, opts.fields)
   local shown = 0
@@ -593,6 +611,14 @@ local function compact_json(entry, node, prefix, opts, lines, spans)
   local resolved = compact.resolve(opts)
   local time_slot = time_index or (entry.ts and entry.ts ~= "" and 0) or nil
 
+  if ignored and next(ignored) then
+    line.ignored = ignored
+    -- an ignored time field takes its slot with it, so the Loki timestamp does not stand in for it
+    time_slot = time_index and kept(keys, time_index, ignored) or (not time_index and time_slot) or nil
+    time_index = kept(keys, time_index, ignored)
+    level_index = kept(keys, level_index, ignored)
+    message_index = kept(keys, message_index, ignored)
+  end
   -- colors are assigned as keys are first highlighted, not when lines are rendered without highlights
   line.field_colors = spans ~= nil and opts.view.field_colors
   line.view = opts.view.time_format and opts.view or nil
@@ -720,9 +746,10 @@ M.escape_newlines = escape_newlines
 ---@param entry JLogEntry
 ---@param opts JLogOptions
 ---@param lines_only boolean|nil skip spans (about 20% faster): for whole-file renders, highlights are visible-only
+---@param ignored table<string, boolean>|nil field paths left out
 ---@return string[] lines
 ---@return JLogSpan[][]|nil spans per line, nil when `lines_only`
-M.compact = function(entry, opts, lines_only)
+M.compact = function(entry, opts, lines_only, ignored)
   local lines, spans = {}, (not lines_only) and {} or nil
   local node, prefix = entry_model.tree(entry, opts)
 
@@ -733,7 +760,7 @@ M.compact = function(entry, opts, lines_only)
     return lines, spans
   end
 
-  compact_json(entry, node, prefix, opts, lines, spans)
+  compact_json(entry, node, prefix, opts, lines, spans, ignored)
   push_continuations(entry, lines, spans)
 
   return lines, spans

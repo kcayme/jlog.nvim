@@ -20,6 +20,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `view.sort` | `JLogSort` | `"desc"` | Initial order: `"asc"` (oldest first) or `"desc"` (newest first). |
 | `view.time_format` | `string\|false\|function` | `"%Y-%m-%d %H:%M:%S"` | `os.date` format for the time on compact lines, e.g. `"%b %d %H:%M:%S.%L"` → `Oct 22 10:00:01.000`; `%L` is the milliseconds. Applies to ISO 8601 times and Loki timestamps; other values are shown as written. `false` shows `HH:MM:SS.mmm` as written in the log. A function gets `{ value, seconds, millis }` (the time as written, the epoch in UTC and three digits of milliseconds, both `nil` when the value is not a time jlog reads, such as anything that is not ISO 8601) and returns the text; `function(t) return t.value end` shows the time unformatted. A function that errors shows the value as written and warns once. Expanded JSON always shows the value as written. |
 | `view.time_utc` | `boolean` | `false` | Show `view.time_format` times in UTC instead of your local time. |
+| `view.ignore_fields` | `string[]` | `{}` | Fields hidden from compact lines when a workspace opens: a field path as FIELDS shows it (`hostname`, `req.headers`); an object's path hides all its fields. They stay in the expanded view, filters and groups, and are dimmed in FIELDS, where `keymaps.ignore_field` shows one again for the session. |
 | `view.field_colors` | `boolean` | `true` | Color each field's keys in the log view, cycling through `JLogField1`…`JLogField8` in first-seen order; a field keeps the same color in FIELDS when `sidebar.fields.colors` is on. A key never takes a value's color, and the cycle uses only distinct colors from the colorscheme. `false` uses `JLogKey`. |
 | `unwrap.enable` | `boolean` | `true` | Unwrap double-encoded JSON inside string values. |
 | `unwrap.max_depth` | `integer` | `4` | Maximum levels of nested unwrapping. |
@@ -58,4 +59,5 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `keymaps.close` | `string\|false` | `"q"` | Close the workspace (in the sidebar and log view). |
 | `keymaps.add_filter` | `string\|false` | `"<CR>"` | Sidebar: add the field value under the cursor as a filter. |
 | `keymaps.group_by` | `string\|false` | `"g"` | Sidebar: group by the field under the cursor. |
+| `keymaps.ignore_field` | `string\|false` | `"s"` | Sidebar: hide the field under the cursor from compact lines, or show it again. |
 | `keymaps.help` | `string\|false` | `"?"` | Sidebar: open a guide to the keys; shown as `? help` on the sidebar's first line. |

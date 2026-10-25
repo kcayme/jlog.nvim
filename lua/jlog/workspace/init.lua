@@ -25,6 +25,7 @@ local watcher = require("jlog.workspace.watcher")
 ---@field mode JLogViewMode
 ---@field reverse boolean
 ---@field expanded table<integer, boolean> entry index -> toggled away from `mode`
+---@field ignored table<string, boolean> field paths left out of compact lines
 
 ---@class JLogWorkspace
 ---@field key string absolute path, or `"buf:" .. bufnr`
@@ -73,6 +74,7 @@ Workspace.clear_filters = query.clear_filters
 Workspace.clear_all = query.clear_all
 Workspace.set_group = query.set_group
 Workspace.toggle_reverse = query.toggle_reverse
+Workspace.toggle_ignore = query.toggle_ignore
 Workspace.goto_page = loader.goto_page
 Workspace.reload = loader.reload
 
@@ -194,8 +196,12 @@ M.open = function(target)
       mode = opts.view.mode,
       reverse = (opts.view.sort == "desc") ~= (slice.order == "desc"),
       expanded = {},
+      ignored = {},
     },
   }, Workspace)
+  for _, name in ipairs(opts.view.ignore_fields) do
+    ws.state.ignored[name] = true
+  end
   if slice.paged then
     ws.pages, ws.page, ws.core = slice.index, 1, loader.core_of(slice.range)
   end

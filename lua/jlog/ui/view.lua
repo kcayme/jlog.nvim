@@ -87,7 +87,7 @@ end
 ---@return JLogSpan[][] spans
 local function expanded_in_compact(view, entry, lines_only)
   local lines, spans = render.expanded(entry, view.ws.opts)
-  local compact, compact_spans = render.compact(entry, view.ws.opts, lines_only)
+  local compact, compact_spans = render.compact(entry, view.ws.opts, lines_only, view.ws.state.ignored)
   -- the compact line without its continuation lines, which the indented view repeats
   local head_count = #compact - #(entry.cont or {})
 
@@ -119,7 +119,7 @@ local function item_lines(view, item, lines_only)
     return render.expanded(view.ws.entries[item.idx], view.ws.opts)
   end
 
-  return render.compact(view.ws.entries[item.idx], view.ws.opts, lines_only)
+  return render.compact(view.ws.entries[item.idx], view.ws.opts, lines_only, view.ws.state.ignored)
 end
 
 ---The item's lines while a render lays out: a JSON entry's raw body on one line until the fill renders it.
@@ -253,7 +253,7 @@ local function render_pending(view, item_index)
   local idx = view.items[item_index].idx
   local entry = view.ws.entries[idx]
   local row = view.item_line[item_index] - 1
-  local line = render.compact(entry, view.ws.opts, true)[1]
+  local line = render.compact(entry, view.ws.opts, true, view.ws.state.ignored)[1]
 
   -- one-row set_text keeps the row's header mark and manual folds, which set_lines would drop or shrink
   vim.api.nvim_buf_set_text(view.bufnr, row, 0, row, #render.escape_newlines(entry.body), { line })
@@ -1182,6 +1182,22 @@ View.toggle_mode = function(self)
   end)
   -- set after the render, which drops any cache it finds
   self.cache = left
+  if idx then
+    self:goto_entry(idx)
+  end
+end
+
+---Render the same items again with every line rebuilt, e.g. after the ignored fields changed.
+View.rerender = function(self)
+  local idx = self:entry_at_cursor()
+
+  -- the old lines were rendered with the old fields: none may be reused
+  self.rendered_entries = nil
+  self:render(self.items, function()
+    if idx then
+      self:goto_entry(idx)
+    end
+  end)
   if idx then
     self:goto_entry(idx)
   end

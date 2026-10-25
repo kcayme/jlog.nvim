@@ -430,6 +430,48 @@ describe("sidebar", function()
     assert.are.equal("request_id", ws.state.group)
   end)
 
+  it("should dim a field in place with s and show it again with s", function()
+    local buf = vim.api.nvim_create_buf(true, false)
+    local row
+
+    vim.api.nvim_buf_set_lines(
+      buf,
+      0,
+      -1,
+      false,
+      { '{"msg":"a","pid":1,"zone":"x"}', '{"msg":"b","pid":2,"zone":"y"}' }
+    )
+    ws = assert(require("jlog.workspace").open({ bufnr = buf }))
+    assert.is_truthy(vim.wait(2000, function()
+      return ws.rendered == ws.store.generation and #ws.sidebar.facets == 3
+    end, 10))
+    ws.sidebar:cursor_to_value("pid")
+    row = vim.api.nvim_win_get_cursor(0)[1]
+    vim.api.nvim_feedkeys("s", "x", false)
+    assert.is_true(ws.state.ignored.pid)
+    assert.are.equal(row - 1, row_of("▸ pid"))
+    assert.are.equal(row, vim.api.nvim_win_get_cursor(0)[1])
+    assert.is_truthy(vim.wait(2000, function()
+      return vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false)[1] == "b  zone=y"
+    end, 10))
+
+    ws.sidebar:cursor_to_value("pid")
+    vim.api.nvim_feedkeys("s", "x", false)
+    assert.is_nil(ws.state.ignored.pid)
+    assert.are.equal(row, vim.api.nvim_win_get_cursor(0)[1])
+    assert.is_truthy(vim.wait(2000, function()
+      return vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false)[1] == "b  pid=2 zone=y"
+    end, 10))
+  end)
+
+  it("should start with the fields in view.ignore_fields ignored", function()
+    require("jlog.config").setup({ view = { ignore_fields = { "pid" } } })
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    require("jlog.config").setup()
+
+    assert.are.same({ pid = true }, ws.state.ignored)
+  end)
+
   it("should hide the sidebar with the toggle key from inside it", function()
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
     vim.api.nvim_set_current_win(vim.fn.bufwinid(ws.sidebar.bufnr))

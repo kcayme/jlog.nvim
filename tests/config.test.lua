@@ -7,6 +7,8 @@ describe("config", function()
     assert.are.equal("compact", opts.view.mode)
     assert.are.equal(4, opts.unwrap.max_depth)
     assert.are.equal("<CR>", opts.keymaps.toggle_entry)
+    assert.are.same({}, opts.view.ignore_fields)
+    assert.are.equal("s", opts.keymaps.ignore_field)
   end)
 
   it("should deep-merge user options", function()

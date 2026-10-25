@@ -165,23 +165,33 @@ local function add_fields(sidebar, lines, highlights, width)
   local name, group, cap_group, caps
   local head
   local count
+  local ignored
 
   for _, facet in ipairs(sidebar.facets) do
     name, group, cap_group = field_label.of(opts, facet.name, facet.distinct)
+    ignored = sidebar.ws.state.ignored[facet.name]
+    -- an ignored field shows only its dimmed name, so it can be shown again
+    if ignored then
+      group, cap_group = "JLogFieldIgnored", nil
+    end
     -- a pill's caps are inline virtual text: they take cells the padding and the line width give up
     caps = cap_group and vim.fn.strdisplaywidth(pill.left .. pill.right) or 0
-    head = (sidebar.expanded[facet.name] and "▾ " or "▸ ")
+    head = ((sidebar.expanded[facet.name] and not ignored) and "▾ " or "▸ ")
       .. name
       .. string.rep(" ", NAME_WIDTH - caps - vim.fn.strdisplaywidth(name))
       .. "  "
-    lines[#lines + 1] = truncate(head .. summary(facet, width - caps - vim.fn.strdisplaywidth(head)), width - caps)
+    if ignored then
+      lines[#lines + 1] = truncate(vim.trim(head), width)
+    else
+      lines[#lines + 1] = truncate(head .. summary(facet, width - caps - vim.fn.strdisplaywidth(head)), width - caps)
+    end
     sidebar.rows[#lines] = { name = facet.name }
     highlights[#highlights + 1] = { #lines - 1, 4, math.min(4 + #name, #lines[#lines]), group, cap_group }
-    if sidebar.stale then
+    if sidebar.stale and not ignored then
       highlights[#highlights + 1] = { #lines - 1, math.min(#head, #lines[#lines]), -1, count_group }
     end
 
-    if sidebar.expanded[facet.name] then
+    if sidebar.expanded[facet.name] and not ignored then
       for _, top in ipairs(facet.top) do
         count = count_text(facet, top.count)
         lines[#lines + 1] = "  " .. counted(top.value, count, width - 2)
@@ -673,6 +683,19 @@ Sidebar.group_at_cursor = function(self)
     return false
   end
   self.ws:set_group(filter.escape_field(row.name))
+
+  return true
+end
+
+---`s`: on a field name, ignore it in compact lines, or show it again.
+---@return boolean handled
+Sidebar.ignore_at_cursor = function(self)
+  local row = self:row_at_cursor()
+
+  if not row or row.value then
+    return false
+  end
+  self.ws:toggle_ignore(row.name)
 
   return true
 end

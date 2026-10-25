@@ -124,6 +124,7 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
 | `q` | log view, sidebar | Close the workspace (closes the float in the raw popup) |
 | `<CR>` | sidebar | On a field value, add it as a filter |
 | `g` | sidebar | On a field, group by it |
+| `s` | sidebar | On a field, hide it from compact lines, or show it again |
 | `?` | sidebar | Open a guide to these keys (`? help` on the sidebar's first line) |
 
 ### Filter syntax
@@ -183,6 +184,7 @@ require("jlog").setup({
     -- function(t) return t.value end shows the time unformatted
     time_format = "%Y-%m-%d %H:%M:%S",
     time_utc = false, -- show time_format times in UTC instead of local time
+    ignore_fields = {}, -- field paths left out of compact lines, e.g. { "hostname", "req.headers" }
   },
   unwrap = { enable = true, max_depth = 4 },
   sidebar = {
@@ -227,6 +229,7 @@ require("jlog").setup({
     close = "q",
     add_filter = "<CR>",
     group_by = "g",
+    ignore_field = "s",
     help = "?",
   },
 })
@@ -314,6 +317,7 @@ linked group's color, reversed and bold, so the level reads as a colored label i
 | `JLogFieldName` | field names in the FIELDS section, when `sidebar.fields.colors = false` | `Identifier` |
 | `JLogFieldCount` | counts in the FIELDS section | `Comment` |
 | `JLogFieldStale` | FIELDS counts kept from the last apply while new ones are counted | `NonText` |
+| `JLogFieldIgnored` | FIELDS names of fields hidden from compact lines | `NonText` |
 | `JLogHint` | sidebar examples on empty FILTERS / GROUP BY / LIMIT lines, `:w to apply`, and the SORT order | `Comment` |
 | `JLogWinbar` | jlog winbar text | `WinBar` |
 | `JLogOverlap` | entries a page shares with its neighbours | `Comment` |

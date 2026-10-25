@@ -53,6 +53,26 @@ describe("render.compact", function()
     assert.are.equal("m  big=12345678901234567890 req.method=GET", lines[1])
   end)
 
+  it("should leave out ignored fields, nested paths and role keys when ignored is set", function()
+    local entry = one('{"level":"INFO","msg":"m","pid":7,"req":{"method":"GET","headers":{"a":"b"}},"ok":true}')
+
+    assert.are.equal(
+      "INFO  m  req.method=GET ok=true",
+      render.compact(entry, opts, false, { pid = true, ["req.headers"] = true })[1]
+    )
+    assert.are.equal("INFO  pid=7 ok=true", render.compact(entry, opts, false, { msg = true, req = true })[1])
+    assert.are.equal("INFO  m  pid=7 req.method=GET req.headers.a=b ok=true", render.compact(entry, opts, false, {})[1])
+  end)
+
+  it("should leave out ignored fields with compact.order set", function()
+    local ordered =
+      require("jlog.config").setup({ view = { time_format = false }, compact = { order = { "ok", "pid" } } })
+    local entry = one('{"level":"INFO","msg":"m","pid":7,"ok":true,"a":1}')
+
+    assert.are.equal("INFO  m  ok=true a=1", render.compact(entry, ordered, false, { pid = true })[1])
+    require("jlog.config").setup({ view = { time_format = false } })
+  end)
+
   it("should show prefixed embedded JSON collapsed and escape newlines", function()
     local lines = render.compact(one('{"msg":"a\\nb","err":"API error: 500 - {\\"code\\":500}"}'), opts)
     assert.are.equal("a\\nb  err=API error: 500 - {…}", lines[1])

@@ -5,6 +5,7 @@ local entry_model = require("jlog.parse.entry")
 ---@field distinct integer
 ---@field capped boolean
 ---@field estimated boolean counts may be low because values were dropped by a capped merge
+---@field present integer entries the field appears in, counted past the distinct cap
 ---@field top {value: string, count: integer}[]
 
 local M = {}
@@ -36,6 +37,7 @@ end
 ---@class JLogFacetField
 ---@field counts table<string, integer>
 ---@field distinct integer
+---@field present integer entries the field appears in, never capped
 ---@field capped boolean
 ---@field estimated boolean|nil
 
@@ -59,11 +61,12 @@ M.add = function(counter, flat)
     local text = entry_model.text(value)
 
     if not field then
-      field = { counts = {}, distinct = 0, capped = false }
+      field = { counts = {}, distinct = 0, capped = false, present = 0 }
       fields[name] = field
       names[#names + 1] = name
     end
 
+    field.present = field.present + 1
     if field.counts[text] then
       field.counts[text] = field.counts[text] + 1
     elseif field.distinct < MAX_DISTINCT then
@@ -77,7 +80,7 @@ end
 
 ---Adds another counter's fields into `counter`, keeping at most MAX_DISTINCT values per field.
 ---@param counter JLogFacetCounter
----@param fields table<string, {counts: table<string, integer>, distinct: integer, capped: boolean}>
+---@param fields table<string, {counts: table<string, integer>, distinct: integer, capped: boolean, present: integer}>
 M.merge = function(counter, fields)
   local field
   local dropped
@@ -87,10 +90,11 @@ M.merge = function(counter, fields)
     dropped = false
 
     if not field then
-      field = { counts = {}, distinct = 0, capped = false }
+      field = { counts = {}, distinct = 0, capped = false, present = 0 }
       counter.fields[name] = field
       counter.names[#counter.names + 1] = name
     end
+    field.present = field.present + incoming.present
 
     for value, count in pairs(incoming.counts) do
       if field.counts[value] then
@@ -136,6 +140,7 @@ M.result = function(counter, top_n)
       distinct = field.distinct,
       capped = field.capped,
       estimated = field.estimated == true,
+      present = field.present,
       top = top,
     }
   end

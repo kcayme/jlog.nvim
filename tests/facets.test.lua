@@ -35,6 +35,35 @@ describe("facets.merge", function()
     return counter
   end
 
+  it("should count the entries a field appears in past the distinct cap", function()
+    local idxs = {}
+    for i = 1, 1500 do
+      idxs[i] = i
+    end
+    local facets = facets_mod.count(idxs, function(i)
+      return i % 2 == 0 and { id = i, even = true } or { id = i }
+    end, 1)
+    local present = {}
+    for _, facet in ipairs(facets) do
+      present[facet.name] = facet.present
+    end
+
+    assert.are.same({ id = 1500, even = 750 }, present)
+  end)
+
+  it("should add up the entries a field appears in when merging counters", function()
+    local counter, other = facets_mod.counter(), facets_mod.counter()
+    for i = 1, 3 do
+      facets_mod.add(counter, { a = i })
+    end
+    for i = 1, 1200 do
+      facets_mod.add(other, { a = i })
+    end
+    facets_mod.merge(counter, other.fields)
+
+    assert.are.equal(1203, facets_mod.result(counter, 1)[1].present)
+  end)
+
   it("should merge counters exactly when fields stay under the cap", function()
     local first = counted({ 200, 500 })
     local second = counted({ 500 })
@@ -64,7 +93,7 @@ describe("facets.merge", function()
 
   it("should append names of fields the counter has not seen", function()
     local first = counted({ 1 })
-    facets_mod.merge(first, { other = { counts = { a = 3 }, distinct = 1, capped = false } })
+    facets_mod.merge(first, { other = { counts = { a = 3 }, distinct = 1, capped = false, present = 3 } })
     assert.are.same({ "id", "other" }, first.names)
   end)
 end)

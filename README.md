@@ -65,7 +65,7 @@ many entries match and the active filters and group.
   until they arrive. Counts for fields with more than 1000 distinct values are estimates, marked `~`.
 
 `S` hides or shows the sidebar (nothing is counted while it is hidden), `s` focuses it. Its sections, their order and
-how FIELDS lists and styles field names are configurable: see [Sidebar customization](#sidebar-customization).
+how FIELDS lists and styles field names are configurable: see `sidebar` under [Configuration](#configuration).
 
 ### Large files
 
@@ -176,15 +176,21 @@ require("jlog").setup({
   sidebar = {
     width = 45,
     position = "right",
-    fields = { -- how FIELDS shows field names
+    fields = { -- how FIELDS lists and styles field names
       colors = true, -- false: every name uses JLogFieldName
-      style = "plain", -- "plain", "inverted" or "pill"
+      style = "plain", -- "plain", "inverted" or "pill", like compact fields
       pill = { left = "\238\130\182", right = "\238\130\180" }, -- Nerd Font caps; "" for square ends
-      styles = {}, -- per field path or role: { style = ..., format = function(ctx) return text, group end }
+      -- per field path or role, e.g. { level = { style = "pill" } }; a format(ctx) gets ctx.name and ctx.distinct
+      -- and returns the name's text and optionally a highlight group
+      styles = {},
       pinned = {}, -- field paths or roles listed first, e.g. { "level", "status", "path" }
-      sort = "alphabetical", -- the other fields: "alphabetical" or "count" (in the most entries first)
+      -- the other fields: "alphabetical", or "count" (in the most entries first; applied once the counts are final,
+      -- so rows hold still while a file loads)
+      sort = "alphabetical",
     },
-    sections = { "filters", "group", "sort", "fields" }, -- order shown; a section left out is hidden
+    -- sections in the order shown, e.g. { "fields", "filters", "group" }; one left out is hidden, and :w then keeps
+    -- the filters or group that field actions and commands set
+    sections = { "filters", "group", "sort", "fields" },
   },
   facets = { top_values = 10 },
   paging = { size = 100000, overlap = 2000 }, -- source lines (JSONL) or array elements
@@ -246,28 +252,6 @@ compact = {
 
 Pill caps are inline virtual text (never yanked or searched) and need a Nerd Font; `pill = { left = "", right = "" }`
 gives square ends.
-
-### Sidebar customization
-
-`sidebar.sections` sets which sections show and in what order; one left out is hidden, and `:w` then leaves its
-filters or group as the field actions and commands set them. `sidebar.fields` controls the FIELDS list: `pinned`
-fields come first, the rest are sorted alphabetically or by how many entries contain them (`sort = "count"`, applied
-once the counts are final so rows hold still while a file loads), and names can be styled like compact fields, with a
-`format(ctx)` that gets the field's `name` and `distinct` count.
-
-```lua
-sidebar = {
-  sections = { "fields", "filters", "group" }, -- FIELDS on top, no SORT line
-  fields = {
-    pinned = { "level", "status", "path" },
-    sort = "count",
-    style = "pill",
-    styles = {
-      ["req.method"] = { style = "plain", format = function(ctx) return ctx.name:upper() end },
-    },
-  },
-}
-```
 
 ### Statusline plugins
 

@@ -40,6 +40,33 @@ M.update = function(ws, start, on_change)
   end)
 end
 
+---Show the nearest page after (`dir` 1) or before (-1) the page shown that has matches; notify when there is none.
+---@param ws JLogWorkspace
+---@param dir integer
+M.goto_match_page = function(ws, dir)
+  local counts = ws.page_counts
+  local page = ws.target_page or ws.page
+  local why
+
+  if not page then
+    why = "the log fits one page"
+  elseif #ws.state.filters == 0 then
+    why = "no filter to match"
+  elseif not counts then
+    why = "still counting matches"
+  end
+  page = page and page + dir
+  while not why and counts[page] do
+    if counts[page] > 0 then
+      ws:goto_page(page)
+
+      return
+    end
+    page = page + dir
+  end
+  vim.notify("jlog: " .. (why or ("no " .. (dir > 0 and "later" or "earlier") .. " page has matches")))
+end
+
 ---The matches on every page once counted; else nil and how far the count is; nil, nil when nothing is counted.
 ---@param ws JLogWorkspace
 ---@return integer|nil total

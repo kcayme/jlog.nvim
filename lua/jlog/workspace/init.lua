@@ -82,6 +82,7 @@ Workspace.set_group = query.set_group
 Workspace.toggle_reverse = query.toggle_reverse
 Workspace.toggle_ignore = query.toggle_ignore
 Workspace.goto_page = loader.goto_page
+Workspace.goto_match_page = scope.goto_match_page
 Workspace.reload = loader.reload
 
 local M = {}

@@ -483,15 +483,53 @@ Sidebar.refresh = function(self, update)
   self:render(update and update.progress)
 end
 
----The PAGE line of a paged log: which page, of how many, and the keys that move between pages.
+---The filter's matches on each page, wrapped to `width`: empty pages dimmed, the page shown highlighted.
 ---@param ws table workspace
----@return table[]|nil
-local function page_line(ws)
+---@param width integer
+---@return table[][]
+local function count_lines(ws, width)
+  local key = ws.opts.keymaps.next_match_page
+  local lines = { { { "  " } } }
+  local used = 2
+  local cell
+
+  if not ws.page_counts then
+    return { { { "  counting… " .. math.floor(ws.scan.fraction * 100) .. "%", "JLogHint" } } }
+  end
+  for page, count in ipairs(ws.page_counts) do
+    cell = page .. ":" .. count
+    if used > 2 and used + 2 + #cell > width then
+      lines[#lines + 1], used = { { "  " } }, 2
+    end
+    if used > 2 then
+      table.insert(lines[#lines], { "  " })
+      used = used + 2
+    end
+    table.insert(lines[#lines], {
+      cell,
+      page == ws.page and "JLogFieldCount" or count == 0 and "JLogHint" or nil,
+    })
+    used = used + #cell
+  end
+  if key then
+    table.insert(lines[#lines], { "  (" .. key .. " next match)", "JLogHint" })
+  end
+
+  return lines
+end
+
+---The PAGE lines of a paged log: which page, of how many, the keys that move between pages, and with a filter its
+---matches on each page.
+---@param sidebar JLogSidebar
+---@return table[][]
+local function page_lines(sidebar)
+  local ws = sidebar.ws
   local keys = ws.opts.keymaps
   local moves = {}
+  local lines
 
   if not (ws.pages and ws.page) then
-    return nil
+    return {}
   end
   if keys.next_page then
     moves[#moves + 1] = keys.next_page .. " next"
@@ -499,28 +537,35 @@ local function page_line(ws)
   if keys.prev_page then
     moves[#moves + 1] = keys.prev_page .. " prev"
   end
-
-  return {
-    { "PAGE", "JLogSectionHeader" },
-    { "  " .. ws.page .. "/" .. (ws.pages:count() or "…"), "JLogFieldCount" },
-    { #moves > 0 and ("  (" .. table.concat(moves, ", ") .. ")") or "", "JLogHint" },
+  lines = {
+    {
+      { "PAGE", "JLogSectionHeader" },
+      { "  " .. ws.page .. "/" .. (ws.pages:count() or "…"), "JLogFieldCount" },
+      { #moves > 0 and ("  (" .. table.concat(moves, ", ") .. ")") or "", "JLogHint" },
+    },
   }
+  if ws.scan then
+    vim.list_extend(lines, count_lines(ws, text_width(sidebar)))
+  end
+
+  return lines
 end
 
----The virtual line of status section `section`, or nil when it has nothing to show.
----@param ws table workspace
+---The virtual lines of status section `section`; none when it has nothing to show.
+---@param sidebar JLogSidebar
 ---@param section JLogSidebarSection
----@return table[]|nil
-local function status_line(ws, section)
+---@return table[][]
+local function status_lines(sidebar, section)
+  local ws = sidebar.ws
   local key = ws.opts.keymaps.reverse
   local newest_first = ws.stored_newest_first ~= ws.state.reverse
   local order = (newest_first and "newest first" or "oldest first") .. (key and (" (" .. key .. ")") or "")
 
   if section == "page" then
-    return page_line(ws)
+    return page_lines(sidebar)
   end
 
-  return { { "SORT", "JLogSectionHeader" }, { "  " .. order, "JLogHint" } }
+  return { { { "SORT", "JLogSectionHeader" }, { "  " .. order, "JLogHint" } } }
 end
 
 ---Show SORT and PAGE as virtual lines (never in the buffer or `:w`): above the next section's header, else below the end.
@@ -538,7 +583,7 @@ Sidebar.show_status = function(self)
   -- consecutive status sections share one block of virtual lines
   for index, section in ipairs(sections) do
     if STATUS_SECTIONS[section] then
-      pending[#pending + 1] = status_line(self.ws, section)
+      vim.list_extend(pending, status_lines(self, section))
       next_section = sections[index + 1]
       if #pending > 0 and not STATUS_SECTIONS[next_section] then
         row = next_section and header_rows[HEADERS[next_section]]

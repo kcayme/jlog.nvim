@@ -95,6 +95,8 @@
 ---@field prev_error string|false
 ---@field next_page string|false
 ---@field prev_page string|false
+---@field next_match_page string|false
+---@field prev_match_page string|false
 ---@field focus_sidebar string|false
 ---@field toggle_sidebar string|false
 ---@field close string|false
@@ -172,6 +174,8 @@ M.defaults = {
     prev_error = "[e",
     next_page = "]p",
     prev_page = "[p",
+    next_match_page = "]m",
+    prev_match_page = "[m",
     focus_sidebar = "s",
     toggle_sidebar = "S",
     close = "q",

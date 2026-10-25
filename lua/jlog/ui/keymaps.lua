@@ -19,6 +19,7 @@ local HELP = {
       { actions = { "next_entry", "prev_entry" }, text = "next/previous entry" },
       { actions = { "next_error", "prev_error" }, text = "next/previous error" },
       { actions = { "next_page", "prev_page" }, text = "next/previous page" },
+      { actions = { "next_match_page", "prev_match_page" }, text = "next/previous page with filter matches" },
       { actions = { "focus_sidebar" }, text = "focus the sidebar" },
       { actions = { "toggle_sidebar" }, text = "show/hide the sidebar" },
       { actions = { "close" }, text = "close" },
@@ -136,6 +137,12 @@ local SCOPES = {
       if ws.target_page or ws.page then
         ws:goto_page((ws.target_page or ws.page) - 1)
       end
+    end,
+    next_match_page = function(ws)
+      ws:goto_match_page(1)
+    end,
+    prev_match_page = function(ws)
+      ws:goto_match_page(-1)
     end,
     focus_sidebar = function(ws)
       ws:focus_sidebar()

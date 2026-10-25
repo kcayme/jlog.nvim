@@ -75,7 +75,9 @@ background, with FIELDS adding fields as they are found (`loading N%`); a timest
 first appears once it has loaded. A log larger than `paging.size` (100k lines or array elements) is shown one page at a
 time, so only that page is held in memory: the winbar and sidebar show `page 2/5`, `]p` / `[p` or `:JLog page {n}` move between
 pages, and each page also shows `paging.overlap` lines of its neighbours, dimmed, so a request at a page edge stays
-whole. Filters, group and mode carry over to another page.
+whole. Filters, group and mode carry over to another page. A filter applies to the page shown, and every page is
+counted in the background: the winbar shows the total (`55 in all`), the sidebar's PAGE section the matches on each
+page, and `]m` / `[m` jump to the next or previous page with matches.
 
 While a large page is still being drawn, `/` may match the raw text of rows not drawn yet; it is exact once drawing
 is done.
@@ -120,6 +122,7 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
 | `]]` / `[[` | log view | Next / previous entry |
 | `]e` / `[e` | log view | Next / previous ERROR-level entry |
 | `]p` / `[p` | log view | Next / previous page of a paged log |
+| `]m` / `[m` | log view | Next / previous page with filter matches |
 | `s` | log view | Focus the sidebar |
 | `S` | log view, sidebar | Toggle the sidebar |
 | `q` | log view, sidebar | Close the workspace (closes the float in the raw popup) |
@@ -238,6 +241,8 @@ require("jlog").setup({
     prev_error = "[e",
     next_page = "]p",
     prev_page = "[p",
+    next_match_page = "]m",
+    prev_match_page = "[m",
     focus_sidebar = "s",
     toggle_sidebar = "S",
     close = "q",

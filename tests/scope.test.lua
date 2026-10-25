@@ -171,4 +171,91 @@ describe("scope", function()
       return winbar():find("9 in all", 1, true) ~= nil
     end)
   end)
+
+  ---The text of the sidebar's virtual status lines (SORT, PAGE and the counts).
+  local function status_texts()
+    local ns = vim.api.nvim_create_namespace("jlog.status")
+    local texts = {}
+
+    for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, ns, 0, -1, { details = true })) do
+      for _, line in ipairs(mark[4].virt_lines) do
+        texts[#texts + 1] = table.concat(vim.tbl_map(function(chunk)
+          return chunk[1]
+        end, line))
+      end
+    end
+
+    return texts
+  end
+
+  it("should list the matches of each page under PAGE once scanned", function()
+    ws = workspace.open({ path = path })
+    wait(settled)
+    ws:add_filter("status=500")
+    wait(function()
+      return ws.page_counts ~= nil
+    end)
+    assert.is_true(vim.tbl_contains(status_texts(), "  1:2  2:2  3:2  4:1  (]m next match)"))
+  end)
+
+  it("should wrap the page counts to the sidebar width", function()
+    local width, counts
+
+    ws = workspace.open({ path = path })
+    wait(settled)
+    vim.api.nvim_win_set_width(vim.fn.bufwinid(ws.sidebar.bufnr), 14)
+    width = vim.api.nvim_win_get_width(vim.fn.bufwinid(ws.sidebar.bufnr))
+    ws:add_filter("status=500")
+    wait(function()
+      return ws.page_counts ~= nil
+    end)
+    ws.sidebar:show_status()
+    counts = vim.tbl_filter(function(text)
+      return text:find("^  %d+:") ~= nil
+    end, status_texts())
+    assert.is_true(#counts > 1)
+    for _, text in ipairs(counts) do
+      -- the key hint may run past the width; the counts never do
+      assert.is_true(#text:gsub("  %(.*%)$", "") <= width, text)
+    end
+  end)
+
+  it("should jump to the next and previous page with matches, skipping empty ones", function()
+    local notify = vim.notify
+    local notified
+
+    ws = workspace.open({ path = path })
+    wait(settled)
+    ws:add_filter("msg=m33 OR msg=m3")
+    wait(function()
+      return ws.page_counts ~= nil
+    end)
+    assert.are.same({ 1, 0, 0, 1 }, ws.page_counts)
+    ws:goto_match_page(1)
+    wait(function()
+      return settled() and ws.page == 4
+    end)
+    vim.notify = function(msg)
+      notified = msg
+    end
+    ws:goto_match_page(1)
+    vim.notify = notify
+    assert.are.equal("jlog: no later page has matches", notified)
+    ws:goto_match_page(-1)
+    wait(function()
+      return settled() and ws.page == 1
+    end)
+  end)
+
+  it("should jump with ]m and leave it unmapped when set to false", function()
+    ws = workspace.open({ path = path })
+    wait(settled)
+    assert.is_truthy(vim.fn.maparg("]m", "n", false, true).buffer)
+    ws:close()
+
+    require("jlog").setup({ paging = { size = 10, overlap = 2 }, keymaps = { next_match_page = false } })
+    ws = workspace.open({ path = path })
+    wait(settled)
+    assert.are.same({}, vim.fn.maparg("]m", "n", false, true))
+  end)
 end)

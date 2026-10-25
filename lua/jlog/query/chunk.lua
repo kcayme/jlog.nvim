@@ -1,0 +1,81 @@
+local entry_model = require("jlog.parse.entry")
+local json = require("jlog.parse.json")
+
+local M = {}
+
+---@class JLogScanSpan
+---@field src integer source line of the entry's first line
+---@field first integer absolute byte of its first line
+---@field last integer absolute byte of its last line's end, continuation lines included
+
+---@class JLogChunkMatch
+---@field lead JLogScanSpan[] matching lines before the chunk's first JSON line, each as a plain entry
+---@field lead_last integer absolute byte where those lines end, 0 when there are none
+---@field spans JLogScanSpan[] matching entries from the first JSON line on
+---@field last_json_src integer|nil source line of the chunk's last JSON line
+---@field lines integer lines in the chunk, blank ones included; an empty chunk is one blank line
+
+---The entries of a JSONL chunk that `pred` accepts, as `source.append_lines` would build them.
+---Lines before the chunk's first JSON line go to `lead`, each matched as a plain entry: only the caller knows whether
+---they are plain entries or continue the previous chunk's last entry.
+---@param text string the chunk, lines joined by "\n"
+---@param first_src integer source line of its first line
+---@param first_byte integer absolute byte of its first line
+---@param pred fun(ctx: JLogMatchCtx): boolean
+---@param opts JLogOptions
+---@return JLogChunkMatch
+M.match = function(text, first_src, first_byte, pred, opts)
+  local src, pos = first_src, first_byte
+  local lead, spans = {}, {}
+  local lead_last = 0
+  local index = 1
+  local line, line_end, newline, json_at, decoded, entry, open, last_json_src
+  local ctx = {}
+
+  -- simple top-level values are read from the text, the rest from the line's decode
+  ctx.get = function(path)
+    local value, found = entry_model.peek(entry, path, opts)
+
+    if found then
+      return value
+    end
+
+    return entry_model.get(entry, decoded, path, opts)
+  end
+
+  while index <= #text do
+    newline = text:find("\n", index, true) or #text + 1
+    line = text:sub(index, newline - 1):gsub("\r$", "")
+    line_end = pos + (newline - 1 - index)
+    if line:find("%S") then
+      json_at, decoded = json.object_at(line)
+      entry = { raw = line, body = line, json_at = json_at }
+      ctx.raw = line
+      if json_at then
+        last_json_src = src
+        open = pred(ctx) and { src = src, first = pos, last = line_end } or nil
+        spans[#spans + 1] = open
+      elseif open then
+        open.last = line_end
+      elseif not last_json_src then
+        lead_last = line_end
+        if pred(ctx) then
+          lead[#lead + 1] = { src = src, first = pos, last = line_end }
+        end
+      end
+    end
+    pos = pos + (newline - index) + 1
+    index = newline + 1
+    src = src + 1
+  end
+
+  return {
+    lead = lead,
+    lead_last = lead_last,
+    spans = spans,
+    last_json_src = last_json_src,
+    lines = math.max(src - first_src, 1),
+  }
+end
+
+return M

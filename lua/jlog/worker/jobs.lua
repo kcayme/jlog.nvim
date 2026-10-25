@@ -1,3 +1,4 @@
+local chunk = require("jlog.query.chunk")
 local config = require("jlog.config")
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
@@ -51,75 +52,20 @@ M.count_entries = function(payload)
   return vim.mpack.encode({ fields = counter.fields })
 end
 
----@class JLogScanSpan
----@field src integer source line of the entry's first line
----@field first integer absolute byte of its first line
----@field last integer absolute byte of its last line's end, continuation lines included
-
----Runs in a worker thread: the entries of a JSONL chunk that match `filters`, regex terms deferred.
----Lines before the chunk's first JSON line go to `lead`, each matched as a plain entry: the main thread knows whether
----they are plain entries or continue the previous chunk's last entry, as `source.append_lines` decides.
+---Runs in a worker thread: the entries of a JSONL chunk that match `filters`, regex terms deferred (see `chunk.match`).
 ---@param payload string vim.mpack of `{ text, first_src, first_byte, filters, opts = { unwrap, fields, time_utc } }`
----@return string vim.mpack of `{ lead, lead_last, spans, last_json_src, exact }`
+---@return string vim.mpack of a `JLogChunkMatch` plus `exact`
 M.scan_lines = function(payload)
   local args = vim.mpack.decode(payload)
-  local text, src, pos = args.text, args.first_src, args.first_byte
-  local lead, spans = {}, {}
-  local lead_last = 0
-  local index = 1
-  local pred, exact, opts, _
-  local line, line_end, newline, json_at, decoded, entry, open, last_json_src
-  local ctx = {}
+  local opts, pred, result, exact, _
 
   opts =
     config.setup({ unwrap = args.opts.unwrap, fields = args.opts.fields, view = { time_utc = args.opts.time_utc } })
   pred, _, exact = filter.compile(args.filters, { defer_regex = true })
-  -- simple top-level values are read from the text, the rest from the line's decode
-  ctx.get = function(path)
-    local value, found = entry_model.peek(entry, path, opts)
+  result = chunk.match(args.text, args.first_src, args.first_byte, pred, opts)
+  result.exact = exact
 
-    if found then
-      return value
-    end
-
-    return entry_model.get(entry, decoded, path, opts)
-  end
-
-  while index <= #text do
-    newline = text:find("\n", index, true) or #text + 1
-    line = text:sub(index, newline - 1):gsub("\r$", "")
-    line_end = pos + (newline - 1 - index)
-    if line:find("%S") then
-      json_at, decoded = json.object_at(line)
-      entry = { raw = line, body = line, json_at = json_at }
-      ctx.raw = line
-      if json_at then
-        last_json_src = src
-        open = pred(ctx) and { src = src, first = pos, last = line_end } or nil
-        spans[#spans + 1] = open
-      elseif open then
-        open.last = line_end
-      elseif not last_json_src then
-        lead_last = line_end
-        decoded = nil
-        if pred(ctx) then
-          lead[#lead + 1] = { src = src, first = pos, last = line_end }
-        end
-      end
-    end
-    pos = pos + (newline - index) + 1
-    index = newline + 1
-    src = src + 1
-  end
-  entry, decoded = nil, nil
-
-  return vim.mpack.encode({
-    lead = lead,
-    lead_last = lead_last,
-    spans = spans,
-    last_json_src = last_json_src,
-    exact = exact,
-  })
+  return vim.mpack.encode(result)
 end
 
 return M

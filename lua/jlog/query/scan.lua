@@ -1,0 +1,406 @@
+local chunk = require("jlog.query.chunk")
+local entry_model = require("jlog.parse.entry")
+local filter = require("jlog.query.filter")
+local reader = require("jlog.parse.reader")
+local source = require("jlog.parse.source")
+local utils = require("jlog.core.utils")
+local workers = require("jlog.worker")
+
+---@class JLogScanMatch
+---@field src integer source line (jsonl) or element ordinal (arrays) of the entry
+---@field first integer|nil jsonl: absolute byte of its first line
+---@field last integer|nil jsonl: absolute byte of its last line's end, continuation lines included
+
+---@class JLogScanJob
+---@field first integer first byte
+---@field last integer last byte, newline excluded
+---@field next_pos integer first byte after it
+---@field done boolean|nil
+---@field err string|nil
+---@field result string|nil the job's mpack result
+
+---@class JLogScan
+---@field matches JLogScanMatch[] in file order; candidates until `done` when the filter has regex terms
+---@field done boolean
+---@field fraction number how far the scan is, 0..1
+---@field cancelled boolean|nil
+
+local M = {}
+
+-- about this many bytes go to one worker job, cut at a newline
+M.chunk_bytes = 4 * 1024 * 1024
+-- about this many bytes are matched per step on the main thread, when workers are not used
+M.main_chunk_bytes = 64 * 1024
+-- tick_ns: main-thread work per tick; publish_ns: how often progress is reported
+M.timing = { tick_ns = 12e6, publish_ns = 250e6 }
+
+-- how long a scan waiting on worker threads sleeps before it checks again
+local WAIT_MS = 2
+-- candidates confirmed between checks of the tick's time budget
+local CONFIRM_BATCH = 100
+-- array elements read between checks of the tick's time budget
+local READ_BATCH = 500
+
+---The chunk starting at `pos`: about `size` bytes, ending at a newline or at the end of `text`.
+---@param text string
+---@param pos integer
+---@param size integer
+---@return JLogScanJob
+local function cut_chunk(text, pos, size)
+  local newline = text:find("\n", math.min(pos + size - 1, #text), true)
+
+  if not newline then
+    return { first = pos, last = #text, next_pos = #text + 1 }
+  end
+
+  return { first = pos, last = newline - 1, next_pos = newline + 1 }
+end
+
+---A predicate context reading `entry` as the store does: simple fields from the text, the rest from one decode.
+---@param opts JLogOptions
+---@return table ctx
+---@return fun(entry: JLogEntry) set
+local function entry_ctx(opts)
+  local ctx = {}
+  local current, decoded, decoded_done
+
+  ctx.get = function(path)
+    local value, found = entry_model.peek(current, path, opts)
+
+    if found then
+      return value
+    end
+    if not decoded_done then
+      decoded, decoded_done = entry_model.decode(current), true
+    end
+
+    return entry_model.get(current, decoded, path, opts)
+  end
+
+  return ctx,
+    function(entry)
+      current, decoded, decoded_done = entry, nil, false
+      ctx.raw = entry_model.key(entry)
+    end
+end
+
+---Stitches chunk results into matches in file order, as `source.append_lines` joins lines into entries.
+---@param matches JLogScanMatch[] mutated
+---@return fun(result: JLogChunkMatch)
+local function merger(matches)
+  local next_lnum = 1
+  -- the last entry so far is JSON, and its match when it matched
+  local last_json, last_open = false, nil
+
+  return function(result)
+    local offset = next_lnum - 1
+    local match
+
+    -- lines before the chunk's first JSON line continue a JSON entry before them, or are plain entries
+    if result.lead_last > 0 and last_json then
+      if last_open then
+        last_open.last = result.lead_last
+      end
+    elseif result.lead_last > 0 then
+      for _, span in ipairs(result.lead) do
+        matches[#matches + 1] = { src = span.src + offset, first = span.first, last = span.last }
+      end
+    end
+    for _, span in ipairs(result.spans) do
+      match = { src = span.src + offset, first = span.first, last = span.last }
+      matches[#matches + 1] = match
+    end
+    if result.last_json_src then
+      last_json = true
+      last_open = match and match.src == result.last_json_src + offset and match or nil
+    end
+    next_lnum = next_lnum + result.lines
+  end
+end
+
+---Keep the candidates the full filter accepts, in ticks; the entry of each is parsed again from its span.
+---@param scan JLogScan
+---@param text string
+---@param filters string[]
+---@param opts JLogOptions
+---@param on_done fun()
+local function confirm(scan, text, filters, opts, on_done)
+  local pred = filter.compile(filters)
+  local ctx, set = entry_ctx(opts)
+  local candidates = scan.matches
+  local confirmed = {}
+  local next_index = 1
+
+  local function step()
+    local deadline = utils.tick_deadline(M.timing.tick_ns)
+    local entries, match
+
+    if scan.cancelled then
+      return
+    end
+    repeat
+      for index = next_index, math.min(next_index + CONFIRM_BATCH - 1, #candidates) do
+        match = candidates[index]
+        entries = {}
+        source.append_lines(entries, vim.split(text:sub(match.first, match.last), "\n", { plain = true }), match.src)
+        set(entries[1])
+        if pred(ctx) then
+          confirmed[#confirmed + 1] = match
+        end
+      end
+      next_index = next_index + CONFIRM_BATCH
+    until next_index > #candidates or vim.uv.hrtime() >= deadline
+    scan.fraction = 0.5 + 0.5 * math.min(next_index - 1, #candidates) / math.max(#candidates, 1)
+    if next_index <= #candidates then
+      vim.defer_fn(step, 0)
+
+      return
+    end
+    scan.matches = confirmed
+    on_done()
+  end
+
+  step()
+end
+
+---Scan a jsonl text: chunks matched on worker threads, or on the main thread once workers fail or stall.
+---@param scan JLogScan
+---@param text string
+---@param filters string[]
+---@param opts JLogOptions
+---@param on_progress fun()
+---@param on_done fun()
+local function scan_lines(scan, text, filters, opts, on_progress, on_done)
+  local pred, _, exact = filter.compile(filters, { defer_regex = true })
+  local merge = merger(scan.matches)
+  local payload_opts = { unwrap = opts.unwrap, fields = opts.fields, time_utc = opts.view.time_utc }
+  -- dispatched and not yet merged, in source order
+  local jobs = {}
+  local cut = 1
+  local fallback = false
+  local progress_at = vim.uv.now()
+
+  local function dispatch(job)
+    local payload = vim.mpack.encode({
+      text = text:sub(job.first, job.last),
+      first_src = 1,
+      first_byte = job.first,
+      filters = filters,
+      opts = payload_opts,
+    })
+
+    workers.run("scan_lines", payload, function(err, result)
+      job.done, job.err, job.result = true, err, result
+      progress_at = vim.uv.now()
+    end)
+    progress_at = vim.uv.now()
+  end
+
+  local function finish()
+    if exact then
+      scan.fraction = 1
+      on_done()
+
+      return
+    end
+    confirm(scan, text, filters, opts, on_done)
+  end
+
+  local function step()
+    local deadline = utils.tick_deadline(M.timing.tick_ns)
+    local job, waiting, merged_to
+
+    if scan.cancelled then
+      return
+    end
+    repeat
+      fallback = fallback or (not jobs[1] and not workers.available())
+      if fallback then
+        job, waiting = cut_chunk(text, cut, M.main_chunk_bytes), false
+        cut = job.next_pos
+        merge(chunk.match(text:sub(job.first, job.last), 1, job.first, pred, opts))
+      else
+        -- the shared cap also counts jobs of a cancelled scan that are still running
+        while cut <= #text and #jobs < workers.limit() and workers.in_flight() < workers.limit() do
+          job = cut_chunk(text, cut, M.chunk_bytes)
+          cut = job.next_pos
+          jobs[#jobs + 1] = job
+          dispatch(job)
+        end
+        job = jobs[1]
+        -- no job out with text left means the cap is full of other jobs; either way this step waits on workers
+        waiting = (job and not job.done) or (not job and cut <= #text)
+        if job and job.done and job.err then
+          -- the jobs still out are dropped; their lines are matched here
+          fallback, cut, jobs = true, job.first, {}
+        elseif job and job.done then
+          table.remove(jobs, 1)
+          merge(vim.mpack.decode(job.result))
+        elseif waiting and vim.uv.now() - progress_at > workers.stall_ms then
+          fallback, cut, jobs, waiting = true, job and job.first or cut, {}, false
+        end
+      end
+      -- merged up to the first job still out
+      merged_to = jobs[1] and jobs[1].first - 1 or cut - 1
+      scan.fraction = merged_to / math.max(#text, 1) * (exact and 1 or 0.5)
+    until waiting or (cut > #text and not jobs[1]) or vim.uv.hrtime() >= deadline
+    on_progress()
+    if cut > #text and not jobs[1] then
+      finish()
+
+      return
+    end
+    vim.defer_fn(step, waiting and WAIT_MS or 0)
+  end
+
+  step()
+end
+
+---Scan an array or loki text page by page on the main thread, keeping each page's own entries only.
+---@param scan JLogScan
+---@param index JLogPageIndex its scan done
+---@param format JLogFormat
+---@param filters string[]
+---@param opts JLogOptions
+---@param on_progress fun()
+---@param on_done fun()
+local function scan_pages(scan, index, format, filters, opts, on_progress, on_done)
+  local pred = filter.compile(filters)
+  local ctx, set = entry_ctx(opts)
+  local count = index:count()
+  local page = 0
+  local entries, read, range, core_first, core_last
+
+  local function next_page()
+    page = page + 1
+    range = index:range(page)
+    entries, read = {}, range and reader.page(index.text, format, range)
+    core_first = range and (range.core_first_line or range.core_first_element)
+    core_last = range and (range.core_last_line or range.core_last_element)
+  end
+
+  local function step()
+    local deadline = utils.tick_deadline(M.timing.tick_ns)
+    local fraction
+
+    if scan.cancelled then
+      return
+    end
+    repeat
+      fraction = read(entries, nil, READ_BATCH)
+      if not fraction then
+        for _, entry in ipairs(entries) do
+          set(entry)
+          if entry.src >= core_first and entry.src <= core_last and pred(ctx) then
+            scan.matches[#scan.matches + 1] = { src = entry.src }
+          end
+        end
+        next_page()
+      end
+    until not read or vim.uv.hrtime() >= deadline
+    scan.fraction = (page - 1) / count
+    on_progress()
+    if read then
+      vim.defer_fn(step, 0)
+
+      return
+    end
+    -- pages run newest first when the index starts from the end
+    table.sort(scan.matches, function(left, right)
+      return left.src < right.src
+    end)
+    scan.fraction = 1
+    on_done()
+  end
+
+  next_page()
+  step()
+end
+
+---Find the entries of every page that match `filters`, in ticks; `on_done` is not called once cancelled.
+---@param index JLogPageIndex its scan done
+---@param format JLogFormat
+---@param filters string[]
+---@param opts JLogOptions
+---@param on_progress fun(scan: JLogScan) at most every `timing.publish_ns`
+---@param on_done fun(scan: JLogScan)
+---@return JLogScan
+M.run = function(index, format, filters, opts, on_progress, on_done)
+  local scan = { matches = {}, done = false, fraction = 0 }
+  local published = 0
+
+  local function progress()
+    local now = vim.uv.hrtime()
+
+    if now - published >= M.timing.publish_ns then
+      published = now
+      on_progress(scan)
+    end
+  end
+
+  local function done()
+    if scan.cancelled then
+      return
+    end
+    scan.done, scan.fraction = true, 1
+    on_done(scan)
+  end
+
+  vim.defer_fn(function()
+    if scan.cancelled then
+      return
+    end
+    if format == "jsonl" then
+      scan_lines(scan, index.text, filters, opts, progress, done)
+
+      return
+    end
+    scan_pages(scan, index, format, filters, opts, progress, done)
+  end, 0)
+
+  return scan
+end
+
+---Stop `scan`: no more work runs and `on_done` is never called; results of jobs already queued are dropped.
+---@param scan JLogScan
+M.cancel = function(scan)
+  scan.cancelled = true
+end
+
+---How many matches each page holds of its own entries, overlap left out.
+---@param scan JLogScan
+---@param index JLogPageIndex its scan done
+---@return integer[]
+M.page_counts = function(scan, index)
+  local counts = {}
+  local matches = scan.matches
+  local range, first, last
+
+  ---The index of the first match whose `src` is at least `src`.
+  local function lower_bound(src)
+    local low, high = 1, #matches + 1
+    local mid
+
+    while low < high do
+      mid = math.floor((low + high) / 2)
+      if matches[mid].src < src then
+        low = mid + 1
+      else
+        high = mid
+      end
+    end
+
+    return low
+  end
+
+  for page = 1, index:count() or 0 do
+    range = index:range(page)
+    first = range.core_first_line or range.core_first_element
+    last = range.core_last_line or range.core_last_element
+    counts[page] = lower_bound(last + 1) - lower_bound(first)
+  end
+
+  return counts
+end
+
+return M

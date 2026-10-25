@@ -168,4 +168,34 @@ describe("workers", function()
     assert.is_false(unresolved.available())
     assert.is_truthy(got.err)
   end)
+
+  it("should scan lines in a worker thread with the options it is sent", function()
+    local config = require("jlog.config")
+    local got = {}
+    local result
+
+    workers.run(
+      "scan_lines",
+      vim.mpack.encode({
+        text = '{"status":500}\n{"status":200}\n{"status":502}',
+        first_src = 1,
+        first_byte = 1,
+        filters = { "status>=500" },
+        opts = { unwrap = config.options.unwrap, fields = config.options.fields },
+      }),
+      function(err, res)
+        got.err, got.res, got.done = err, res, true
+      end
+    )
+    wait_for(got)
+
+    assert.is_nil(got.err)
+    result = vim.mpack.decode(got.res)
+    assert.are.same(
+      { 1, 3 },
+      vim.tbl_map(function(span)
+        return span.src
+      end, result.spans)
+    )
+  end)
 end)

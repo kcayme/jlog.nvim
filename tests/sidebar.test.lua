@@ -84,6 +84,27 @@ describe("sidebar", function()
     end
   end
 
+  it("should list pinned fields first and the rest by entries once the counts are final", function()
+    local facets
+
+    require("jlog.config").setup({ sidebar = { fields = { pinned = { "msg" }, sort = "count" } } })
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    assert.is_true(vim.wait(5000, function()
+      return not ws.loading and not ws.sidebar.stale and #ws.sidebar.facets > 2
+    end))
+    facets = ws.sidebar.facets
+    require("jlog.config").setup()
+
+    assert.are.equal("msg", facets[1].name)
+    for index = 3, #facets do
+      local previous, facet = facets[index - 1], facets[index]
+      assert.is_true(
+        previous.present > facet.present or (previous.present == facet.present and previous.name < facet.name),
+        previous.name .. " before " .. facet.name
+      )
+    end
+  end)
+
   describe("sections", function()
     after_each(function()
       require("jlog.config").setup()

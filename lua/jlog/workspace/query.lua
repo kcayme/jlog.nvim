@@ -1,5 +1,6 @@
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
+local field_order = require("jlog.ui.field_order")
 local filter = require("jlog.query.filter")
 local gc = require("jlog.core.gc")
 local layout = require("jlog.workspace.layout")
@@ -78,8 +79,12 @@ end
 
 ---@param ws JLogWorkspace
 ---@param counter JLogFacetCounter
-M.publish_facets = function(ws, counter)
-  ws.sidebar.facets = facets.result(counter, ws.opts.facets.top_values)
+---@param partial boolean|nil the counts are still coming in (loading, or lines appended since the last apply)
+M.publish_facets = function(ws, counter, partial)
+  local final = not partial and not ws.loading
+
+  ws.sidebar.facets =
+    field_order.order(facets.result(counter, ws.opts.facets.top_values), ws.opts, ws.sidebar.facets, final)
   for _, facet in ipairs(ws.sidebar.facets) do
     ws.fields_seen[facet.name] = true
   end
@@ -234,7 +239,7 @@ M.extend = function(ws, old_count, old_key)
   ws.shown = #view.items
   view:set_winbar(M.winbar_text(ws, ws.shown))
   if counter then
-    M.publish_facets(ws, counter)
+    M.publish_facets(ws, counter, true)
     render_sidebar(ws)
   end
 

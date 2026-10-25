@@ -6,6 +6,7 @@ local entry_model = require("jlog.parse.entry")
 ---@field capped boolean
 ---@field estimated boolean counts may be low because values were dropped by a capped merge
 ---@field present integer entries the field appears in, counted past the distinct cap
+---@field label boolean a label of a timestamped export, listed after the other fields
 ---@field top {value: string, count: integer}[]
 
 local M = {}
@@ -141,6 +142,7 @@ M.result = function(counter, top_n)
       capped = field.capped,
       estimated = field.estimated == true,
       present = field.present,
+      label = is_label(name),
       top = top,
     }
   end

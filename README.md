@@ -169,6 +169,8 @@ require("jlog").setup({
       style = "plain", -- "plain", "inverted" or "pill"
       pill = { left = "\238\130\182", right = "\238\130\180" }, -- Nerd Font caps; "" for square ends
       styles = {}, -- per field path or role: { style = ..., format = function(ctx) return text, group end }
+      pinned = {}, -- field paths or roles listed first, e.g. { "level", "status", "path" }
+      sort = "alphabetical", -- the other fields: "alphabetical" or "count" (in the most entries first)
     },
     sections = { "filters", "group", "sort", "fields" }, -- order shown; a section left out is hidden
   },

@@ -50,11 +50,15 @@
 
 ---@alias JLogSidebarSection "filters"|"group"|"sort"|"fields"
 
+---@alias JLogFieldSort "alphabetical"|"count"
+
 ---@class JLogSidebarFieldsOptions
 ---@field colors boolean color each field name in FIELDS by field; false uses `JLogFieldName`
 ---@field style JLogFieldStyle default style of field names in FIELDS
 ---@field pill JLogPillOptions caps of `pill` field names
 ---@field styles table<string, JLogSidebarField> per field path or role (`time`, `level`, `message`, `status`)
+---@field pinned string[] field paths or roles listed first in FIELDS, in this order
+---@field sort JLogFieldSort the other fields: by name, or by entries once the counts are final
 
 ---@class JLogSidebarOptions
 ---@field width integer
@@ -128,6 +132,8 @@ M.defaults = {
       style = "plain",
       pill = { left = "\238\130\182", right = "\238\130\180" },
       styles = {},
+      pinned = {},
+      sort = "alphabetical",
     },
     sections = { "filters", "group", "sort", "fields" },
   },

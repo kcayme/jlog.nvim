@@ -67,7 +67,7 @@ local function publish_partial(ws, counter, progress)
     return
   end
   ws.published.at = now
-  query.publish_facets(ws, counter)
+  query.publish_facets(ws, counter, true)
   ws.sidebar:render(progress)
 end
 

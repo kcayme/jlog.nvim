@@ -2,7 +2,8 @@ local workspace = require("jlog.workspace")
 
 local M = {}
 
-local SUBCOMMANDS = { "filter", "group", "page", "raw", "close" }
+local SUBCOMMANDS = { "filter", "group", "page", "scope", "raw", "close" }
+local SCOPES = { "all", "page" }
 
 ---Subcommand -> handler(ws, args), where args is the rest of the command line.
 local ACTIONS = {
@@ -27,6 +28,14 @@ local ACTIONS = {
     end
     ws:goto_page(page)
   end,
+  scope = function(ws, args)
+    if not vim.tbl_contains(SCOPES, args) then
+      vim.notify("jlog: :JLog scope needs all or page", vim.log.levels.WARN)
+
+      return
+    end
+    ws:set_scope(args)
+  end,
   raw = function(ws)
     ws:open_raw(nil)
   end,
@@ -44,7 +53,7 @@ local function open(target)
   end
 end
 
----`:JLog [path] | filter [clause] | group [field] | page N | raw | close`.
+---`:JLog [path] | filter [clause] | group [field] | page N | scope all|page | raw | close`.
 ---@param fargs string[]
 M.run = function(fargs)
   local action = ACTIONS[fargs[1]]
@@ -90,6 +99,8 @@ M.complete = function(arg_lead, cmdline)
   elseif position == 3 and (words[2] == "filter" or words[2] == "group") then
     ws = workspace.current()
     candidates = ws and ws:field_names() or {}
+  elseif position == 3 and words[2] == "scope" then
+    candidates = vim.deepcopy(SCOPES)
   end
 
   return vim.tbl_filter(function(candidate)

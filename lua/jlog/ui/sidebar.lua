@@ -488,7 +488,8 @@ end
 ---@param width integer
 ---@return table[][]
 local function count_lines(ws, width)
-  local key = ws.opts.keymaps.next_match_page
+  local keys = ws.opts.keymaps
+  local hints = {}
   local lines = { { { "  " } } }
   local used = 2
   local cell
@@ -507,12 +508,18 @@ local function count_lines(ws, width)
     end
     table.insert(lines[#lines], {
       cell,
-      page == ws.page and "JLogFieldCount" or count == 0 and "JLogHint" or nil,
+      page == ws.page and ws.scope ~= "all" and "JLogFieldCount" or count == 0 and "JLogHint" or nil,
     })
     used = used + #cell
   end
-  if key then
-    table.insert(lines[#lines], { "  (" .. key .. " next match)", "JLogHint" })
+  if keys.next_match_page then
+    hints[#hints + 1] = keys.next_match_page .. " next match"
+  end
+  if keys.toggle_scope and ws.scope ~= "all" then
+    hints[#hints + 1] = keys.toggle_scope .. " all"
+  end
+  if #hints > 0 then
+    table.insert(lines[#lines], { "  (" .. table.concat(hints, ", ") .. ")", "JLogHint" })
   end
 
   return lines
@@ -536,10 +543,17 @@ local function page_lines(sidebar)
   if keys.prev_page then
     moves[#moves + 1] = keys.prev_page .. " prev"
   end
+  if ws.scope == "all" then
+    moves = keys.toggle_scope and { keys.toggle_scope .. " back" } or {}
+  end
   lines = {
     {
       { "PAGE", "JLogSectionHeader" },
-      { "  " .. ws.page .. "/" .. (ws.pages:count() or "…"), "JLogFieldCount" },
+      {
+        ws.scope == "all" and ("  all of " .. ws.pages:count())
+          or ("  " .. ws.page .. "/" .. (ws.pages:count() or "…")),
+        "JLogFieldCount",
+      },
       { #moves > 0 and ("  (" .. table.concat(moves, ", ") .. ")") or "", "JLogHint" },
     },
   }

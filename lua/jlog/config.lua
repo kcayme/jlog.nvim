@@ -97,6 +97,7 @@
 ---@field prev_page string|false
 ---@field next_match_page string|false
 ---@field prev_match_page string|false
+---@field toggle_scope string|false
 ---@field focus_sidebar string|false
 ---@field toggle_sidebar string|false
 ---@field close string|false
@@ -176,6 +177,7 @@ M.defaults = {
     prev_page = "[p",
     next_match_page = "]m",
     prev_match_page = "[m",
+    toggle_scope = "A",
     focus_sidebar = "s",
     toggle_sidebar = "S",
     close = "q",

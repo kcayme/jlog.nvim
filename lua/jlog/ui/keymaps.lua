@@ -20,6 +20,7 @@ local HELP = {
       { actions = { "next_error", "prev_error" }, text = "next/previous error" },
       { actions = { "next_page", "prev_page" }, text = "next/previous page" },
       { actions = { "next_match_page", "prev_match_page" }, text = "next/previous page with filter matches" },
+      { actions = { "toggle_scope" }, text = "filter matches of every page in one view / back to a page" },
       { actions = { "focus_sidebar" }, text = "focus the sidebar" },
       { actions = { "toggle_sidebar" }, text = "show/hide the sidebar" },
       { actions = { "close" }, text = "close" },
@@ -127,16 +128,15 @@ local SCOPES = {
     prev_error = function(ws)
       ws.view:move("error", -1)
     end,
+    -- from a page still loading, so a second press goes one further; from all pages, the cursor entry's page
     next_page = function(ws)
-      -- step from a page still loading, so a second press goes one further
-      if ws.target_page or ws.page then
-        ws:goto_page((ws.target_page or ws.page) + 1)
-      end
+      ws:step_page(1)
     end,
     prev_page = function(ws)
-      if ws.target_page or ws.page then
-        ws:goto_page((ws.target_page or ws.page) - 1)
-      end
+      ws:step_page(-1)
+    end,
+    toggle_scope = function(ws)
+      ws:toggle_scope()
     end,
     next_match_page = function(ws)
       ws:goto_match_page(1)

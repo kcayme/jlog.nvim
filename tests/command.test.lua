@@ -82,5 +82,35 @@ describe(":JLog", function()
     assert.are.same({ "filter" }, commands.complete("fil", "JLog fil"))
     assert.is_true(vim.tbl_contains(commands.complete("", "JLog group "), "request_id"))
     assert.are.same({ "status" }, commands.complete("sta", "JLog filter sta"))
+    assert.are.same({ "all", "page" }, commands.complete("", "JLog scope "))
+  end)
+
+  it("should show every page's matches with :JLog scope all and go back with :JLog scope page", function()
+    local path = vim.fn.tempname() .. ".jsonl"
+    local lines = {}
+    local ws
+
+    for index = 1, 35 do
+      lines[index] = string.format('{"msg":"m%d","status":%d}', index, index % 5 == 0 and 500 or 200)
+    end
+    vim.fn.writefile(lines, path)
+    require("jlog").setup({ paging = { size = 10, overlap = 2 } })
+    vim.cmd("JLog " .. path)
+    ws = require("jlog.workspace").find(path)
+    vim.cmd("JLog filter status=500")
+    assert.is_true(vim.wait(5000, function()
+      return ws.scan ~= nil and ws.scan.done
+    end, 20))
+    vim.cmd("JLog scope all")
+    assert.is_true(vim.wait(5000, function()
+      return ws.scope == "all" and #ws.entries == 7
+    end, 20))
+    vim.cmd("JLog scope page")
+    assert.is_true(vim.wait(5000, function()
+      return ws.scope == "page" and not ws.loading
+    end, 20))
+    ws:close()
+    vim.fn.delete(path)
+    require("jlog").setup()
   end)
 end)

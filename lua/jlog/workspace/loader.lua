@@ -268,7 +268,8 @@ local function load_page(ws, page, keep)
     load_rest(ws, {}, read, function(loaded)
       local winid
 
-      ws.page, ws.core = page, M.core_of(range)
+      -- any page load ends the combined view of every page's matches
+      ws.scope, ws.page, ws.core = "page", page, M.core_of(range)
       if keep then
         query.replace_entries(ws, loaded)
 
@@ -337,7 +338,7 @@ local function rebuild(ws)
 
       return
     end
-    ws.pages, ws.page, ws.core, ws.target_page = nil, nil, nil, nil
+    ws.scope, ws.pages, ws.page, ws.core, ws.target_page = "page", nil, nil, nil, nil
     vim.defer_fn(function()
       load_rest(ws, {}, reader.source(text, ws.format, order, M.timing.tick_ns), function(loaded)
         query.replace_entries(ws, loaded)
@@ -408,8 +409,9 @@ end
 ---Show page `page`, keeping filters, group and mode; false when that page is not indexed (yet).
 ---@param ws JLogWorkspace
 ---@param page integer
+---@param keep boolean|nil keep the cursor entry and expanded entries, found by key, instead of the page's first entry
 ---@return boolean
-M.goto_page = function(ws, page)
+M.goto_page = function(ws, page, keep)
   local range = ws.pages and page % 1 == 0 and ws.pages:range(page)
 
   if not range then
@@ -418,7 +420,7 @@ M.goto_page = function(ws, page)
     return false
   end
   -- a page load still running is dropped for this one
-  load_page(ws, page)
+  load_page(ws, page, keep)
 
   return true
 end
@@ -443,7 +445,8 @@ M.reload = function(ws)
     return
   end
   -- appended lines belong to the page holding the end of the file; another page stays as it is
-  shown = not ws.pages or holds_end(ws)
+  -- the combined view is rebuilt from a new count once the pages are indexed again
+  shown = ws.scope ~= "all" and (not ws.pages or holds_end(ws))
   old_count = #ws.entries
   old_key = old_count > 0 and entry_model.key(ws.entries[old_count]) or nil
   if shown then

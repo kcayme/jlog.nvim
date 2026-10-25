@@ -69,13 +69,15 @@ M.winbar_text = function(ws, shown)
   local parts = { "jlog", ws.format, shown .. "/" .. #ws.entries }
   local total, fraction = scope.total(ws)
 
-  if ws.pages and ws.page then
+  if ws.scope == "all" then
+    parts[#parts + 1] = "all pages"
+  elseif ws.pages and ws.page then
     parts[#parts + 1] = "page " .. ws.page .. "/" .. (ws.pages:count() or "…")
   end
-  if total then
+  if total and ws.scope ~= "all" then
     parts[#parts + 1] = total .. " in all"
   elseif fraction then
-    parts[#parts + 1] = "… in all " .. math.floor(fraction * 100) .. "%"
+    parts[#parts + 1] = (ws.scope == "all" and "counting " or "… in all ") .. math.floor(fraction * 100) .. "%"
   end
   if #ws.state.filters > 0 then
     parts[#parts + 1] = table.concat(
@@ -107,7 +109,7 @@ M.update_scan = function(ws, start)
       ws.view:set_winbar(M.winbar_text(ws, ws.shown))
     end
     ws.sidebar:show_status()
-  end)
+  end, M.replace_entries)
 end
 
 ---Filter, group and render, then count facets; work past the first ~12ms tick continues later, a newer apply wins.

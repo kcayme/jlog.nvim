@@ -195,7 +195,7 @@ describe("scope", function()
     wait(function()
       return ws.page_counts ~= nil
     end)
-    assert.is_true(vim.tbl_contains(status_texts(), "  1:2  2:2  3:2  4:1  (]m next match)"))
+    assert.is_true(vim.tbl_contains(status_texts(), "  1:2  2:2  3:2  4:1  (]m next match, A all)"))
   end)
 
   it("should wrap the page counts to the sidebar width", function()
@@ -257,5 +257,209 @@ describe("scope", function()
     ws = workspace.open({ path = path })
     wait(settled)
     assert.are.same({}, vim.fn.maparg("]m", "n", false, true))
+  end)
+
+  describe("all pages", function()
+    local function texts_of(entries)
+      return vim.tbl_map(function(entry)
+        return entry.raw:match('"msg":"(m%d+)"')
+      end, entries)
+    end
+
+    local function counted()
+      return ws.scan ~= nil and ws.scan.done and settled()
+    end
+
+    local function in_all()
+      return ws.scope == "all" and settled()
+    end
+
+    it("should show every page's matches in one view with toggle_scope", function()
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:add_filter("status=500")
+      wait(counted)
+      ws:toggle_scope()
+      wait(in_all)
+      assert.are.same({ "m5", "m10", "m15", "m20", "m25", "m30", "m35" }, texts_of(ws.entries))
+      assert.is_nil(ws.core)
+      assert.is_truthy(winbar():find("7/7 · all pages", 1, true))
+    end)
+
+    it("should keep the cursor entry and expanded entries entering and leaving", function()
+      local cursor
+
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:goto_page(2)
+      wait(function()
+        return settled() and ws.page == 2
+      end)
+      ws:add_filter("status=500")
+      wait(counted)
+      -- page 2 holds m16..m25 of its own: m20 is the first, newest-first view puts m25 at the top
+      ws.view:goto_entry(vim.fn.index(texts_of(ws.entries), "m20") + 1)
+      ws.view:toggle_entry()
+      ws:toggle_scope()
+      wait(in_all)
+      cursor = ws.view:entry_at_cursor()
+      assert.are.equal("m20", texts_of({ ws.entries[cursor] })[1])
+      assert.is_true(ws.state.expanded[cursor])
+      ws:toggle_scope()
+      wait(function()
+        return ws.scope == "page" and settled()
+      end)
+      assert.are.equal(2, ws.page)
+      cursor = ws.view:entry_at_cursor()
+      assert.are.equal("m20", texts_of({ ws.entries[cursor] })[1])
+      assert.is_true(ws.state.expanded[cursor])
+    end)
+
+    it("should refuse more matches than paging.size and stay on the page", function()
+      local notify = vim.notify
+      local notified
+
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:add_filter("status=200")
+      wait(counted)
+      vim.notify = function(msg)
+        notified = msg
+      end
+      ws:toggle_scope()
+      vim.wait(300)
+      vim.notify = notify
+      assert.are.equal("page", ws.scope)
+      assert.are.equal("jlog: 28 matches across pages, over paging.size 10: narrow the filter", notified)
+    end)
+
+    it("should open once a running count completes", function()
+      workers.disabled = true
+      scan.main_chunk_bytes, scan.timing.tick_ns = 1, 0
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:add_filter("status=500")
+      wait(function()
+        return ws.scan ~= nil
+      end)
+      ws:toggle_scope()
+      assert.are.equal("page", ws.scope)
+      wait(in_all)
+      assert.are.equal(7, #ws.entries)
+    end)
+
+    it("should not dim any entry", function()
+      local set_extmark = vim.api.nvim_buf_set_extmark
+      local dimmed = false
+
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:add_filter("status=500")
+      wait(counted)
+      ws:toggle_scope()
+      wait(in_all)
+      vim.api.nvim_set_current_win(vim.fn.bufwinid(ws.view.bufnr))
+      vim.api.nvim_buf_set_extmark = function(bufnr, ns, row, col, opts)
+        dimmed = dimmed or opts.hl_group == "JLogOverlap"
+
+        return set_extmark(bufnr, ns, row, col, opts)
+      end
+      vim.cmd("redraw!")
+      vim.api.nvim_buf_set_extmark = set_extmark
+      assert.is_false(dimmed)
+    end)
+
+    it("should go to the page after the cursor entry's page with next_page", function()
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:add_filter("status=500")
+      wait(counted)
+      ws:toggle_scope()
+      wait(in_all)
+      -- m20 is on page 2
+      ws.view:goto_entry(vim.fn.index(texts_of(ws.entries), "m20") + 1)
+      ws:step_page(1)
+      wait(function()
+        return ws.scope == "page" and settled() and ws.page == 3
+      end)
+    end)
+
+    it("should rescan and rebuild when the filter changes", function()
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:add_filter("status=500")
+      wait(counted)
+      ws:toggle_scope()
+      wait(in_all)
+      -- as a sidebar :w does: the filter lines replaced in one apply, here by a broader filter
+      ws.state.filters = { "msg=m1 OR msg=m33" }
+      ws:apply()
+      wait(function()
+        return in_all() and #ws.entries == 2
+      end)
+      assert.are.same({ "m1", "m33" }, texts_of(ws.entries))
+    end)
+
+    it("should not rescan on group, reverse or mode", function()
+      local counting
+
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:add_filter("status=500")
+      wait(counted)
+      ws:toggle_scope()
+      wait(in_all)
+      counting = ws.scan
+      ws:set_group("status")
+      wait(settled)
+      ws:toggle_reverse()
+      wait(settled)
+      ws.view:toggle_mode()
+      wait(settled)
+      assert.are.equal(counting, ws.scan)
+      assert.are.equal("all", ws.scope)
+    end)
+
+    it("should go back to a page when the filters are cleared", function()
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:add_filter("status=500")
+      wait(counted)
+      ws:toggle_scope()
+      wait(in_all)
+      ws:clear_filters()
+      wait(function()
+        return ws.scope == "page" and settled() and #ws.entries > 7
+      end)
+    end)
+
+    it("should go back to a page when the new filter matches more than paging.size", function()
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:add_filter("status=500")
+      wait(counted)
+      ws:toggle_scope()
+      wait(in_all)
+      ws:clear_filters()
+      ws:add_filter("status=200")
+      wait(function()
+        return ws.scope == "page" and settled() and ws.scan and ws.scan.done
+      end)
+    end)
+
+    it("should add appended matching lines once the pages are indexed again", function()
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:add_filter("status=500")
+      wait(counted)
+      ws:toggle_scope()
+      wait(in_all)
+      vim.fn.writefile(log_lines(10, 36), path, "a")
+      ws:reload()
+      wait(function()
+        return in_all() and #ws.entries == 9
+      end)
+      assert.are.same({ "m5", "m10", "m15", "m20", "m25", "m30", "m35", "m40", "m45" }, texts_of(ws.entries))
+    end)
   end)
 end)

@@ -32,6 +32,10 @@ local NAME_WIDTH = 14
 local RIGHT_PADDING = 2
 
 local HINTS = { [HEADERS.filters] = "status>=500 level=ERROR -health", [HEADERS.group] = "request_id" }
+local SECTIONS = { filters = true, group = true, sort = true, fields = true }
+
+-- weak cache: the valid sections of each `opts`, so a bad list warns once
+local sections_cache = setmetatable({}, { __mode = "k" })
 
 local ns = vim.api.nvim_create_namespace("jlog.filter")
 local hl_ns = vim.api.nvim_create_namespace("jlog.sidebar")
@@ -205,10 +209,37 @@ local function find_row(rows, anchor)
   return field_row
 end
 
----@param text string trimmed line
+---The sidebar's sections in order: `sidebar.sections` without unknown or repeated names, which warn once.
+---@param opts JLogOptions
+---@return JLogSidebarSection[]
+local function sections_of(opts)
+  local sections = sections_cache[opts]
+  local seen = {}
+
+  if sections then
+    return sections
+  end
+  sections = {}
+  for _, name in ipairs(opts.sidebar.sections) do
+    if not SECTIONS[name] then
+      vim.notify(("jlog: sidebar.sections: unknown section %q"):format(tostring(name)), vim.log.levels.WARN)
+    elseif seen[name] then
+      vim.notify(("jlog: sidebar.sections: %q is listed twice"):format(name), vim.log.levels.WARN)
+    else
+      seen[name] = true
+      sections[#sections + 1] = name
+    end
+  end
+  sections_cache[opts] = sections
+
+  return sections
+end
+
+---@param opts JLogOptions
+---@param name JLogSidebarSection
 ---@return boolean
-local function ends_sections(text)
-  return text == HEADERS.fields or vim.startswith(text, "▸") or vim.startswith(text, "▾")
+local function shows(opts, name)
+  return vim.tbl_contains(sections_of(opts), name)
 end
 
 ---Show how to apply on the first row and, outside insert mode, an example on each blank section line.
@@ -217,21 +248,25 @@ end
 local function show_hints(sidebar, insert)
   local bufnr = sidebar.bufnr
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local help = sidebar.ws.opts.keymaps.help
+  local opts = sidebar.ws.opts
+  local help = opts.keymaps.help
+  local editable = shows(opts, "filters") or shows(opts, "group")
   -- here rather than in the winbar, which statusline plugins such as lualine take over
-  local how = ":w to apply" .. (help and (" | " .. help .. " help") or "")
+  local parts = vim.tbl_filter(function(part)
+    return part ~= ""
+  end, { editable and ":w to apply" or "", help and (help .. " help") or "" })
+  local how = table.concat(parts, " | ")
   local text, hint
 
   vim.api.nvim_buf_clear_namespace(bufnr, hint_ns, 0, -1)
-  vim.api.nvim_buf_set_extmark(bufnr, hint_ns, 0, 0, {
-    virt_text = { { how, "JLogHint" }, { string.rep(" ", RIGHT_PADDING) } },
-    virt_text_pos = "right_align",
-  })
+  if how ~= "" then
+    vim.api.nvim_buf_set_extmark(bufnr, hint_ns, 0, 0, {
+      virt_text = { { how, "JLogHint" }, { string.rep(" ", RIGHT_PADDING) } },
+      virt_text_pos = "right_align",
+    })
+  end
   for row, line in ipairs(lines) do
     text = vim.trim(line)
-    if ends_sections(text) then
-      break
-    end
     hint = HINTS[text]
     if hint and not insert and lines[row + 1] and vim.trim(lines[row + 1]) == "" then
       vim.api.nvim_buf_set_extmark(bufnr, hint_ns, row, 0, { virt_text = { { hint, "JLogHint" } } })
@@ -267,7 +302,8 @@ end
 Sidebar.render = function(self, progress)
   local state = self.ws.state
   -- the first row is left blank for how to apply edits, drawn over it by `show_hints`
-  local lines = { "", HEADERS.filters }
+  local lines = { "" }
+  local in_buffer = 0
   local highlights = {}
   local diagnostics = {}
   local width = text_width(self)
@@ -279,21 +315,34 @@ Sidebar.render = function(self, progress)
   progress = progress or (self.stale and COUNTING or nil)
   self.width = width
   self.rows = {}
-  vim.list_extend(lines, state.filters)
-  for _, err in ipairs(self.errors) do
-    lines[#lines + 1] = err.text
-    diagnostics[#diagnostics + 1] =
-      { lnum = #lines - 1, col = 0, severity = vim.diagnostic.severity.WARN, message = err.msg, source = "jlog" }
+  for _, section in ipairs(sections_of(self.ws.opts)) do
+    -- SORT is virtual lines, drawn by `show_sort`; the other sections are buffer text, a blank line apart
+    if section ~= "sort" then
+      in_buffer = in_buffer + 1
+      if in_buffer > 1 then
+        lines[#lines + 1] = ""
+      end
+    end
+    if section == "filters" then
+      lines[#lines + 1] = HEADERS.filters
+      vim.list_extend(lines, state.filters)
+      for _, err in ipairs(self.errors) do
+        lines[#lines + 1] = err.text
+        diagnostics[#diagnostics + 1] =
+          { lnum = #lines - 1, col = 0, severity = vim.diagnostic.severity.WARN, message = err.msg, source = "jlog" }
+      end
+      -- an empty section keeps a blank input line
+      if #state.filters == 0 and #self.errors == 0 then
+        lines[#lines + 1] = ""
+      end
+    elseif section == "group" then
+      vim.list_extend(lines, { HEADERS.group, state.group or "" })
+    elseif section == "fields" then
+      lines[#lines + 1] = HEADERS.fields
+      fields_row = #lines
+      add_fields(self, lines, highlights, width)
+    end
   end
-  -- an empty section keeps its blank input line and a blank line apart from the next section
-  if #state.filters == 0 and #self.errors == 0 then
-    lines[#lines + 1] = ""
-  end
-  vim.list_extend(lines, { "", HEADERS.group })
-  lines[#lines + 1] = state.group or ""
-  vim.list_extend(lines, { "", HEADERS.fields })
-  fields_row = #lines
-  add_fields(self, lines, highlights, width)
 
   vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, lines)
   vim.bo[self.bufnr].modified = false
@@ -316,7 +365,7 @@ Sidebar.render = function(self, progress)
     })
     add_caps(self, hl)
   end
-  if progress then
+  if progress and fields_row then
     vim.api.nvim_buf_set_extmark(self.bufnr, hl_ns, fields_row - 1, 0, {
       virt_text = { { "  " .. progress, self.stale and "JLogFieldStale" or "JLogFieldCount" } },
     })
@@ -326,46 +375,52 @@ Sidebar.render = function(self, progress)
   self:show_sort()
 end
 
----Show the view's order above FIELDS as virtual lines, which the buffer, edits and `:w` never contain.
+---Show the order as virtual lines (never in the buffer or `:w`): above the next section's header, else below the end.
 Sidebar.show_sort = function(self)
+  local sections = sections_of(self.ws.opts)
   local key = self.ws.opts.keymaps.reverse
   local newest_first = self.ws.stored_newest_first ~= self.ws.state.reverse
   local order = (newest_first and "newest first" or "oldest first") .. (key and (" (" .. key .. ")") or "")
+  local sort_line = { { "SORT", "JLogSectionHeader" }, { "  " .. order, "JLogHint" } }
+  local lines = vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)
+  local position = vim.fn.index(sections, "sort") + 1
+  local next_header = sections[position + 1] and HEADERS[sections[position + 1]]
 
   vim.api.nvim_buf_clear_namespace(self.bufnr, sort_ns, 0, -1)
-  for row, line in ipairs(vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)) do
-    if vim.trim(line) == HEADERS.fields then
+  if position == 0 then
+    return
+  end
+  for row, line in ipairs(lines) do
+    if next_header and vim.trim(line) == next_header then
       vim.api.nvim_buf_set_extmark(self.bufnr, sort_ns, row - 1, 0, {
-        virt_lines = { { { "SORT", "JLogSectionHeader" }, { "  " .. order, "JLogHint" } }, {} },
+        virt_lines = { sort_line, {} },
         virt_lines_above = true,
       })
 
       return
     end
   end
+  -- last, or the header after it was deleted by an edit
+  vim.api.nvim_buf_set_extmark(self.bufnr, sort_ns, #lines - 1, 0, { virt_lines = { {}, sort_line } })
 end
 
----Filters and group typed in the sidebar; reading stops at FIELDS, and without GROUP BY a blank line ends filters.
+---Filters and group typed under their headers, wherever those are; without a GROUP BY header a blank ends filters.
 ---@return {filters: string[], group: string|nil}
 Sidebar.read = function(self)
   local spec = { filters = {} }
   local lines = vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)
   local has_group = false
-  local section = "filters"
+  local section
   local text
 
   for _, line in ipairs(lines) do
-    text = vim.trim(line)
-    if ends_sections(text) then
-      break
-    end
-    has_group = has_group or text == HEADERS.group
+    has_group = has_group or vim.trim(line) == HEADERS.group
   end
 
   for _, line in ipairs(lines) do
     text = vim.trim(line)
-    if ends_sections(text) then
-      break
+    if text == HEADERS.fields then
+      section = nil
     elseif text == HEADERS.filters then
       section = "filters"
     elseif text == HEADERS.group then
@@ -392,11 +447,17 @@ end
 ---Apply what the user typed in FILTERS and GROUP BY.
 Sidebar.sync = function(self)
   local spec = self:read()
+  local opts = self.ws.opts
 
-  -- the error lines are in `spec.filters` again; apply re-validates them
-  self.errors = {}
-  self.ws.state.filters = spec.filters
-  self.ws.state.group = spec.group
+  -- a hidden section was not typed in: its filters or group stay as the field actions and commands set them
+  if shows(opts, "filters") then
+    -- the error lines are in `spec.filters` again; apply re-validates them
+    self.errors = {}
+    self.ws.state.filters = spec.filters
+  end
+  if shows(opts, "group") then
+    self.ws.state.group = spec.group
+  end
   -- applied now, so the apply may rewrite the buffer
   vim.bo[self.bufnr].modified = false
   self.ws:apply()

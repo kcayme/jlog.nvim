@@ -58,8 +58,9 @@ miss text that only exists in the compact form (formatted times, flattened neste
 done.
 
 Type filters under `FILTERS` and a field under `GROUP BY` in the sidebar, then `:w` to apply (leaving insert mode also
-applies). An empty section shows an example in normal mode. Below GROUP BY, `SORT` shows the current order (newest or
-oldest first); it is not part of the buffer, so it cannot be edited, and `R` reverses it from the sidebar too.
+applies). An empty section shows an example in normal mode. `SORT` (below GROUP BY by default) shows the current order
+(newest or oldest first); it is not part of the buffer, so it cannot be edited, and `R` reverses it from the sidebar
+too. `sidebar.sections` sets the order of the sections and hides any left out of it.
 
 A search or group shows its lines first; FIELDS counts arrive afterwards. Until they do, FIELDS keeps the previous
 counts, dimmed with `JLogFieldStale` and marked `counting…`. With the sidebar closed nothing is counted.
@@ -167,6 +168,7 @@ require("jlog").setup({
     style = "plain", -- FIELDS names: "plain", "inverted" or "pill"
     fields = {}, -- per field path or role: { style = ..., format = function(ctx) return text, group end }
     pill = { left = "\238\130\182", right = "\238\130\180" }, -- Nerd Font caps; "" for square ends
+    sections = { "filters", "group", "sort", "fields" }, -- order shown; a section left out is hidden
   },
   facets = { top_values = 10 },
   paging = { size = 100000, overlap = 2000 }, -- source lines (JSONL) or array elements

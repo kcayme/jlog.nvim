@@ -60,6 +60,105 @@ describe("sidebar", function()
     assert.is_true(vim.bo[ws.sidebar.bufnr].modified)
   end)
 
+  ---The section headers in buffer order.
+  local function headers()
+    return vim.tbl_filter(function(line)
+      return line == "FILTERS" or line == "GROUP BY" or line == "FIELDS"
+    end, vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, -1, false))
+  end
+
+  ---The row of the SORT virtual lines and whether they sit above it.
+  local function sort_mark()
+    local ns = vim.api.nvim_get_namespaces()["jlog.sort"]
+    local mark = vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, ns, 0, -1, { details = true })[1]
+
+    return mark and { mark[2], mark[4].virt_lines_above or false }
+  end
+
+  ---The 0-based row of the line `text` in the sidebar.
+  local function row_of(text)
+    for row, line in ipairs(vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, -1, false)) do
+      if line == text then
+        return row - 1
+      end
+    end
+  end
+
+  describe("sections", function()
+    after_each(function()
+      require("jlog.config").setup()
+    end)
+
+    it("should draw the sections in the configured order, SORT above the section after it", function()
+      require("jlog.config").setup({ sidebar = { sections = { "fields", "sort", "group", "filters" } } })
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+
+      assert.are.same({ "FIELDS", "GROUP BY", "FILTERS" }, headers())
+      assert.are.same({ row_of("GROUP BY"), true }, sort_mark())
+      assert.are.same({ "SORT  newest first (R)", "" }, sort_lines())
+    end)
+
+    it("should put SORT below the last line when it comes last", function()
+      require("jlog.config").setup({ sidebar = { sections = { "filters", "group", "fields", "sort" } } })
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+
+      assert.are.same({ vim.api.nvim_buf_line_count(ws.sidebar.bufnr) - 1, false }, sort_mark())
+      assert.are.same({ "", "SORT  newest first (R)" }, sort_lines())
+    end)
+
+    it("should apply filters and a group typed below FIELDS", function()
+      local sb
+
+      require("jlog.config").setup({ sidebar = { sections = { "fields", "filters", "group" } } })
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+      sb = ws.sidebar.bufnr
+      vim.api.nvim_buf_set_lines(sb, row_of("FILTERS") + 1, row_of("FILTERS") + 2, false, { "level=INFO" })
+      vim.api.nvim_buf_set_lines(sb, row_of("GROUP BY") + 1, row_of("GROUP BY") + 2, false, { "request_id" })
+      vim.api.nvim_buf_call(sb, function()
+        vim.cmd("write")
+      end)
+
+      assert.are.same({ "level=INFO" }, ws.state.filters)
+      assert.are.equal("request_id", ws.state.group)
+    end)
+
+    it("should hide omitted sections and keep their filters and group on write", function()
+      local sb
+
+      require("jlog.config").setup({ sidebar = { sections = { "fields" } } })
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+      sb = ws.sidebar.bufnr
+      ws:add_filter("level=INFO")
+      ws:set_group("request_id")
+      vim.bo[sb].modified = true
+      vim.api.nvim_buf_call(sb, function()
+        vim.cmd("write")
+      end)
+
+      assert.are.same({ "FIELDS" }, headers())
+      assert.is_nil(sort_mark())
+      assert.are.same({ "level=INFO" }, ws.state.filters)
+      assert.are.equal("request_id", ws.state.group)
+    end)
+
+    it("should warn about unknown or repeated section names and skip them", function()
+      local notify = vim.notify
+      local warnings = {}
+
+      vim.notify = function(msg)
+        warnings[#warnings + 1] = msg
+      end
+      require("jlog.config").setup({ sidebar = { sections = { "fields", "bogus", "fields" } } })
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+      vim.notify = notify
+
+      assert.are.same({ "FIELDS" }, headers())
+      assert.are.equal(2, #vim.tbl_filter(function(msg)
+        return msg:find("sidebar.sections", 1, true) ~= nil
+      end, warnings))
+    end)
+  end)
+
   it("should apply edited filters on write and flag bad lines", function()
     require("jlog.config").setup()
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })

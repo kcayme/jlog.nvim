@@ -48,6 +48,8 @@
 ---@field style JLogFieldStyle|nil
 ---@field format (fun(ctx: JLogSidebarFormatContext): string, string|nil)|nil the name's text and an optional group
 
+---@alias JLogSidebarSection "filters"|"group"|"sort"|"fields"
+
 ---@class JLogSidebarOptions
 ---@field width integer
 ---@field position JLogSidebarPosition
@@ -55,6 +57,7 @@
 ---@field style JLogFieldStyle default style of field names in FIELDS
 ---@field fields table<string, JLogSidebarField> per field path or role (`time`, `level`, `message`, `status`)
 ---@field pill JLogPillOptions caps of `pill` field names
+---@field sections JLogSidebarSection[] sections in the order shown; one left out is hidden
 
 ---@class JLogFacetsOptions
 ---@field top_values integer
@@ -121,6 +124,7 @@ M.defaults = {
     style = "plain",
     fields = {},
     pill = { left = "\238\130\182", right = "\238\130\180" },
+    sections = { "filters", "group", "sort", "fields" },
   },
   facets = { top_values = 10 },
   paging = { size = 100000, overlap = 2000 },

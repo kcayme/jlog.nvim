@@ -23,6 +23,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `unwrap.max_depth` | `integer` | `4` | Maximum levels of nested unwrapping. |
 | `sidebar.width` | `integer` | `45` | Sidebar width in columns. |
 | `sidebar.position` | `JLogSidebarPosition` | `"right"` | Sidebar side: `"left"` or `"right"`. |
+| `sidebar.sections` | `JLogSidebarSection[]` | `{ "filters", "group", "sort", "fields" }` | Sidebar sections in the order shown: `"filters"`, `"group"`, `"sort"`, `"fields"`. A section left out is hidden; `:w` then leaves its filters or group as the field actions and `:JLog` commands set them. Unknown or repeated names are skipped with a warning. |
 | `sidebar.field_colors` | `boolean` | `true` | Color each field name in FIELDS by field, in the same `JLogField1`…`JLogField8` color its keys get in the log view. `false` uses `JLogFieldName`. Independent of `view.field_colors`. |
 | `sidebar.style` | `JLogFieldStyle` | `"plain"` | Default style of field names in FIELDS: `"plain"` (colored text), `"inverted"` (the name as a colored block) or `"pill"` (inverted with caps). |
 | `sidebar.fields` | `table<string, JLogSidebarField>` | `{}` | Per field overrides for FIELDS names, keyed by the field path FIELDS shows (e.g. `req.method`) or a role (`time`, `level`, `message`, `status`); a path's entry wins over its role's. |

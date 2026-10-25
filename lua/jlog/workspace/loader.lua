@@ -249,8 +249,7 @@ local function load_page(ws, page, keep)
         return
       end
       ws.state.expanded = {}
-      ws.entries = loaded
-      gc.release_compiled()
+      query.set_entries(ws, loaded)
       ws:apply(function()
         winid = vim.fn.bufwinid(ws.view.bufnr)
         if winid ~= -1 then
@@ -367,7 +366,7 @@ local function load_first(ws, entries, read, early, counter)
     end
     -- shown once loaded and ordered, counted by that apply
     load_rest(ws, entries, read, function(loaded)
-      ws.entries = loaded
+      query.set_entries(ws, loaded)
       ws:apply()
     end, nil, token)
   end, 0)

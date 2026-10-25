@@ -338,6 +338,29 @@ describe("workspace", function()
     vim.fn.delete(path)
   end)
 
+  it("should release compiled code whenever the entries are swapped", function()
+    local gc = require("jlog.core.gc")
+    local query = require("jlog.workspace.query")
+    local release = gc.release_compiled
+    local released = 0
+    local ws, entries
+
+    ws = assert(workspace.open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") }))
+    assert.is_true(vim.wait(5000, function()
+      return not ws.loading
+    end))
+    entries = {}
+    gc.release_compiled = function()
+      released = released + 1
+    end
+    query.set_entries(ws, entries)
+    gc.release_compiled = release
+
+    assert.are.equal(entries, ws.entries)
+    assert.are.equal(1, released)
+    ws:close()
+  end)
+
   it("should reverse without counting fields again when the counts are already final", function()
     local ws = assert(workspace.open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") }))
     local counts, facets, first

@@ -215,6 +215,14 @@ M.extend = function(ws, old_count, old_key)
   return true
 end
 
+---Make `entries` the workspace's entries and free the old ones, which compiled code would otherwise keep alive.
+---@param ws JLogWorkspace
+---@param entries JLogEntry[]
+M.set_entries = function(ws, entries)
+  ws.entries = entries
+  gc.release_compiled()
+end
+
 ---Swap in rebuilt entries, keeping state: expanded entries and the cursor entry are found again by key.
 ---@param ws JLogWorkspace
 ---@param entries JLogEntry[]
@@ -238,8 +246,7 @@ M.replace_entries = function(ws, entries)
     end
   end
   state.expanded = expanded
-  ws.entries = entries
-  gc.release_compiled()
+  M.set_entries(ws, entries)
   cursor = cursor_key and new_index[cursor_key] or cursor
   ws:apply(function()
     if cursor then

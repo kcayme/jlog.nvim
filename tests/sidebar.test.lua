@@ -105,6 +105,37 @@ describe("sidebar", function()
     end
   end)
 
+  it("should take new counts on refresh, redraw, and keep unapplied edits apart from the SORT line", function()
+    local facets_mod = require("jlog.query.facets")
+    local counter = facets_mod.counter()
+    local sb
+
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    sb = ws.sidebar.bufnr
+    assert.is_true(vim.wait(5000, function()
+      return not ws.loading and not ws.sidebar.stale
+    end))
+    facets_mod.add(counter, { zzz = 1 })
+    vim.api.nvim_buf_set_lines(sb, 2, 3, false, { "level=ERROR" })
+    ws.sidebar:refresh({ counter = counter })
+
+    assert.are.equal("level=ERROR", vim.api.nvim_buf_get_lines(sb, 2, 3, false)[1])
+    assert.are.same(
+      { "zzz" },
+      vim.tbl_map(function(facet)
+        return facet.name
+      end, ws.sidebar.facets)
+    )
+    assert.is_true(ws.fields_seen.zzz)
+    assert.are.same({ "SORT  newest first (R)", "" }, sort_lines())
+
+    vim.bo[sb].modified = false
+    ws.sidebar:refresh()
+    assert.is_truthy(vim.iter(vim.api.nvim_buf_get_lines(sb, 0, -1, false)):any(function(line)
+      return line:find("zzz", 1, true) ~= nil
+    end))
+  end)
+
   describe("sections", function()
     after_each(function()
       require("jlog.config").setup()

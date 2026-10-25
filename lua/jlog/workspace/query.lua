@@ -1,6 +1,4 @@
 local entry_model = require("jlog.parse.entry")
-local facets = require("jlog.query.facets")
-local field_order = require("jlog.ui.field_order")
 local filter = require("jlog.query.filter")
 local gc = require("jlog.core.gc")
 local layout = require("jlog.workspace.layout")
@@ -28,14 +26,6 @@ local function split_invalid(lines, errors)
   end
 
   return valid, invalid
-end
-
----Rewrite the sidebar from state, unless it holds FILTERS or GROUP BY edits not applied yet.
----@param ws JLogWorkspace
-local function render_sidebar(ws)
-  if not vim.bo[ws.sidebar.bufnr].modified then
-    ws.sidebar:render()
-  end
 end
 
 ---An action that sets filters or the group replaces what was typed in the sidebar.
@@ -77,20 +67,6 @@ M.winbar_text = function(ws, shown)
   return table.concat(parts, " · ")
 end
 
----@param ws JLogWorkspace
----@param counter JLogFacetCounter
----@param partial boolean|nil the counts are still coming in (loading, or lines appended since the last apply)
-M.publish_facets = function(ws, counter, partial)
-  local final = not partial and not ws.loading
-
-  ws.sidebar.facets =
-    field_order.order(facets.result(counter, ws.opts.facets.top_values), ws.opts, ws.sidebar.facets, final)
-  for _, facet in ipairs(ws.sidebar.facets) do
-    ws.fields_seen[facet.name] = true
-  end
-  ws.published.names = #counter.names
-end
-
 ---Filter, group and render, then count facets; work past the first ~12ms tick continues later, a newer apply wins.
 ---@param ws JLogWorkspace
 ---@param on_done fun()|nil called once the view has rendered
@@ -121,26 +97,22 @@ M.apply = function(ws, on_done, counted, keep_counts)
     ws.sidebar.stale = counts and not prefilled
   end
   if ws.sidebar.stale then
-    render_sidebar(ws)
+    ws.sidebar:refresh()
   end
 
   local function publish(items, shown)
     local generation = ws.store.generation
     local cursor_entry = ws.view:entry_at_cursor()
 
-    if prefilled then
-      M.publish_facets(ws, counted)
-    end
     ws.shown = shown
     ws.view:set_winbar(M.winbar_text(ws, shown))
-    render_sidebar(ws)
+    ws.sidebar:refresh(prefilled and { counter = counted } or nil)
     -- counting does not wait for the render: a superseded render never calls its on_done
     if ws.sidebar.stale then
       ws.store:count(function(counter)
         ws.sidebar.stale = false
-        M.publish_facets(ws, counter)
         -- unsaved FILTERS edits are kept; the next sync renders the counts
-        render_sidebar(ws)
+        ws.sidebar:refresh({ counter = counter })
       end)
     end
     ws.view:render(items, function()
@@ -189,8 +161,6 @@ end
 ---@param ws JLogWorkspace
 M.toggle_reverse = function(ws)
   ws.state.reverse = not ws.state.reverse
-  -- the sidebar is not rewritten while it holds unsaved edits, but its sort line follows the order
-  ws.sidebar:show_sort()
   -- the same entries match in either order, so their field counts stay
   ws:apply(nil, nil, true)
 end
@@ -239,8 +209,7 @@ M.extend = function(ws, old_count, old_key)
   ws.shown = #view.items
   view:set_winbar(M.winbar_text(ws, ws.shown))
   if counter then
-    M.publish_facets(ws, counter, true)
-    render_sidebar(ws)
+    ws.sidebar:refresh({ counter = counter, partial = true })
   end
 
   return true

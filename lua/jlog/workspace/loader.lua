@@ -67,8 +67,7 @@ local function publish_partial(ws, counter, progress)
     return
   end
   ws.published.at = now
-  query.publish_facets(ws, counter, true)
-  ws.sidebar:render(progress)
+  ws.sidebar:refresh({ counter = counter, partial = true, progress = progress })
 end
 
 ---Parse the rest of the source into `entries` in chunks across event-loop ticks, then call `on_done` once.

@@ -1,4 +1,6 @@
+local facets_mod = require("jlog.query.facets")
 local field_label = require("jlog.ui.field_label")
+local field_order = require("jlog.ui.field_order")
 local filter = require("jlog.query.filter")
 local keymaps = require("jlog.ui.keymaps")
 
@@ -343,6 +345,34 @@ Sidebar.render = function(self, progress)
   -- a reload can render while the user types in the sidebar
   show_hints(self, vim.api.nvim_get_current_buf() == self.bufnr and vim.fn.mode():find("^[iR]") ~= nil)
   self:show_sort()
+end
+
+---@class JLogSidebarUpdate
+---@field counter JLogFacetCounter|nil new field counts to show
+---@field partial boolean|nil the counts are still coming in (loading, or lines appended since the last apply)
+---@field progress string|nil shown after the FIELDS header, e.g. `loading 40%`
+
+---Take new field counts if given, then redraw; unapplied FILTERS or GROUP BY edits are kept, only SORT follows them.
+---@param update JLogSidebarUpdate|nil
+Sidebar.refresh = function(self, update)
+  local ws = self.ws
+  local counter = update and update.counter
+  local final
+
+  if counter then
+    final = not update.partial and not ws.loading
+    self.facets = field_order.order(facets_mod.result(counter, ws.opts.facets.top_values), ws.opts, self.facets, final)
+    for _, facet in ipairs(self.facets) do
+      ws.fields_seen[facet.name] = true
+    end
+    ws.published.names = #counter.names
+  end
+  if vim.bo[self.bufnr].modified then
+    self:show_sort()
+
+    return
+  end
+  self:render(update and update.progress)
 end
 
 ---Show the order as virtual lines (never in the buffer or `:w`): above the next section's header, else below the end.

@@ -229,6 +229,28 @@ local function scan_pages(ws, index, on_known, wait_done)
   ws.sidebar:show_status()
 end
 
+---Put the cursor on the page's first own entry at the top of window `winid`, past the neighbour's dimmed overlap.
+---@param ws JLogWorkspace
+---@param winid integer
+local function land_on_core(ws, winid)
+  local view = ws.view
+  local item, src
+
+  for row, item_index in ipairs(view.line_item) do
+    item = view.items[item_index]
+    src = item.kind == "entry" and ws.entries[item.idx].src
+    if src and src >= ws.core[1] and src <= ws.core[2] then
+      vim.api.nvim_win_set_cursor(winid, { row, 0 })
+      vim.api.nvim_win_call(winid, function()
+        vim.cmd("normal! zt")
+      end)
+
+      return
+    end
+  end
+  vim.api.nvim_win_set_cursor(winid, { 1, 0 })
+end
+
 ---Load page `page` of `ws.pages` in ticks, then show it; `keep` keeps the cursor entry and expanded entries by key.
 ---@param ws JLogWorkspace
 ---@param page integer
@@ -255,7 +277,7 @@ local function load_page(ws, page, keep)
       ws:apply(function()
         winid = vim.fn.bufwinid(ws.view.bufnr)
         if winid ~= -1 then
-          vim.api.nvim_win_set_cursor(winid, { 1, 0 })
+          land_on_core(ws, winid)
         end
       end, counter)
     end, counter, token)

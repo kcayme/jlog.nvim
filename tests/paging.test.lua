@@ -114,7 +114,7 @@ describe("paging", function()
     assert.is_nil(page_mark())
   end)
 
-  it("should keep filters and reset the cursor when changing page", function()
+  it("should keep filters and land on the page's first own entry, past the overlap, when changing page", function()
     local winid
 
     ws = workspace.open({ path = path })
@@ -127,8 +127,11 @@ describe("paging", function()
       return settled() and ws.page == 2
     end)
     assert.are.same({ "msg~m" }, ws.state.filters)
-    assert.are.equal(1, vim.api.nvim_win_get_cursor(winid)[1])
+    -- m27 and m26 are page 1's overlap above it
     assert.is_truthy(vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, 1, false)[1]:find("m27", 1, true))
+    assert.are.equal(3, vim.api.nvim_win_get_cursor(winid)[1])
+    assert.are.equal(3, vim.fn.line("w0", winid))
+    assert.is_truthy(vim.api.nvim_buf_get_lines(ws.view.bufnr, 2, 3, false)[1]:find("m25", 1, true))
   end)
 
   it("should refuse a page that is not indexed yet", function()
@@ -196,6 +199,8 @@ describe("paging", function()
       return settled() and ws.page == 2
     end)
     vim.api.nvim_set_current_win(vim.fn.bufwinid(ws.view.bufnr))
+    -- the page opens past the overlap above it
+    vim.cmd("normal! gg")
     vim.api.nvim_buf_set_extmark = function(bufnr, ns, row, col, opts)
       if opts.hl_group == "JLogOverlap" then
         dimmed[row + 1] = true

@@ -22,6 +22,8 @@ local keymaps = require("jlog.ui.keymaps")
 ---@field width integer|nil text cells the FIELDS lines were last fitted to
 ---@field stale boolean the facets are the last apply's, kept while the current apply counts its own
 ---@field limit_marks table<string, integer> LIMIT label -> extmark id of the label drawn on its value line
+---@field auto_token table|nil the pending auto apply; a newer edit replaces it
+---@field auto_spec table|nil what an auto apply in insert mode applied, still shown as typed
 local Sidebar = {}
 Sidebar.__index = Sidebar
 
@@ -253,6 +255,15 @@ local function limit_row(sidebar, label)
   return mark[1]
 end
 
+---Whether a typed limit is blank or a positive whole number.
+---@param text string|nil
+---@return boolean
+local function valid_limit(text)
+  local limit = tonumber(text)
+
+  return text == nil or (limit ~= nil and limit >= 1 and limit % 1 == 0)
+end
+
 ---@param opts JLogOptions
 ---@param name JLogSidebarSection
 ---@return boolean
@@ -269,10 +280,11 @@ local function show_hints(sidebar, insert)
   local opts = sidebar.ws.opts
   local help = opts.keymaps.help
   local editable = shows(opts, "filters") or shows(opts, "group") or shows(opts, "limit")
+  local apply_hint = opts.sidebar.auto_apply.enable and "applies as you type" or ":w to apply"
   -- here rather than in the winbar, which statusline plugins such as lualine take over
   local parts = vim.tbl_filter(function(part)
     return part ~= ""
-  end, { editable and ":w to apply" or "", help and (help .. " help") or "" })
+  end, { editable and apply_hint or "", help and (help .. " help") or "" })
   local how = table.concat(parts, " | ")
   local text, hint, row_of_limit
 
@@ -526,29 +538,88 @@ Sidebar.set_errors = function(self, errors)
   self.errors = errors
 end
 
----Apply what the user typed in FILTERS, GROUP BY and LIMIT.
-Sidebar.sync = function(self)
-  local spec = self:read()
-  local opts = self.ws.opts
+---Put a read spec into the workspace state; a hidden section was not typed in, so its state is kept.
+---@param sidebar JLogSidebar
+---@param spec {filters: string[], group: string|nil, limits: table<string, string>}
+local function set_state(sidebar, spec)
+  local opts, state = sidebar.ws.opts, sidebar.ws.state
 
-  -- a hidden section was not typed in: its filters or group stay as the field actions and commands set them
   if shows(opts, "filters") then
     -- the error lines are in `spec.filters` again; apply re-validates them
-    self.errors = {}
-    self.ws.state.filters = spec.filters
+    sidebar.errors = {}
+    state.filters = spec.filters
   end
   if shows(opts, "group") then
-    self.ws.state.group = spec.group
+    state.group = spec.group
   end
   if shows(opts, "limit") then
     for _, limit in ipairs(LIMITS) do
-      self.ws.state[limit.field] =
-        parse_limit(spec.limits[limit.label], self.ws.state[limit.field], "LIMIT " .. limit.label)
+      state[limit.field] = parse_limit(spec.limits[limit.label], state[limit.field], "LIMIT " .. limit.label)
     end
   end
+end
+
+---Apply what the user typed in FILTERS, GROUP BY and LIMIT.
+Sidebar.sync = function(self)
+  self.auto_token, self.auto_spec = nil, nil
+  set_state(self, self:read())
   -- applied now, so the apply may rewrite the buffer
   vim.bo[self.bufnr].modified = false
   self.ws:apply()
+end
+
+---`auto_apply`: in insert mode apply only what is complete, leaving the buffer as typed; otherwise `sync`.
+Sidebar.auto_sync = function(self)
+  local spec, errors
+
+  if self.ws.closed or not vim.api.nvim_buf_is_valid(self.bufnr) or not vim.bo[self.bufnr].modified then
+    return
+  end
+  if not vim.fn.mode():find("^[iR]") then
+    self:sync()
+
+    return
+  end
+  spec = self:read()
+  _, errors = filter.compile(spec.filters)
+  -- a line still being typed may not parse yet: wait for the next edit or for leaving insert mode
+  if #errors > 0 or not vim.iter(vim.tbl_values(spec.limits)):all(valid_limit) then
+    return
+  end
+  if vim.deep_equal(spec, self.auto_spec) then
+    return
+  end
+  self.auto_spec = spec
+  set_state(self, spec)
+  -- the buffer stays modified, so the apply leaves the lines being typed alone
+  self.ws:apply()
+end
+
+---Leaving insert mode: show what an auto apply already applied, or apply what is typed.
+Sidebar.finish_insert = function(self)
+  if not vim.bo[self.bufnr].modified then
+    return
+  end
+  if self.auto_spec and vim.deep_equal(self:read(), self.auto_spec) then
+    self.auto_token, self.auto_spec = nil, nil
+    vim.bo[self.bufnr].modified = false
+    self:render()
+
+    return
+  end
+  self:sync()
+end
+
+---Run `auto_sync` once edits pause for `sidebar.auto_apply.debounce_ms`.
+Sidebar.schedule_auto_sync = function(self)
+  local token = {}
+
+  self.auto_token = token
+  vim.defer_fn(function()
+    if self.auto_token == token then
+      self:auto_sync()
+    end
+  end, self.ws.opts.sidebar.auto_apply.debounce_ms)
 end
 
 ---@param name string
@@ -629,11 +700,17 @@ M.new = function(ws)
     buffer = bufnr,
     callback = function()
       show_hints(sidebar, false)
-      if vim.bo[bufnr].modified then
-        sidebar:sync()
-      end
+      sidebar:finish_insert()
     end,
   })
+  if ws.opts.sidebar.auto_apply.enable then
+    vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+      buffer = bufnr,
+      callback = function()
+        sidebar:schedule_auto_sync()
+      end,
+    })
+  end
   vim.api.nvim_create_autocmd("InsertEnter", {
     buffer = bufnr,
     callback = function()

@@ -52,8 +52,8 @@ many entries match and the active filters and group.
 
 ### The sidebar
 
-- **FILTERS** and **GROUP BY** are typed in the buffer and applied with `:w` (or by leaving insert mode). One filter
-  clause per line, ANDed; an empty section shows an example.
+- **FILTERS** and **GROUP BY** are typed in the buffer and applied with `:w`, by leaving insert mode, or as you type
+  with `sidebar.auto_apply`. One filter clause per line, ANDed; an empty section shows an example.
 - **LIMIT** has two labelled lines, applied with `:w` too: a number after `entries` shows the first N entries in
   display order (it follows SORT), and one after `groups` the first N groups of a GROUP BY. With both, the last group
   can be cut short. The labels cannot be edited; leave a value blank for no limit. FIELDS still counts every match.
@@ -187,6 +187,8 @@ require("jlog").setup({
     width = 45,
     position = "right",
     line_numbers = false, -- show line numbers in the sidebar
+    -- apply FILTERS, GROUP BY and LIMIT edits without :w, once edits pause for debounce_ms
+    auto_apply = { enable = false, debounce_ms = 300 },
     fields = { -- how FIELDS lists and styles field names
       colors = true, -- false: every name uses JLogFieldName
       style = "plain", -- "plain", "inverted" or "pill", like compact fields

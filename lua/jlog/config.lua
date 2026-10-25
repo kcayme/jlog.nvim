@@ -62,10 +62,15 @@
 ---@field pinned string[] field paths or roles listed first in FIELDS, in this order
 ---@field sort JLogFieldSort the other fields: by name, or by entries once the counts are final
 
+---@class JLogSidebarAutoApplyOptions
+---@field enable boolean apply FILTERS, GROUP BY and LIMIT edits without `:w`
+---@field debounce_ms integer wait this long after the last edit before applying
+
 ---@class JLogSidebarOptions
 ---@field width integer
 ---@field position JLogSidebarPosition
 ---@field line_numbers boolean show line numbers in the sidebar window
+---@field auto_apply JLogSidebarAutoApplyOptions
 ---@field fields JLogSidebarFieldsOptions how FIELDS shows its field names
 ---@field sections JLogSidebarSection[] sections in the order shown; one left out is hidden
 
@@ -138,6 +143,7 @@ M.defaults = {
     width = 45,
     position = "right",
     line_numbers = false,
+    auto_apply = { enable = false, debounce_ms = 300 },
     fields = {
       colors = true,
       style = "plain",

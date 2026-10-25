@@ -527,6 +527,97 @@ describe("sidebar", function()
     assert.is_false(vim.bo[ws.sidebar.bufnr].modified)
   end)
 
+  describe("auto apply", function()
+    local mode = vim.fn.mode
+
+    after_each(function()
+      vim.fn.mode = mode
+      require("jlog.config").setup()
+    end)
+
+    local function open_auto()
+      require("jlog.config").setup({ sidebar = { auto_apply = { enable = true, debounce_ms = 10 } } })
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    end
+
+    it("should not apply edits without :w when it is off", function()
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+      vim.api.nvim_buf_set_lines(ws.sidebar.bufnr, 2, 3, false, { "level=ERROR" })
+      vim.api.nvim_exec_autocmds("TextChanged", { buffer = ws.sidebar.bufnr })
+      vim.wait(50)
+
+      assert.are.same({}, ws.state.filters)
+    end)
+
+    it("should apply a normal-mode edit once edits pause", function()
+      open_auto()
+      vim.api.nvim_buf_set_lines(ws.sidebar.bufnr, 2, 3, false, { "level=ERROR" })
+      vim.api.nvim_exec_autocmds("TextChanged", { buffer = ws.sidebar.bufnr })
+
+      assert.is_true(vim.wait(1000, function()
+        return #ws.state.filters == 1
+      end))
+      assert.are.same({ "level=ERROR" }, ws.state.filters)
+      assert.is_false(vim.bo[ws.sidebar.bufnr].modified)
+    end)
+
+    it("should apply normal-mode edits made with r and x", function()
+      open_auto()
+      ws:add_filter("level=ERRORS")
+      vim.api.nvim_set_current_win(vim.fn.bufwinid(ws.sidebar.bufnr))
+      vim.api.nvim_win_set_cursor(0, { 3, 0 })
+      vim.api.nvim_feedkeys("$x", "x", false)
+      -- headless Neovim never waits for a key, which is when TextChanged fires after a normal-mode change
+      vim.api.nvim_exec_autocmds("TextChanged", { buffer = ws.sidebar.bufnr })
+      assert.is_true(vim.wait(1000, function()
+        return ws.state.filters[1] == "level=ERROR"
+      end))
+
+      vim.api.nvim_win_set_cursor(0, { 3, 0 })
+      vim.api.nvim_feedkeys("$rX", "x", false)
+      vim.api.nvim_exec_autocmds("TextChanged", { buffer = ws.sidebar.bufnr })
+      assert.is_true(vim.wait(1000, function()
+        return ws.state.filters[1] == "level=ERROX"
+      end))
+      assert.is_false(vim.bo[ws.sidebar.bufnr].modified)
+    end)
+
+    it("should apply only complete edits in insert mode and keep the lines as typed", function()
+      local sb, generation
+
+      open_auto()
+      sb = ws.sidebar.bufnr
+      vim.fn.mode = function()
+        return "i"
+      end
+      vim.api.nvim_buf_set_lines(sb, 2, 3, false, { "msg~\\(" })
+      ws.sidebar:auto_sync()
+      assert.are.same({}, ws.state.filters)
+
+      vim.api.nvim_buf_set_lines(sb, 2, 3, false, { "level=ERROR", "status>" })
+      ws.sidebar:auto_sync()
+      assert.are.same({ "level=ERROR", "status>" }, ws.state.filters)
+      assert.is_true(vim.bo[sb].modified)
+      assert.are.same({ "level=ERROR", "status>" }, vim.api.nvim_buf_get_lines(sb, 2, 4, false))
+
+      vim.fn.mode = mode
+      generation = ws.store.generation
+      ws.sidebar:finish_insert()
+      assert.are.equal(generation, ws.store.generation)
+      assert.is_false(vim.bo[sb].modified)
+    end)
+
+    it("should say edits apply as you type", function()
+      open_auto()
+      assert.are.equal(
+        "applies as you type | ? help",
+        vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, vim.api.nvim_get_namespaces()["jlog.hint"], 0, 0, {
+          details = true,
+        })[1][4].virt_text[1][1]
+      )
+    end)
+  end)
+
   describe("hints", function()
     local function hints(bufnr)
       local found = {}

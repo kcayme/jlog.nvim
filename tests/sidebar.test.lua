@@ -7,6 +7,59 @@ describe("sidebar", function()
     end
   end)
 
+  ---The text of the virtual lines drawn above the FIELDS header.
+  local function sort_lines()
+    local sb = ws.sidebar.bufnr
+    local ns = vim.api.nvim_get_namespaces()["jlog.sort"]
+    local texts = {}
+
+    for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(sb, ns, 0, -1, { details = true })) do
+      for _, chunks in ipairs(mark[4].virt_lines or {}) do
+        texts[#texts + 1] = table.concat(vim.tbl_map(function(chunk)
+          return chunk[1]
+        end, chunks))
+      end
+    end
+
+    return texts
+  end
+
+  it("should separate empty sections with a blank line", function()
+    require("jlog.config").setup()
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+
+    assert.are.same(
+      { "", "FILTERS", "", "", "GROUP BY", "", "", "FIELDS" },
+      vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, 8, false)
+    )
+    assert.are.same({ filters = {} }, ws.sidebar:read())
+  end)
+
+  it("should show the sort order as virtual lines above FIELDS, outside the buffer text", function()
+    require("jlog.config").setup()
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+
+    assert.are.same({ "SORT  newest first (R)", "" }, sort_lines())
+    for _, line in ipairs(vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, -1, false)) do
+      assert.is_nil(line:find("SORT", 1, true))
+    end
+  end)
+
+  it("should reverse the order with R in the sidebar and update the sort line, even with unsaved edits", function()
+    local before
+
+    require("jlog.config").setup()
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    before = ws.state.reverse
+    vim.api.nvim_buf_set_lines(ws.sidebar.bufnr, 2, 3, false, { "level=ERROR" })
+    vim.api.nvim_set_current_win(vim.fn.bufwinid(ws.sidebar.bufnr))
+    vim.api.nvim_feedkeys("R", "x", false)
+
+    assert.are.equal(not before, ws.state.reverse)
+    assert.are.same({ "SORT  oldest first (R)", "" }, sort_lines())
+    assert.is_true(vim.bo[ws.sidebar.bufnr].modified)
+  end)
+
   it("should apply edited filters on write and flag bad lines", function()
     require("jlog.config").setup()
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
@@ -242,7 +295,7 @@ describe("sidebar", function()
       assert.are.same({
         { row = 0, text = ":w to apply | ? help" },
         { row = 2, text = "status>=500 level=ERROR -health" },
-        { row = 4, text = "request_id" },
+        { row = 5, text = "request_id" },
       }, hints(ws.sidebar.bufnr))
     end)
 
@@ -266,7 +319,7 @@ describe("sidebar", function()
       vim.api.nvim_buf_call(sb, function()
         vim.api.nvim_exec_autocmds("TextChanged", { buffer = sb })
       end)
-      assert.are.same({ { row = 0, text = ":w to apply | ? help" }, { row = 4, text = "request_id" } }, hints(sb))
+      assert.are.same({ { row = 0, text = ":w to apply | ? help" }, { row = 5, text = "request_id" } }, hints(sb))
     end)
   end)
 

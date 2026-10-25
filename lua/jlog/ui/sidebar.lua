@@ -35,6 +35,7 @@ local HINTS = { [HEADERS.filters] = "status>=500 level=ERROR -health", [HEADERS.
 
 local ns = vim.api.nvim_create_namespace("jlog.filter")
 local hl_ns = vim.api.nvim_create_namespace("jlog.sidebar")
+local sort_ns = vim.api.nvim_create_namespace("jlog.sort")
 local hint_ns = vim.api.nvim_create_namespace("jlog.hint")
 
 ---@type table<integer, JLogSidebar>
@@ -284,10 +285,12 @@ Sidebar.render = function(self, progress)
     diagnostics[#diagnostics + 1] =
       { lnum = #lines - 1, col = 0, severity = vim.diagnostic.severity.WARN, message = err.msg, source = "jlog" }
   end
-  vim.list_extend(lines, { "", HEADERS.group })
-  if state.group then
-    lines[#lines + 1] = state.group
+  -- an empty section keeps its blank input line and a blank line apart from the next section
+  if #state.filters == 0 and #self.errors == 0 then
+    lines[#lines + 1] = ""
   end
+  vim.list_extend(lines, { "", HEADERS.group })
+  lines[#lines + 1] = state.group or ""
   vim.list_extend(lines, { "", HEADERS.fields })
   fields_row = #lines
   add_fields(self, lines, highlights, width)
@@ -320,6 +323,26 @@ Sidebar.render = function(self, progress)
   end
   -- a reload can render while the user types in the sidebar
   show_hints(self, vim.api.nvim_get_current_buf() == self.bufnr and vim.fn.mode():find("^[iR]") ~= nil)
+  self:show_sort()
+end
+
+---Show the view's order above FIELDS as virtual lines, which the buffer, edits and `:w` never contain.
+Sidebar.show_sort = function(self)
+  local key = self.ws.opts.keymaps.reverse
+  local newest_first = self.ws.stored_newest_first ~= self.ws.state.reverse
+  local order = (newest_first and "newest first" or "oldest first") .. (key and (" (" .. key .. ")") or "")
+
+  vim.api.nvim_buf_clear_namespace(self.bufnr, sort_ns, 0, -1)
+  for row, line in ipairs(vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)) do
+    if vim.trim(line) == HEADERS.fields then
+      vim.api.nvim_buf_set_extmark(self.bufnr, sort_ns, row - 1, 0, {
+        virt_lines = { { { "SORT", "JLogSectionHeader" }, { "  " .. order, "JLogHint" } }, {} },
+        virt_lines_above = true,
+      })
+
+      return
+    end
+  end
 end
 
 ---Filters and group typed in the sidebar; reading stops at FIELDS, and without GROUP BY a blank line ends filters.

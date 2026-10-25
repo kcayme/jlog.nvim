@@ -30,6 +30,7 @@ local HELP = {
       { actions = { "add_filter" }, text = "on a value: add it as a filter" },
       { actions = { "toggle_sidebar" }, text = "hide the sidebar" },
       { actions = { "group_by" }, text = "on a field: group by it" },
+      { actions = { "reverse" }, text = "reverse the order" },
       { actions = { "help" }, text = "this guide" },
       { actions = { "close" }, text = "close" },
     },
@@ -143,6 +144,9 @@ local SCOPES = {
   sidebar = {
     close = function(ws)
       ws:close()
+    end,
+    reverse = function(ws)
+      ws:toggle_reverse()
     end,
     toggle_sidebar = function(ws)
       ws:toggle_sidebar()

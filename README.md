@@ -57,8 +57,9 @@ While a large page is still filling in the background, `/` may match the raw tex
 miss text that only exists in the compact form (formatted times, flattened nested keys); it is exact once rendering is
 done.
 
-Type filters under `FILTERS` and a field under `GROUP BY` in the sidebar, then `:w` to apply (leaving insert mode
-also applies). An empty section shows an example in normal mode.
+Type filters under `FILTERS` and a field under `GROUP BY` in the sidebar, then `:w` to apply (leaving insert mode also
+applies). An empty section shows an example in normal mode. Below GROUP BY, `SORT` shows the current order (newest or
+oldest first); it is not part of the buffer, so it cannot be edited, and `R` reverses it from the sidebar too.
 
 A search or group shows its lines first; FIELDS counts arrive afterwards. Until they do, FIELDS keeps the previous
 counts, dimmed with `JLogFieldStale` and marked `counting…`. With the sidebar closed nothing is counted.
@@ -95,7 +96,7 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
 | `<CR>` | log view | Expand/collapse the entry under the cursor, keeping its compact line on top |
 | `E` | log view | Toggle the whole view between compact and expanded |
 | `gf` | log view | Show the entry's raw source text in a float (press again in the float to jump to the source line, JSONL only) |
-| `R` | log view | Reverse order |
+| `R` | log view, sidebar | Reverse order |
 | `]]` / `[[` | log view | Next / previous entry |
 | `]e` / `[e` | log view | Next / previous ERROR-level entry |
 | `]p` / `[p` | log view | Next / previous page of a paged log |
@@ -287,11 +288,11 @@ linked group's color, reversed and bold, so the level reads as a colored label i
 | `JLogPrefix` | text before embedded JSON | `Comment` |
 | `JLogPlain` | non-JSON entries and continuation lines | `Comment` |
 | `JLogGroupHeader` | group headers (virtual lines and closed group folds) | `Title` |
-| `JLogSectionHeader` | sidebar `FILTERS` / `GROUP BY` / `FIELDS` | `Title` |
+| `JLogSectionHeader` | sidebar `FILTERS` / `GROUP BY` / `SORT` / `FIELDS` | `Title` |
 | `JLogFieldName` | field names in the FIELDS section, when `sidebar.field_colors = false` | `Identifier` |
 | `JLogFieldCount` | counts in the FIELDS section | `Comment` |
 | `JLogFieldStale` | FIELDS counts kept from the last apply while new ones are counted | `NonText` |
-| `JLogHint` | sidebar examples on empty FILTERS / GROUP BY lines and `:w to apply` | `Comment` |
+| `JLogHint` | sidebar examples on empty FILTERS / GROUP BY lines, `:w to apply`, and the SORT order | `Comment` |
 | `JLogWinbar` | jlog winbar text | `WinBar` |
 | `JLogOverlap` | entries a page shares with its neighbours | `Comment` |
 

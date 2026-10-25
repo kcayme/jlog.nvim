@@ -37,7 +37,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `keymaps.toggle_entry` | `string\|false` | `"<Tab>"` | Expand/collapse the entry under the cursor. |
 | `keymaps.toggle_mode` | `string\|false` | `"E"` | Toggle compact/expanded for the whole view. |
 | `keymaps.raw` | `string\|false` | `"gf"` | Show the entry's raw text in a float; inside the float, jump to the source line (JSONL only). |
-| `keymaps.reverse` | `string\|false` | `"R"` | Reverse order. |
+| `keymaps.reverse` | `string\|false` | `"R"` | Reverse order, in the log view and the sidebar; the sidebar's SORT line shows the key. |
 | `keymaps.next_entry` | `string\|false` | `"]]"` | Next entry. |
 | `keymaps.prev_entry` | `string\|false` | `"[["` | Previous entry. |
 | `keymaps.next_error` | `string\|false` | `"]e"` | Next ERROR-level entry. |

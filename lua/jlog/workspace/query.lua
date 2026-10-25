@@ -179,6 +179,8 @@ end
 ---@param ws JLogWorkspace
 M.toggle_reverse = function(ws)
   ws.state.reverse = not ws.state.reverse
+  -- the sidebar is not rewritten while it holds unsaved edits, but its sort line follows the order
+  ws.sidebar:show_sort()
   ws:apply()
 end
 

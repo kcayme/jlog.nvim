@@ -5,22 +5,22 @@ giant line, and double-encoded; jlog makes them readable, filterable and groupab
 
 ## Features
 
-- Parses JSONL/NDJSON, JSON arrays of log objects, and timestamped log exports (a JSON array whose elements wrap each
-  log line with its timestamp and labels, as log platforms export them).
-- Unwraps double-encoded JSON recursively, including JSON after a text prefix inside a string.
-- Compact one-line-per-entry view by default, toggle to expanded (indented JSON) per entry or for the whole view.
-- Each field keeps one color in the log view and the sidebar's FIELDS list, so FIELDS doubles as a legend.
-- Field filtering with a small query language, including `OR`.
-- Group by any field (request id, status, route, ...).
-- Native `/` search, `n`, `N` and `:g` work on the rendered text.
-- Workspace in its own tab with a sidebar for filters, group-by and field browsing.
-- `:JLog` opens the current buffer or a file path as a workspace.
-- Re-renders when the source file changes.
-- Stays fast on huge files; key order and number literals are never altered, nothing in the source is dropped.
+- **Reads what logs actually look like:** JSONL/NDJSON, JSON arrays of log objects, and timestamped log exports (a JSON
+  array whose elements wrap each log line with its timestamp and labels). Double-encoded JSON is unwrapped, text
+  prefixes and stack traces are kept, and nothing in the source is dropped or reformatted: key order and number
+  literals stay as written.
+- **A readable view:** one compact line per entry, or indented JSON per entry or for the whole view, newest first.
+  Each field keeps one color, and native `/`, `n`, `N` and `:g` work on what you see.
+- **Narrow it down:** filter with a small query language (`status>=500 -health`, `OR`, regex), group by any field
+  (request id, route, ...), and browse every field's top values in the sidebar, one keypress from a filter or group.
+- **Big and live files:** a 500k-line file shows its first screen in about 100ms and finishes loading in the
+  background; large logs are paged, and the view follows the file as it grows or rotates.
+- **Customizable:** compact field styles (plain, inverted, pill) and formatters, sidebar layout and field order,
+  keymaps and highlight groups.
 
 ## Requirements
 
-- Neovim >= 0.10
+- Neovim >= 0.10 (`:checkhealth jlog` confirms it)
 - No external tools (no jq, no treesitter)
 
 ## Installation
@@ -28,51 +28,68 @@ giant line, and double-encoded; jlog makes them readable, filterable and groupab
 With [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
-{ "kcayme/jlog.nvim" }
+{ "kcayme/jlog.nvim", opts = {} }
 ```
+
+`setup()` is optional; without it jlog runs with the defaults below.
+
+## Quick start
+
+1. Open a log file and run `:JLog` (or `:JLog path/to/app.log`). It opens in its own tab, with the sidebar on the right.
+2. Press `<CR>` on an entry to expand it, `E` to expand them all.
+3. In the sidebar, type `status>=500` under `FILTERS`, or `request_id` under `GROUP BY`, then `:w`.
+4. Or press `<CR>` on a value in `FIELDS` to filter by it, `g` on a field to group by it.
+5. `?` in the sidebar lists every key; `q` closes the workspace.
 
 ## Usage
 
-Open a log file and run `:JLog` in its buffer, or run `:JLog {path}`. jlog never writes to the source file.
+### Opening logs
 
-The newest entries come first by default, for JSONL files (oldest line at the top) and timestamped exports (newest
-element first) alike; `R` toggles the order and `view.sort = "asc"` makes oldest first the default. Within a group,
-entries also run newest first.
+`:JLog` opens the current buffer, `:JLog {path}` a file; the format is detected on open. jlog never writes to the
+source file, and `gf` on an entry shows its raw source text.
 
-The view reloads automatically when the file changes: appended lines are streamed in, and atomic saves (write to a temp
-file, then rename) are followed. Large JSONL files, and newest-first timestamped exports shown in the default order,
-show the first screen immediately and finish loading in the background; meanwhile FIELDS adds newly found fields as they
-appear, marked `loading N%` until the counts are final. An oldest-first timestamped export, or any timestamped export
-with `view.sort = "asc"`, appears once loading finishes.
+### The log view
 
-Large JSONL logs are parsed on background threads, and counts for fields with more than 1000 distinct values are
-estimates, marked `~`.
+Entries are shown newest first, for JSONL files and timestamped exports alike; `R` reverses the order and
+`view.sort = "asc"` makes oldest first the default. `<CR>` expands an entry in place, `E` switches the whole view
+between compact and expanded, `]]` / `[[` move between entries and `]e` / `[e` between errors. The winbar shows how
+many entries match and the active filters and group.
 
-Work that outlasts the first screen (loading, indexing pages, applying a filter or group, rendering) reports its
-progress: one message when it starts and one when it is done. On Neovim 0.12+ these are progress messages, so a UI that
-draws progress (such as a notification plugin) can show a spinner while the work runs; on older versions, or with
-`progress = "notify"`, they go through `vim.notify`; `progress = "off"` turns them off.
+### The sidebar
 
-While a large page is still filling in the background, `/` may match the raw text of rows not yet rendered, and
-miss text that only exists in the compact form (formatted times, flattened nested keys); it is exact once rendering is
-done.
+- **FILTERS** and **GROUP BY** are typed in the buffer and applied with `:w` (or by leaving insert mode). One filter
+  clause per line, ANDed; an empty section shows an example.
+- **SORT** shows the current order. It is not part of the buffer, so it cannot be edited; `R` reverses it.
+- **FIELDS** lists every field with its top values and counts: `<CR>` on a value adds it as a filter, `g` on a field
+  groups by it. After a filter or group, the lines show first and the counts follow, dimmed and marked `counting…`
+  until they arrive. Counts for fields with more than 1000 distinct values are estimates, marked `~`.
 
-Type filters under `FILTERS` and a field under `GROUP BY` in the sidebar, then `:w` to apply (leaving insert mode also
-applies). An empty section shows an example in normal mode. `SORT` (below GROUP BY by default) shows the current order
-(newest or oldest first); it is not part of the buffer, so it cannot be edited, and `R` reverses it from the sidebar
-too. `sidebar.sections` sets the order of the sections and hides any left out of it.
+`S` hides or shows the sidebar (nothing is counted while it is hidden), `s` focuses it. Its sections, their order and
+how FIELDS lists and styles field names are configurable: see [Sidebar customization](#sidebar-customization).
 
-A search or group shows its lines first; FIELDS counts arrive afterwards. Until they do, FIELDS keeps the previous
-counts, dimmed with `JLogFieldStale` and marked `counting…`. With the sidebar closed nothing is counted.
+### Large files
 
-A log larger than `paging.size` (100k lines or array elements by default) is shown one page at a time, so only the
-current page is parsed and held. Page 1 holds the newest entries (the oldest with `view.sort = "asc"`). The winbar
-shows `page 2/5`, or `page 1/…` while the page boundaries are still being found. Each page also shows
-`paging.overlap` lines or elements of its neighbours, dimmed with `JLogOverlap`, so a request at a page edge stays
-whole; filters, groups and FIELDS counts include them. Filters, group and mode carry over to another page; the cursor
-and expanded entries reset. Appended lines show on the page that holds the end of the file; on any other page only
-the page count updates. A rewritten file returns to the page holding the cursor entry. A timestamped export whose
-timestamps are not in order is not paged.
+Large JSONL files are parsed on background threads: the first screen shows right away and the rest loads in the
+background, with FIELDS adding fields as they are found (`loading N%`); a timestamped export that has to be reordered
+first appears once it has loaded. A log larger than `paging.size` (100k lines or array elements) is shown one page at a
+time, so only that page is held in memory: the winbar shows `page 2/5`, `]p` / `[p` or `:JLog page {n}` move between
+pages, and each page also shows `paging.overlap` lines of its neighbours, dimmed, so a request at a page edge stays
+whole. Filters, group and mode carry over to another page.
+
+While a large page is still being drawn, `/` may match the raw text of rows not drawn yet; it is exact once drawing
+is done.
+
+### Live reload
+
+The view follows the file: appended lines stream in, and atomic saves, rotation and a file deleted and created again
+are followed. A rewritten file returns to the page holding the entry under the cursor.
+
+### Progress messages
+
+Work that outlasts the first screen (loading, indexing pages, applying a filter or group, rendering) reports one
+message when it starts and one when it is done. On Neovim 0.12+ these are progress messages, so a notification plugin
+that draws progress can show a spinner; on older versions they go through `vim.notify`. `progress = "notify"` always
+uses `vim.notify`, `progress = "off"` turns them off.
 
 ### Commands
 
@@ -128,17 +145,12 @@ One clause per `:JLog filter` call or sidebar `FILTERS` line:
 | `"quoted value"` | Needed for spaces or the word `OR`, e.g. `msg="request completed"`. |
 
 - Fields are dotted paths (`req.headers.host`). `time`, `level` and `msg` resolve through the configured `fields`
-  aliases (e.g. `message`, `severity`). `level` compares case-insensitively.
-- In field names (filters, GROUP BY, FIELDS) a newline is written `\n` and a backslash `\\`.
-- A missing field never matches, so `-term` matches it.
-- Multiple sidebar lines are ANDed.
-- Inside quotes only `\"`, `\\` and `\n` are escapes; `\\` is one backslash and `\n` is a newline (a facet value
-  with a newline becomes `field="a\nb"`). A quoted `~` regex that needs a literal backslash must therefore write
-  `\\\\`, e.g. `msg~"a\\\\b"` matches `a\b`.
-- Integers are exact at any size: past 2^53 (where doubles stop holding every integer) `=`, `~`, groups and
-  FIELDS use the literal as written, so `id=12345678901234567890` works. `>`, `>=`, `<` and `<=` compare as
-  doubles, so beyond 2^53 they are approximate.
-- Filtering while grouped keeps whole groups: a group is shown if any of its entries matches.
+  aliases (e.g. `message`, `severity`); `level` compares case-insensitively.
+- A missing field never matches, so `-term` matches it. Filtering while grouped keeps whole groups.
+- In field names a newline is written `\n` and a backslash `\\`. Inside quotes only `\"`, `\\` and `\n` are
+  escapes, so a quoted `~` regex that needs a literal backslash writes `\\\\` (`msg~"a\\\\b"` matches `a\b`).
+- Integers are exact at any size: `id=12345678901234567890` works. `>`, `>=`, `<` and `<=` compare as doubles, so
+  past 2^53 they are approximate.
 
 ## Configuration
 
@@ -202,45 +214,27 @@ See [docs/options.md](docs/options.md) for every option.
 
 ### Compact line formatting
 
-Each field of a compact line is drawn in a style, set globally with `compact.style` or per field with
-`compact.fields[key].style` (`key` is a field name or one of the roles `time`, `level`, `message`, `status`):
+Each field of a compact line has a style, set globally with `compact.style` or per field with
+`compact.fields[key].style` (`key` is a field name or a role: `time`, `level`, `message`, `status`):
 
 - `plain`: `key=value`, the key colored per field. Example: `method=GET`.
-- `inverted`: `key=value` with the key as a colored block (the color reversed and bold). Example: ` method =GET`.
+- `inverted`: the key as a colored block. Example: ` method =GET`.
 - `pill`: like `inverted`, with rounded caps around the key. Example: `(method)=GET`.
 
-Fields in `compact.style_values` (by default `level` and `status`) are styled on the value instead: ` 500 `, with no
-key. Remove one from the list to give it a styled key too, e.g. `compact.style_values = { "level" }` shows
-`(status)=500`. `time` and `message` show no key, so a style on them always goes on the value.
+Fields in `compact.style_values` (by default `level` and `status`) are styled on the value instead (` 500 `, no key);
+remove one to give it a styled key. `level` is `inverted` by default, colored by its level; a styled status value takes
+its class color (`JLogStatus2xx` ... `JLogStatus5xx`); other fields take their key's color. `time` and `message` stay
+plain unless styled through `compact.fields`.
 
-`level` defaults to `inverted` (the badge); a global `compact.style` other than `"plain"`, or `compact.fields.level`,
-overrides that. The global style never applies to `time` or `message`; style them through `compact.fields.time` or
-`compact.fields.message`.
-
-Colors: a level takes its `JLogLevel*` color; a field in `fields.status` whose value is `200`-`599` takes its class
-color (`JLogStatus2xx` ... `JLogStatus5xx`) when its style is `inverted` or `pill`, e.g.
-`compact.fields.status = { style = "inverted" }` (a plain status field keeps its key's field color, unless a format
-returns a group); a styled `time` or `message` takes `JLogTime` or `JLogMessage`; any other field takes its key's
-field color. Inverted and pill styles draw that color reversed through derived `JLogBadge*` groups.
-
-`compact.order` lists top-level keys to show first, in that order. Dotted names are ignored; `time`, `level`,
-`message` and `status` match their role whatever the key is called; role fields not listed stay at the front, and
-only a key's first occurrence is placed. A level moved by `order` keeps only its alignment padding before the next
-item.
-
-`compact.fields[key].format(ctx)` replaces a field's text. `ctx` has `value`, `key` and `entry`; return the text and,
-optionally, a highlight group for it. Newlines in the text are escaped. A formatted `plain` field with no returned
-group uses the key's field color. If `format` errors or returns a non-string, the default text is used and jlog warns
-once per field, as does a returned group name that is not a valid highlight name. `ctx` is reused between calls, so do
-not keep it, and treat `ctx.entry` as read-only. `format` runs on every rendered line, so its cost scales
-with the page.
+`compact.order` lists top-level keys to show first. `compact.fields[key].format(ctx)` replaces a field's text: `ctx`
+has `value`, `key` and `entry`, and it returns the text and optionally a highlight group. It runs on every drawn
+line; if it errors, the default text is used and jlog warns once per field.
 
 ```lua
 compact = {
   order = { "method", "path", "status" },
   fields = {
     method = { style = "pill" },
-    status = { style = "inverted" },
     duration_ms = {
       format = function(ctx)
         return ctx.value .. "ms", (tonumber(ctx.value) or 0) > 500 and "DiagnosticError" or nil
@@ -250,13 +244,35 @@ compact = {
 }
 ```
 
-Pill caps are inline virtual text, so yanks and `/` searches never contain them and the cursor skips over them.
-They need a Nerd Font; with `pill = { left = "", right = "" }` the pills have square ends.
+Pill caps are inline virtual text (never yanked or searched) and need a Nerd Font; `pill = { left = "", right = "" }`
+gives square ends.
+
+### Sidebar customization
+
+`sidebar.sections` sets which sections show and in what order; one left out is hidden, and `:w` then leaves its
+filters or group as the field actions and commands set them. `sidebar.fields` controls the FIELDS list: `pinned`
+fields come first, the rest are sorted alphabetically or by how many entries contain them (`sort = "count"`, applied
+once the counts are final so rows hold still while a file loads), and names can be styled like compact fields, with a
+`format(ctx)` that gets the field's `name` and `distinct` count.
+
+```lua
+sidebar = {
+  sections = { "fields", "filters", "group" }, -- FIELDS on top, no SORT line
+  fields = {
+    pinned = { "level", "status", "path" },
+    sort = "count",
+    style = "pill",
+    styles = {
+      ["req.method"] = { style = "plain", format = function(ctx) return ctx.name:upper() end },
+    },
+  },
+}
+```
 
 ### Statusline plugins
 
 The log view shows its counts and filters in the winbar. A statusline plugin that draws winbars, such as lualine with
-a `winbar` section, replaces it; jlog's buffers have the filetypes `jlog` and `jlog_sidebar` so you can exclude them:
+a `winbar` section, replaces it; exclude jlog's filetypes `jlog` and `jlog_sidebar`:
 
 ```lua
 require("lualine").setup({
@@ -304,5 +320,6 @@ linked group's color, reversed and bold, so the level reads as a colored label i
 
 ## Benchmark
 
-jlog is compared against `jq` and `vim.json.decode` on 10k to 500k line files; see
-[bench/results.md](bench/results.md). `make bench` regenerates it (jq is needed for the comparison rows).
+On 10k to 500k-line JSONL files, jlog's load is compared with `jq` and `vim.json.decode`, and opening, searching,
+filtering and grouping are timed in a workspace; see [bench/results.md](bench/results.md). `make bench` regenerates it
+(jq is needed for its column).

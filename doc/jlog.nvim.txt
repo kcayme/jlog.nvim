@@ -17,6 +17,8 @@ containers and CI are often unformatted, one giant line, and double-encoded;
 jlog makes them readable, filterable and groupable without leaving the editor.
 
 
+
+
 FEATURES                                                  *jlog.nvim-features*
 
 - **Any JSON log:** JSONL, JSON arrays and timestamped log exports; double-encoded JSON is unwrapped, and nothing is

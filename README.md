@@ -5,23 +5,18 @@ giant line, and double-encoded; jlog makes them readable, filterable and groupab
 
 ## Features
 
-- **Reads what logs actually look like:** JSONL/NDJSON, JSON arrays of log objects, and timestamped log exports (a JSON
-  array whose elements wrap each log line with its timestamp and labels). Double-encoded JSON is unwrapped, text
-  prefixes and stack traces are kept, and nothing in the source is dropped or reformatted: key order and number
-  literals stay as written.
-- **A readable view:** one compact line per entry, or indented JSON per entry or for the whole view, newest first.
-  Each field keeps one color, and native `/`, `n`, `N` and `:g` work on what you see.
-- **Narrow it down:** filter with a small query language (`status>=500 -health`, `OR`, regex), group by any field
-  (request id, route, ...), and browse every field's top values in the sidebar, one keypress from a filter or group.
-- **Big and live files:** a 500k-line file shows its first screen in about 100ms and finishes loading in the
-  background; large logs are paged, and the view follows the file as it grows or rotates.
-- **Customizable:** compact field styles (plain, inverted, pill) and formatters, sidebar layout and field order,
-  keymaps and highlight groups.
+- **Any JSON log:** JSONL, JSON arrays and timestamped log exports; double-encoded JSON is unwrapped, and nothing is
+  dropped or reformatted.
+- **Readable view:** one compact line or indented JSON per entry, searchable with `/` and `:g`.
+- **Filter and group:** a small query language (`status>=500 -health`), group by any field, and top values per field
+  in the sidebar.
+- **Big and live files:** the first screen of a 500k-line file in about 100ms, and the view follows the file as it
+  grows.
+- **Customizable:** field styles, sidebar, keymaps and highlights.
 
 ## Requirements
 
 - Neovim >= 0.10 (`:checkhealth jlog` confirms it)
-- No external tools (no jq, no treesitter)
 
 ## Installation
 

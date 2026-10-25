@@ -330,6 +330,7 @@ linked group's color, reversed and bold, so the level reads as a colored label i
 | `JLogStatus4xx` | status field with a 4xx value | `DiagnosticWarn` |
 | `JLogStatus5xx` | status field with a 5xx value | `DiagnosticError` |
 | `JLogBadge*` | derived on first use: a color group's color reversed and bold, for `inverted` and `pill` fields (e.g. `JLogBadgeJLogStatus2xx`) | none; redefined on `ColorScheme` |
+| `JLogCap*` | derived on first use: a pill's end caps (`compact.pill` / `sidebar.fields.pill` glyphs), drawn in the color its badge shows as background (e.g. `JLogCapJLogBadgeJLogStatus2xx`); restyle the pill's color group rather than these | none; redefined on `ColorScheme` |
 | `JLogMessage` | message text | `Normal` |
 | `JLogKey` | `key=` in compact, object keys in expanded, when `view.field_colors = false` | `Identifier` |
 | `JLogField1` … `JLogField8` | keys and FIELDS names, one color per field in first-seen order, cycling | the first distinctly colored of `Identifier`, `Function`, `Type`, `Constant`, `Special`, `Statement`, `PreProc`, `Character`, `Label`, `Keyword`, `Tag`, `Directory`, skipping any colored like a value (`JLogValue`, `JLogString`, `JLogNumber`, `JLogBoolean`, `JLogNull`) |

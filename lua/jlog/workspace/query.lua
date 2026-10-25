@@ -2,6 +2,7 @@ local entry_model = require("jlog.parse.entry")
 local filter = require("jlog.query.filter")
 local gc = require("jlog.core.gc")
 local layout = require("jlog.workspace.layout")
+local scope = require("jlog.workspace.scope")
 
 local M = {}
 
@@ -66,9 +67,15 @@ end
 ---@return string
 M.winbar_text = function(ws, shown)
   local parts = { "jlog", ws.format, shown .. "/" .. #ws.entries }
+  local total, fraction = scope.total(ws)
 
   if ws.pages and ws.page then
     parts[#parts + 1] = "page " .. ws.page .. "/" .. (ws.pages:count() or "…")
+  end
+  if total then
+    parts[#parts + 1] = total .. " in all"
+  elseif fraction then
+    parts[#parts + 1] = "… in all " .. math.floor(fraction * 100) .. "%"
   end
   if #ws.state.filters > 0 then
     parts[#parts + 1] = table.concat(
@@ -88,6 +95,20 @@ M.winbar_text = function(ws, shown)
   end
 
   return table.concat(parts, " · ")
+end
+
+---Count the filters' matches on every page of a paged log, showing the total as it goes; `start` false only drops
+---a scan made for other filters or another page index.
+---@param ws JLogWorkspace
+---@param start boolean|nil
+M.update_scan = function(ws, start)
+  scope.update(ws, start == true, function()
+    -- while an apply or load runs, its own publish shows the winbar
+    if not ws.loading and ws.rendered == ws.store.generation then
+      ws.view:set_winbar(M.winbar_text(ws, ws.shown))
+    end
+    ws.sidebar:show_status()
+  end)
 end
 
 ---Filter, group and render, then count facets; work past the first ~12ms tick continues later, a newer apply wins.
@@ -113,6 +134,8 @@ M.apply = function(ws, on_done, counted, keep_counts)
   state.filters, invalid = split_invalid(lines, errors)
   state.filters = filter.explicit(state.filters)
   ws.sidebar:set_errors(invalid)
+  -- a total for other filters must not show while this apply runs
+  M.update_scan(ws)
   -- every entry matches, so the load's counts are this apply's counts
   prefilled = counts and counted ~= nil and #state.filters == 0
   if not keep then
@@ -148,6 +171,8 @@ M.apply = function(ws, on_done, counted, keep_counts)
       if cursor_entry then
         ws.view:goto_entry(cursor_entry)
       end
+      -- after the render, so the scan's worker jobs never hold up a page load or the first screen
+      M.update_scan(ws, true)
       if on_done then
         on_done()
       end

@@ -224,8 +224,10 @@ local function scan_pages(ws, index, on_known, wait_done)
     ws.pages = index
     collect(ws)
   end
+  -- the pages are known now: a rendered view starts counting the filters' matches on each, an old count is dropped
+  query.update_scan(ws, not ws.loading and ws.rendered == ws.store.generation)
   refresh_winbar(ws)
-  -- the page count is known now: PAGE shows it in place of `…`
+  -- PAGE shows the page count in place of `…`
   ws.sidebar:show_status()
 end
 

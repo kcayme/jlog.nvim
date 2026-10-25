@@ -7,6 +7,7 @@ local layout = require("jlog.workspace.layout")
 local loader = require("jlog.workspace.loader")
 local progress_mod = require("jlog.core.progress")
 local query = require("jlog.workspace.query")
+local scope = require("jlog.workspace.scope")
 local sidebar_mod = require("jlog.ui.sidebar")
 local store_mod = require("jlog.query.store")
 local view_mod = require("jlog.ui.view")
@@ -63,6 +64,10 @@ local watcher = require("jlog.workspace.watcher")
 ---@field load_token table|nil the page or first load running; a newer one stops it
 ---@field target_page integer|nil the page last asked for, which `ws.page` becomes once it has loaded
 ---@field shown integer entries shown by the last apply, for the winbar
+---@field scan JLogScan|nil the count of the filters' matches on every page, running or done
+---@field scan_key string|nil the filters `scan` counts
+---@field scan_index JLogPageIndex|nil the page index `scan` reads
+---@field page_counts integer[]|nil matches per page, once `scan` is done
 local Workspace = {}
 Workspace.__index = Workspace
 Workspace.focus_sidebar = layout.focus_sidebar
@@ -93,6 +98,7 @@ Workspace.close = function(self)
   end
   self.closed = true
   registry[self.key] = nil
+  scope.cancel(self)
   gc.drop()
   -- work stopped by the close never reports done; end its progress messages here
   progress_mod.cancel(self.key)

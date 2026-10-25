@@ -57,7 +57,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `keymaps.focus_sidebar` | `string\|false` | `"s"` | Focus the sidebar. |
 | `keymaps.toggle_sidebar` | `string\|false` | `"S"` | Show/hide the sidebar (in the log view and the sidebar). |
 | `keymaps.close` | `string\|false` | `"q"` | Close the workspace (in the sidebar and log view). |
-| `keymaps.add_filter` | `string\|false` | `"<CR>"` | Sidebar: add the field value under the cursor as a filter. |
+| `keymaps.add_filter` | `string\|false` | `"<CR>"` | Sidebar: add the field value under the cursor as a filter line: `OR field=value` under that field's other values, else a new `AND` line; on a value already picked, take it out. |
 | `keymaps.group_by` | `string\|false` | `"g"` | Sidebar: group by the field under the cursor. |
 | `keymaps.ignore_field` | `string\|false` | `"s"` | Sidebar: hide the field under the cursor from compact lines, or show it again. |
 | `keymaps.help` | `string\|false` | `"?"` | Sidebar: open a guide to the keys; shown as `? help` on the sidebar's first line. |

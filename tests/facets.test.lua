@@ -97,3 +97,43 @@ describe("facets.merge", function()
     assert.are.same({ "id", "other" }, first.names)
   end)
 end)
+
+describe("facets.add_value", function()
+  it("should count a value like add, skipping nil and tables", function()
+    local counter = facets_mod.counter()
+
+    facets_mod.add_value(counter, "status", 500)
+    facets_mod.add_value(counter, "status", "500")
+    facets_mod.add_value(counter, "status", nil)
+    facets_mod.add_value(counter, "status", { 1 })
+
+    assert.are.same({ "status" }, counter.names)
+    assert.are.same({ ["500"] = 2 }, counter.fields.status.counts)
+    assert.are.equal(2, counter.fields.status.present)
+  end)
+end)
+
+describe("facets.override", function()
+  it("should replace the fields it has", function()
+    local counter, other = facets_mod.counter(), facets_mod.counter()
+
+    facets_mod.add(counter, { status = 500, id = 1 })
+    facets_mod.add(other, { status = 200 })
+    facets_mod.add(other, { level = "INFO" })
+    facets_mod.override(counter, other)
+
+    assert.are.same({ ["200"] = 1 }, counter.fields.status.counts)
+    assert.are.same({ ["1"] = 1 }, counter.fields.id.counts)
+    table.sort(counter.names)
+    assert.are.same({ "id", "status" }, counter.names)
+  end)
+
+  it("should add a missing name unless it is aliased", function()
+    local counter, other = facets_mod.counter(), facets_mod.counter()
+
+    facets_mod.add(other, { level = "ERROR", path = "/x" })
+    facets_mod.override(counter, other)
+
+    assert.are.same({ "path" }, counter.names)
+  end)
+end)

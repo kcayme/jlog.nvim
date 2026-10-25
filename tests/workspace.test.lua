@@ -48,6 +48,53 @@ describe("workspace", function()
     assert.is_truthy(vim.wo[vim.fn.bufwinid(ws.view.bufnr)].winbar:find("status>=500", 1, true))
   end)
 
+  it("should move a failed OR group below the valid lines as one block, in order", function()
+    local ws = workspace.open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+
+    ws.state.filters = { "level=ERROR", "AND status=500", "OR msg~\\(", "level=INFO" }
+    ws:apply()
+
+    assert.are.same({ "level=ERROR", "AND level=INFO" }, ws.state.filters)
+    assert.are.same(
+      { "AND status=500", "OR msg~\\(" },
+      vim.tbl_map(function(err)
+        return err.text
+      end, ws.sidebar.errors)
+    )
+    -- one warning for the group, under the part that fails
+    assert.are.equal("", ws.sidebar.errors[1].msg)
+    assert.are_not.equal("", ws.sidebar.errors[2].msg)
+    assert.are.same(
+      { { lnum = 5, col = 3, end_col = 9 } },
+      vim.tbl_map(function(diagnostic)
+        return { lnum = diagnostic.lnum, col = diagnostic.col, end_col = diagnostic.end_col }
+      end, vim.diagnostic.get(ws.sidebar.bufnr))
+    )
+  end)
+
+  it("should underline a whole line that fails only as a group, such as a first line starting with OR", function()
+    local buf = vim.api.nvim_create_buf(true, false)
+    local ws
+
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { '{"msg":"a"}', '{"msg":"b"}' })
+    ws = assert(workspace.open({ bufnr = buf }))
+
+    ws.state.filters = { "OR a=1" }
+    ws:apply()
+
+    assert.are.same(
+      { { lnum = 2, col = 0, end_col = 6, message = "empty alternative before OR" } },
+      vim.tbl_map(function(diagnostic)
+        return {
+          lnum = diagnostic.lnum,
+          col = diagnostic.col,
+          end_col = diagnostic.end_col,
+          message = diagnostic.message,
+        }
+      end, vim.diagnostic.get(ws.sidebar.bufnr))
+    )
+  end)
+
   it("should focus the existing workspace when opened twice", function()
     local path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p")
     local first = workspace.open({ path = path })
@@ -470,7 +517,7 @@ describe("workspace", function()
 
   it("should render a filter before counting fields, then publish the counts", function()
     local lines = {}
-    local buf, ws, stale_at_render, level
+    local buf, ws, stale_at_render, level, msg
 
     for index = 1, 25000 do
       lines[index] = string.format('{"msg":"m%d","level":"%s"}', index, index % 5 == 0 and "ERROR" or "INFO")
@@ -497,10 +544,13 @@ describe("workspace", function()
     for _, facet in ipairs(ws.sidebar.facets) do
       if facet.name == "level" then
         level = facet
+      elseif facet.name == "msg" then
+        msg = facet
       end
     end
-    assert.are.same({ value = "ERROR", count = 5000 }, level.top[1])
-    assert.are.equal(1, level.distinct)
+    -- the filtered field keeps all its values; the others count only the matches
+    assert.are.same({ { value = "INFO", count = 20000 }, { value = "ERROR", count = 5000 } }, level.top)
+    assert.are.equal(5000, msg.present)
     ws:close()
   end)
 

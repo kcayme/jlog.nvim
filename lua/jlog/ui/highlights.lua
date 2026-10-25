@@ -29,6 +29,7 @@ M.GROUPS = {
   { name = "JLogFieldCount", link = "Comment" },
   { name = "JLogFieldStale", link = "NonText" },
   { name = "JLogFieldIgnored", link = "NonText" },
+  { name = "JLogFilterInvalid", link = "DiagnosticWarn" },
   { name = "JLogHint", link = "Comment" },
   { name = "JLogWinbar", link = "WinBar" },
   { name = "JLogOverlap", link = "Comment" },

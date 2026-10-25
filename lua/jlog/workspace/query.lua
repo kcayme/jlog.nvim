@@ -13,9 +13,22 @@ local function split_invalid(lines, errors)
   local bad = {}
   local valid = {}
   local invalid = {}
+  local own, at
 
+  -- a failed group is moved as a whole, so its OR lines never join the group above them; one line has the message:
+  -- the one that fails on its own, else the first
   for _, err in ipairs(errors) do
-    bad[err.lnum] = err.msg
+    at = nil
+    for lnum = err.lnum, err.last do
+      own = filter.locate(lines[lnum])
+      bad[lnum] = ""
+      if own and not at then
+        at, bad[lnum] = lnum, own
+      end
+    end
+    if not at then
+      bad[err.lnum] = err.msg
+    end
   end
   for lnum, line in ipairs(lines) do
     if bad[lnum] then
@@ -58,7 +71,12 @@ M.winbar_text = function(ws, shown)
     parts[#parts + 1] = "page " .. ws.page .. "/" .. (ws.pages:count() or "…")
   end
   if #ws.state.filters > 0 then
-    parts[#parts + 1] = table.concat(ws.state.filters, " · ")
+    parts[#parts + 1] = table.concat(
+      vim.tbl_map(function(group)
+        return group.text
+      end, filter.groups(ws.state.filters)),
+      " · "
+    )
   end
   if ws.state.group then
     parts[#parts + 1] = "group: "
@@ -93,6 +111,7 @@ M.apply = function(ws, on_done, counted, keep_counts)
   end
   pred, errors = filter.compile(lines)
   state.filters, invalid = split_invalid(lines, errors)
+  state.filters = filter.explicit(state.filters)
   ws.sidebar:set_errors(invalid)
   -- every entry matches, so the load's counts are this apply's counts
   prefilled = counts and counted ~= nil and #state.filters == 0
@@ -135,13 +154,52 @@ M.apply = function(ws, on_done, counted, keep_counts)
     end)
   end
 
-  ws.store:query(pred, field, publish)
+  ws.store:query(pred, field, publish, not counts)
 end
 
 ---@param ws JLogWorkspace
 ---@param clause string
 M.add_filter = function(ws, clause)
   table.insert(ws.state.filters, clause)
+  discard_sidebar_edits(ws)
+  ws:apply()
+end
+
+---Add `value` to `name`'s `field=value` group as an `OR` line, or take it out if there; a new group if none.
+---@param ws JLogWorkspace
+---@param name string field path as FIELDS lists it
+---@param value string
+M.toggle_value = function(ws, name, value)
+  local filters = ws.state.filters
+  local lines = {}
+  local field, values, at, found
+
+  for _, group in ipairs(filter.groups(filters)) do
+    field, values = filter.facet_of(group.text)
+    if field == name then
+      at = group
+
+      break
+    end
+  end
+  if not at then
+    filters[#filters + 1] = filter.clause(name, value)
+  else
+    found = vim.fn.index(values, value) + 1
+    if found > 0 then
+      table.remove(values, found)
+    else
+      values[#values + 1] = value
+    end
+    -- one value per line; apply writes the AND before a group that is not first
+    for index, item in ipairs(values) do
+      lines[index] = (index == 1 and "" or "OR ") .. filter.clause(name, item)
+    end
+    ws.state.filters = vim.list_extend(
+      vim.list_extend(vim.list_slice(filters, 1, at.first - 1), lines),
+      vim.list_slice(filters, at.last + 1)
+    )
+  end
   discard_sidebar_edits(ws)
   ws:apply()
 end
@@ -224,6 +282,8 @@ M.extend = function(ws, old_count, old_key)
     end
     if matches and index > old_count then
       ws.store:count_appended(index, entry, decoded)
+    elseif index > old_count then
+      ws.store:count_unmatched_appended(ctx)
     end
   end
 

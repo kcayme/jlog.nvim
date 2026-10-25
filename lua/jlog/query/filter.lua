@@ -60,7 +60,7 @@ local function split_token(text)
   return neg, field, op, text:sub(op_start + #op)
 end
 
--- Reads one term at `pos` (quoted values allow spaces, \", \\ and \n); returns term, is_or, next_pos or nil, err.
+-- Reads one term at `pos` (quoted values allow spaces, \", \\ and \n); returns term, keyword, next_pos or nil, err.
 local function read_term(line, pos)
   local stop = line:find('[%s"]', pos) or #line + 1
   local prefix = line:sub(pos, stop - 1)
@@ -73,8 +73,8 @@ local function read_term(line, pos)
   local char
 
   if line:sub(stop, stop) ~= '"' then
-    if prefix == "OR" then
-      return nil, true, stop
+    if prefix == "OR" or prefix == "AND" then
+      return nil, prefix, stop
     end
     neg, field, op, value = split_token(prefix)
 
@@ -133,14 +133,19 @@ local function finish_term(term)
 end
 
 ---@param line string
----@return JLogTerm[][]|nil, string|nil
+---@return JLogTerm[][]|nil alternatives
+---@return string|nil err
+---@return integer|nil err_start first byte of the part that failed
+---@return integer|nil err_end its last byte
 M.parse = function(line)
   local alternatives = { {} }
   local pos = 1
   local term
-  local is_or
+  local keyword
   local err
   local current
+  local start
+  local last_or_start, last_or_end
 
   while true do
     pos = line:find("%S", pos)
@@ -148,28 +153,36 @@ M.parse = function(line)
       break
     end
 
-    term, is_or, pos, err = read_term(line, pos)
+    start = pos
+    term, keyword, pos, err = read_term(line, pos)
     if err then
-      return nil, err
+      -- an unterminated quote runs to the end of the line; anything else is its token
+      return nil, err, start, err == "unterminated quote" and #line or (line:find("%s", start) or #line + 1) - 1
     end
 
     current = alternatives[#alternatives]
-    if is_or then
+    if keyword == "OR" then
       if #current == 0 then
-        return nil, "empty alternative before OR"
+        return nil, "empty alternative before OR", start, pos - 1
       end
       alternatives[#alternatives + 1] = {}
+      last_or_start, last_or_end = start, pos - 1
+    elseif keyword == "AND" then
+      -- spelled-out AND is what a space already means
+      if #current == 0 then
+        return nil, "nothing before AND", start, pos - 1
+      end
     else
       err = finish_term(term)
       if err then
-        return nil, err
+        return nil, err, start, pos - 1
       end
       current[#current + 1] = term
     end
   end
 
   if #alternatives[#alternatives] == 0 then
-    return nil, "empty alternative"
+    return nil, "empty alternative", last_or_start or 1, last_or_end or #line
   end
 
   return alternatives, nil
@@ -254,23 +267,106 @@ local function matches_alternative(alternative, ctx)
   return true
 end
 
+---A filter line's leading `AND` or `OR`, the text after it, and the bytes the prefix takes; no prefix gives nil.
+---@param line string
+---@return "AND"|"OR"|nil keyword
+---@return string rest
+---@return integer offset
+local function split_prefix(line)
+  local offset, rest = line:match("^(%s*AND%s+)(.*)$")
+
+  if offset then
+    return "AND", rest, #offset
+  end
+  offset, rest = line:match("^(%s*OR%s+)(.*)$")
+  if offset then
+    return "OR", rest, #offset
+  end
+
+  return nil, line, 0
+end
+
+---Where `line` alone fails to parse, its `AND`/`OR` prefix aside: the message and the 0-based, end-exclusive columns.
+---@param line string
+---@return string|nil msg nil when the line parses on its own
+---@return integer|nil col
+---@return integer|nil end_col
+M.locate = function(line)
+  local _, rest, offset = split_prefix(line)
+  local err, err_start, err_end
+
+  _, err, err_start, err_end = M.parse(rest)
+  if not err then
+    return nil
+  end
+
+  return err, offset + err_start - 1, offset + err_end
+end
+
+---@class JLogFilterGroup
+---@field text string the group's lines as one line, `OR` between them
+---@field first integer index of its first line
+---@field last integer index of its last line
+
+---Filter lines to the groups they form: an `OR` line continues the group above, an `AND` line or one without a
+---prefix starts a new one; groups are ANDed.
+---@param lines string[]
+---@return JLogFilterGroup[]
+M.groups = function(lines)
+  local groups = {}
+  local keyword, rest, last_group
+
+  for index, line in ipairs(lines) do
+    keyword, rest = split_prefix(line)
+    last_group = groups[#groups]
+    if keyword == "OR" and last_group then
+      last_group.text = last_group.text .. " OR " .. rest
+      last_group.last = index
+    elseif line:match("%S") then
+      -- a first line starting with OR stays as written, so the parser reports it
+      groups[#groups + 1] = { text = keyword == "AND" and rest or line, first = index, last = index }
+    end
+  end
+
+  return groups
+end
+
+---`lines` with every operator written out: no `AND` on the first line, `AND` on later lines that have none.
+---@param lines string[]
+---@return string[]
+M.explicit = function(lines)
+  local out = {}
+  local keyword, rest
+
+  for index, line in ipairs(lines) do
+    keyword, rest = split_prefix(line)
+    if index == 1 then
+      out[index] = keyword == "AND" and rest or line
+    elseif keyword then
+      out[index] = line
+    else
+      out[index] = "AND " .. line
+    end
+  end
+
+  return out
+end
+
 ---@param lines string[]
 ---@return fun(ctx: JLogMatchCtx): boolean
----@return {lnum: integer, msg: string}[]
+---@return {lnum: integer, last: integer, msg: string}[] lines `lnum`..`last` form the group that failed
 M.compile = function(lines)
   local parsed = {}
   local errors = {}
   local alternatives
   local err
 
-  for lnum, line in ipairs(lines) do
-    if line:match("%S") then
-      alternatives, err = M.parse(line)
-      if err then
-        errors[#errors + 1] = { lnum = lnum, msg = err }
-      else
-        parsed[#parsed + 1] = alternatives
-      end
+  for _, group in ipairs(M.groups(lines)) do
+    alternatives, err = M.parse(group.text)
+    if err then
+      errors[#errors + 1] = { lnum = group.first, last = group.last, msg = err }
+    else
+      parsed[#parsed + 1] = alternatives
     end
   end
 
@@ -297,6 +393,43 @@ M.compile = function(lines)
     return true
   end,
     errors
+end
+
+---The field and values of a line made only of `field=value` alternatives on one field, e.g. `status=500 OR status=502`.
+---@param line string
+---@return string|nil field nil when the line is anything else
+---@return string[] values
+M.facet_of = function(line)
+  local alternatives = M.parse(line)
+  local values = {}
+  local field, term
+
+  if not alternatives then
+    return nil, values
+  end
+  for _, alternative in ipairs(alternatives) do
+    term = alternative[1]
+    if #alternative ~= 1 or term.neg or term.op ~= "=" or (field and term.field ~= field) then
+      return nil, {}
+    end
+    field = term.field
+    values[#values + 1] = term.value
+  end
+
+  return field, values
+end
+
+---`field=value`, quoting the value when the parser needs it; a newline is written as `\n`.
+---@param name string
+---@param value string
+---@return string
+M.clause = function(name, value)
+  name = escape_field(name)
+  if value ~= "" and not value:find('[%s"]') then
+    return name .. "=" .. value
+  end
+
+  return name .. '="' .. value:gsub('[\\"]', "\\%0"):gsub("\n", "\\n") .. '"'
 end
 
 ---A field name as written in filter and group text.

@@ -248,6 +248,21 @@ for _, count in ipairs(SIZES) do
       assert.is_true(elapsed < 1000)
     end)
 
+    it("should apply a picked value filter on a 100k page in under a second", function()
+      local elapsed
+
+      path = write_log(gen.jsonl_lines(count), ".jsonl")
+      ws = workspace.open({ path = path })
+      assert.is_true(vim.wait(30000, settled(ws), 50))
+
+      -- a field=value line also counts its field over the entries the line drops
+      elapsed = time_apply(ws, function()
+        ws:toggle_value("status", "500")
+      end)
+      print(string.format("picked status=500 (%d shown of %d): %.0fms (budget 1000)", ws.shown, #ws.entries, elapsed))
+      assert.is_true(elapsed < 1000)
+    end)
+
     it("should group a 100k page by request_id in under two seconds", function()
       local elapsed
 

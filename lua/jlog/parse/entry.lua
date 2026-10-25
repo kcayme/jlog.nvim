@@ -354,6 +354,13 @@ M.get = function(entry, decoded, path, opts)
   return value
 end
 
+---Whether `get` reads `path` through the `fields` aliases (`time`, `level`, `msg`) when the entry lacks it.
+---@param path string
+---@return boolean
+M.aliased = function(path)
+  return ALIAS_FIELDS[path] ~= nil
+end
+
 ---Dotted path to scalar for every field, including labels. Arrays and nulls are skipped.
 ---@param entry JLogEntry
 ---@param decoded table|nil

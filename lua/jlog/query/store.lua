@@ -1,5 +1,6 @@
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
+local filter = require("jlog.query.filter")
 local gc = require("jlog.core.gc")
 local group = require("jlog.query.group")
 local progress_mod = require("jlog.core.progress")
@@ -26,6 +27,8 @@ local workers = require("jlog.worker")
 ---@field matched table<integer, boolean> entry index -> matched the latest query
 ---@field counter JLogFacetCounter|nil facet counts of the latest query, once complete
 ---@field counting JLogFacetCounting|nil the latest query's facet count, still running
+---@field facet_counter JLogFacetCounter fields with a `field=value` filter line, counted as if that line were off
+---@field facet_preds table<string, fun(ctx: table): boolean> per such field, the other filter lines
 local Store = {}
 Store.__index = Store
 
@@ -41,6 +44,34 @@ local COUNT_WAIT_MS = 2
 -- tick_ns: work per tick before yielding (keeps ticks ~16ms)
 M.timing = { tick_ns = 12e6 }
 
+---Per field with `field=value` filter groups (see `filter.facet_of`), a predicate of all the other groups.
+---@param lines string[]
+---@return table<string, fun(ctx: table): boolean>
+local function facet_preds(lines)
+  local groups = filter.groups(lines)
+  local own, preds = {}, {}
+  local name, others
+
+  for index, filter_group in ipairs(groups) do
+    name = filter.facet_of(filter_group.text)
+    if name then
+      own[name] = own[name] or {}
+      own[name][index] = true
+    end
+  end
+  for field, indexes in pairs(own) do
+    others = {}
+    for index, filter_group in ipairs(groups) do
+      if not indexes[index] then
+        others[#others + 1] = filter_group.text
+      end
+    end
+    preds[field] = filter.compile(others)
+  end
+
+  return preds
+end
+
 -- a match smaller than this is counted on the main thread
 M.count_min = 2000
 -- about this many bytes of entry text go to one worker job
@@ -49,15 +80,23 @@ M.count_batch_bytes = 256 * 1024
 ---@param source JLogStoreSource
 ---@return JLogStore
 M.new = function(source)
-  return setmetatable({ source = source, generation = 0, running = false, matched = {} }, Store)
+  return setmetatable({
+    source = source,
+    generation = 0,
+    running = false,
+    matched = {},
+    facet_counter = facets.counter(),
+    facet_preds = {},
+  }, Store)
 end
 
 ---Filter and group in ticks; work past the first ~12ms tick continues later, a newer query wins.
 ---@param pred fun(ctx: table): boolean
 ---@param field string|nil group-by field
 ---@param on_items fun(items: JLogItem[], shown: integer)
+---@param skip_facets boolean|nil no field counts will be shown (sidebar hidden): skip counting picked fields
 ---@return integer generation
-Store.query = function(self, pred, field, on_items)
+Store.query = function(self, pred, field, on_items, skip_facets)
   local source = self.source
   local generation = self.generation + 1
   local entries, opts, state = source.entries, source.opts, source.state
@@ -68,10 +107,13 @@ Store.query = function(self, pred, field, on_items)
   local next_index = 1
   local collected
   local ctx = { raw = "" }
+  local preds = skip_facets and {} or facet_preds(state.filters)
+  local facet_counter = facets.counter()
 
   self.generation = generation
   self.running = true
   self.matched = matched
+  self.facet_counter, self.facet_preds = facet_counter, preds
 
   local function stale()
     return self.generation ~= generation or source.closed
@@ -102,6 +144,12 @@ Store.query = function(self, pred, field, on_items)
       ctx.raw = entry_model.key(entry)
       if pred(ctx) then
         matched[index] = true
+      end
+      -- a filtered field counts every entry its own line alone would drop, so all its values stay listed
+      for name, field_pred in pairs(preds) do
+        if matched[index] or field_pred(ctx) then
+          facets.add_value(facet_counter, name, read(name))
+        end
       end
       if field then
         -- read now, in the time-boxed scan: decoding again while building groups is one long tick
@@ -282,11 +330,18 @@ end
 Store.count = function(self, on_done)
   local generation = self.generation
   local counting = { counter = facets.counter(), matched = self.matched, next_index = 1 }
+  local facet_counter = self.facet_counter
   -- threaded path: batches out, batch being filled, and its text size
   local own, building, building_bytes = {}, {}, 0
   -- when a batch was last dispatched or returned; past `workers.stall_ms` the rest is counted here
   local progress, stalled = { at = vim.uv.now() }, false
   local tick_threaded
+  local function done()
+    facets.override(counting.counter, facet_counter)
+    self.counting = nil
+    self.counter = counting.counter
+    on_done(counting.counter)
+  end
   local function tick()
     local deadline = utils.tick_deadline(M.timing.tick_ns)
     local entries = self.source.entries
@@ -311,9 +366,7 @@ Store.count = function(self, on_done)
       return
     end
 
-    self.counting = nil
-    self.counter = counting.counter
-    on_done(counting.counter)
+    done()
   end
 
   tick_threaded = function()
@@ -388,9 +441,7 @@ Store.count = function(self, on_done)
       return
     end
 
-    self.counting = nil
-    self.counter = counting.counter
-    on_done(counting.counter)
+    done()
   end
 
   -- set up now so appends join it; counting starts in a tick of its own
@@ -405,8 +456,30 @@ end
 Store.count_appended = function(self, index, entry, decoded)
   if self.counting then
     self.counting.matched[index] = true
+    -- the count's own values of these fields are replaced by the facet counts when it finishes
+    for name in pairs(self.facet_preds) do
+      facets.add_value(self.facet_counter, name, entry_model.get(entry, decoded, name, self.source.opts))
+    end
   elseif self.counter then
+    -- a finished count shares the facet counts' fields, so this adds to them too
     facets.add(self.counter, entry_model.flatten(entry, decoded))
+  end
+end
+
+---An appended entry that misses some filter line: it still counts for a field whose own lines alone dropped it.
+---@param ctx JLogMatchCtx the entry's match context
+Store.count_unmatched_appended = function(self, ctx)
+  -- a finished count holds the facet fields; a query that kept it (reverse) made a facet counter it never took
+  local target = self.counting and self.facet_counter or self.counter
+
+  if not target then
+    return
+  end
+  for name, field_pred in pairs(self.facet_preds) do
+    -- into a finished count only fields it lists, as `facets.override` skipped aliased names it lacked
+    if field_pred(ctx) and (self.counting or target.fields[name]) then
+      facets.add_value(target, name, ctx.get(name))
+    end
   end
 end
 

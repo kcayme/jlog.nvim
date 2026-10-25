@@ -104,6 +104,100 @@ describe("store", function()
     assert.are.equal(counter, store.counter)
   end)
 
+  it("should count a field whose values are on OR lines as if those lines were off", function()
+    local filters = { "status=500", "OR status=200", "AND request_id=b" }
+    local counter
+
+    store = store_mod.new({
+      key = "test",
+      entries = source.build(TEXT, "jsonl"),
+      opts = config.setup(),
+      state = { filters = filters, reverse = false, expanded = {}, mode = "compact" },
+      stored_newest_first = false,
+    })
+    store:query(filter.compile(filters), nil, function() end)
+    store:count(function(result)
+      counter = result
+    end)
+    assert.is_true(vim.wait(1000, function()
+      return counter ~= nil
+    end, 10))
+
+    -- status counts the request_id=b entries, request_id the status 500 or 200 ones
+    assert.are.same({ ["500"] = 1 }, counter.fields.status.counts)
+    assert.are.same({ a = 2, b = 1 }, counter.fields.request_id.counts)
+  end)
+
+  it("should skip counting picked fields when asked", function()
+    store.source.state.filters = { "status=500" }
+    store:query(status_500(), nil, function() end, true)
+
+    assert.are.same({}, store.facet_preds)
+    assert.are.same({}, store.facet_counter.names)
+  end)
+
+  it("should count a field with its own filter line as if that line were off", function()
+    local counter
+
+    store = store_mod.new({
+      key = "test",
+      entries = source.build(TEXT, "jsonl"),
+      opts = config.setup(),
+      state = { filters = { "status=500", "request_id=a" }, reverse = false, expanded = {}, mode = "compact" },
+      stored_newest_first = false,
+    })
+    store:query(filter.compile({ "status=500", "request_id=a" }), nil, function() end)
+    store:count(function(result)
+      counter = result
+    end)
+    assert.is_true(vim.wait(1000, function()
+      return counter ~= nil
+    end, 10))
+
+    -- status counts the request_id=a entries, request_id the status=500 ones
+    assert.are.same({ ["200"] = 1, ["500"] = 1 }, counter.fields.status.counts)
+    assert.are.same({ a = 1, b = 1 }, counter.fields.request_id.counts)
+  end)
+
+  it(
+    "should count an appended entry that misses only a field's own line, also after a query that kept the count",
+    function()
+      local filters = { "status=500", "request_id=a" }
+      local counter, entry
+      local function append()
+        entry = source.build('{"status":200,"request_id":"a"}', "jsonl")[1]
+        store:count_unmatched_appended({
+          raw = entry_model.key(entry),
+          get = function(path)
+            return entry_model.get(entry, entry_model.decode(entry), path, config.options)
+          end,
+        })
+      end
+
+      store = store_mod.new({
+        key = "test",
+        entries = source.build(TEXT, "jsonl"),
+        opts = config.setup(),
+        state = { filters = filters, reverse = false, expanded = {}, mode = "compact" },
+        stored_newest_first = false,
+      })
+      store:query(filter.compile(filters), nil, function() end)
+      store:count(function(result)
+        counter = result
+      end)
+      assert.is_true(vim.wait(1000, function()
+        return counter ~= nil
+      end, 10))
+
+      append()
+      assert.are.equal(2, counter.fields.status.counts["200"])
+      -- reverse runs the query again and keeps the finished count
+      store:query(filter.compile(filters), nil, function() end)
+      append()
+      assert.are.equal(3, counter.fields.status.counts["200"])
+    end
+  )
+
   it("should add appended matches to a finished count", function()
     local counter, entry
 

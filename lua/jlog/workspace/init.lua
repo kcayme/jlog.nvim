@@ -70,6 +70,7 @@ Workspace.toggle_sidebar = layout.toggle_sidebar
 Workspace.open_raw = layout.open_raw
 Workspace.apply = query.apply
 Workspace.add_filter = query.add_filter
+Workspace.toggle_value = query.toggle_value
 Workspace.clear_filters = query.clear_filters
 Workspace.clear_all = query.clear_all
 Workspace.set_group = query.set_group

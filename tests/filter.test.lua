@@ -112,4 +112,82 @@ describe("filter", function()
     local _, err = filter.parse("a OR")
     assert.is_truthy(err)
   end)
+
+  describe("AND and OR lines", function()
+    it("should continue the group above with an OR line and start a new one with AND or no prefix", function()
+      local groups = filter.groups({ "a=1", "OR a=2", "", "AND b=1", "c=1", "OR c=2 d=1" })
+
+      assert.are.same({
+        { text = "a=1 OR a=2", first = 1, last = 2 },
+        { text = "b=1", first = 4, last = 4 },
+        { text = "c=1 OR c=2 d=1", first = 5, last = 6 },
+      }, groups)
+    end)
+
+    it("should AND the groups and OR the lines inside one", function()
+      local lines = { "a=1", "AND b=2", "OR c=3" }
+
+      assert.is_true(match(lines, { a = 1, b = 2 }))
+      assert.is_true(match(lines, { a = 1, c = 3 }))
+      assert.is_false(match(lines, { b = 2, c = 3 }))
+    end)
+
+    it("should take AND inside a line as a space", function()
+      assert.is_true(match("a=1 AND b=2", { a = 1, b = 2 }))
+      assert.is_false(match("a=1 AND b=2", { a = 1 }))
+      assert.is_true(match("a=1 AND b=2 OR c=3", { c = 3 }))
+      assert.is_truthy(select(2, filter.parse("AND a=1")))
+    end)
+
+    it("should report a failed group once with all its lines", function()
+      local _, errors = filter.compile({ "OR a=1", "x=1", "OR y~\\(", "OR z=1" })
+
+      assert.are.same({ lnum = 1, last = 1 }, { lnum = errors[1].lnum, last = errors[1].last })
+      assert.are.same({ lnum = 2, last = 4 }, { lnum = errors[2].lnum, last = errors[2].last })
+    end)
+
+    it("should write every operator out", function()
+      assert.are.same(
+        { "a=1", "AND b=1", "OR c=1", "AND d=1" },
+        filter.explicit({ "AND a=1", "b=1", "OR c=1", "AND d=1" })
+      )
+    end)
+  end)
+
+  describe("locate", function()
+    it("should give the message and the columns of the part that fails on its own", function()
+      assert.are.same({ "invalid regex `\\(`", 4, 10 }, { filter.locate("a=1 msg~\\(") })
+      assert.are.same({ "unterminated quote", 4, 12 }, { filter.locate('AND a="x y z') })
+      assert.are.same({ "empty alternative", 4, 6 }, { filter.locate("a=1 OR") })
+      assert.are.same({ "nothing before AND", 3, 6 }, { filter.locate("OR AND a=1") })
+    end)
+
+    it("should give nil for a line that parses on its own", function()
+      assert.is_nil(filter.locate("OR a=1"))
+      assert.is_nil(filter.locate("AND a=1 OR b=2"))
+    end)
+  end)
+
+  describe("facet_of", function()
+    it("should give the field and values of a line of field=value alternatives on one field", function()
+      assert.are.same({ "status", { "500" } }, { filter.facet_of("status=500") })
+      assert.are.same({ "status", { "500", "502" } }, { filter.facet_of("status=500 OR status=502") })
+      assert.are.same({ "msg", { "a b", 'say "hi"' } }, { filter.facet_of('msg="a b" OR msg="say \\"hi\\""') })
+    end)
+
+    it("should give nil for any other line", function()
+      for _, line in ipairs({ "a=1 b=2", "a=1 OR b=2", "-a=1", "a>1", "a~x", "boom", "a=" .. '"' }) do
+        assert.is_nil(filter.facet_of(line), line)
+      end
+    end)
+
+    it("should read back the values clause wrote", function()
+      local values = { "500", "a b", 'q"uote', "back\\slash", "new\nline", "" }
+      local clauses = vim.tbl_map(function(value)
+        return filter.clause("k\ney", value)
+      end, values)
+
+      assert.are.same({ "k\ney", values }, { filter.facet_of(table.concat(clauses, " OR ")) })
+    end)
+  end)
 end)

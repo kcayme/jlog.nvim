@@ -52,29 +52,54 @@ M.counter = function()
   return { fields = {}, names = {} }
 end
 
+---Count one entry's `value` of the field `name`; nil and tables (absent, objects, arrays) are skipped.
+---@param counter JLogFacetCounter
+---@param name string
+---@param value any
+M.add_value = function(counter, name, value)
+  local field = counter.fields[name]
+  local text
+
+  if value == nil or type(value) == "table" then
+    return
+  end
+  text = entry_model.text(value)
+  if not field then
+    field = { counts = {}, distinct = 0, capped = false, present = 0 }
+    counter.fields[name] = field
+    counter.names[#counter.names + 1] = name
+  end
+
+  field.present = field.present + 1
+  if field.counts[text] then
+    field.counts[text] = field.counts[text] + 1
+  elseif field.distinct < MAX_DISTINCT then
+    field.counts[text] = 1
+    field.distinct = field.distinct + 1
+  else
+    field.capped = true
+  end
+end
+
 ---@param counter JLogFacetCounter
 ---@param flat table<string, any>
 M.add = function(counter, flat)
-  local fields, names = counter.fields, counter.names
-
   for name, value in pairs(flat) do
-    local field = fields[name]
-    local text = entry_model.text(value)
+    M.add_value(counter, name, value)
+  end
+end
 
-    if not field then
-      field = { counts = {}, distinct = 0, capped = false, present = 0 }
-      fields[name] = field
-      names[#names + 1] = name
-    end
-
-    field.present = field.present + 1
-    if field.counts[text] then
-      field.counts[text] = field.counts[text] + 1
-    elseif field.distinct < MAX_DISTINCT then
-      field.counts[text] = 1
-      field.distinct = field.distinct + 1
-    else
-      field.capped = true
+---Replace `counter`'s fields with those `other` counted; a missing aliased name is skipped, as it was counted under
+---the log's own key (`level=ERROR` on `severity` logs), which `counter` already lists.
+---@param counter JLogFacetCounter
+---@param other JLogFacetCounter
+M.override = function(counter, other)
+  for name, field in pairs(other.fields) do
+    if counter.fields[name] then
+      counter.fields[name] = field
+    elseif not entry_model.aliased(name) then
+      counter.names[#counter.names + 1] = name
+      counter.fields[name] = field
     end
   end
 end

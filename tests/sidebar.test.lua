@@ -423,6 +423,93 @@ describe("sidebar", function()
     end))
   end)
 
+  it(
+    "should put each picked value of a field on an OR line with <CR>, take them out again, and keep listing them",
+    function()
+      local buf = vim.api.nvim_create_buf(true, false)
+      local function settle()
+        assert.is_truthy(vim.wait(2000, function()
+          return ws.rendered == ws.store.generation and not ws.sidebar.stale
+        end, 10))
+      end
+      local function press(value)
+        ws.sidebar:expand_field("status")
+        ws.sidebar:cursor_to_value("status", value)
+        vim.api.nvim_feedkeys(vim.keycode("<CR>"), "x", false)
+        settle()
+      end
+
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+        '{"msg":"a","status":500,"zone":"z"}',
+        '{"msg":"b","status":502,"zone":"z"}',
+        '{"msg":"c","status":200,"zone":"y"}',
+      })
+      ws = assert(require("jlog.workspace").open({ bufnr = buf }))
+      settle()
+
+      press("500")
+      assert.are.same({ "status=500" }, ws.state.filters)
+      assert.are.equal(3, ws.sidebar.facets[2].distinct)
+      press("502")
+      assert.are.same({ "status=500", "OR status=502" }, ws.state.filters)
+      assert.is_truthy(ws.view.winbar_text:find(" 2/3 ", 1, true))
+      assert.is_truthy(ws.view.winbar_text:find("status=500 OR status=502", 1, true))
+      ws.sidebar:expand_field("zone")
+      ws.sidebar:cursor_to_value("zone", "z")
+      vim.api.nvim_feedkeys(vim.keycode("<CR>"), "x", false)
+      settle()
+      assert.are.same({ "status=500", "OR status=502", "AND zone=z" }, ws.state.filters)
+      press("500")
+      assert.are.same({ "status=502", "AND zone=z" }, ws.state.filters)
+      press("502")
+      assert.are.same({ "zone=z" }, ws.state.filters)
+    end
+  )
+
+  it("should keep listing the log's own key, with no extra role row, for a filter written by role", function()
+    local buf = vim.api.nvim_create_buf(true, false)
+    local names
+
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+      '{"msg":"a","severity":"ERROR"}',
+      '{"msg":"b","severity":"INFO"}',
+    })
+    ws = assert(require("jlog.workspace").open({ bufnr = buf }))
+    ws:add_filter("level=ERROR")
+    assert.is_truthy(vim.wait(2000, function()
+      return ws.rendered == ws.store.generation and not ws.sidebar.stale
+    end, 10))
+    names = vim.tbl_map(function(facet)
+      return facet.name
+    end, ws.sidebar.facets)
+
+    assert.are.same({ "msg", "severity" }, names)
+  end)
+
+  it("should say invalid filter beside FILTERS while a filter line fails to parse", function()
+    local buf = vim.api.nvim_create_buf(true, false)
+    local function note()
+      local row = row_of("FILTERS")
+
+      for _, mark in
+        ipairs(vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, -1, { row, 0 }, { row, -1 }, { details = true }))
+      do
+        if mark[4].virt_text and mark[4].virt_text[1][1] == "  invalid filter" then
+          return mark[4].virt_text[1][2]
+        end
+      end
+    end
+
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { '{"msg":"a"}', '{"msg":"b"}' })
+    ws = assert(require("jlog.workspace").open({ bufnr = buf }))
+    ws.state.filters = { "msg~\\(" }
+    ws:apply()
+    assert.are.equal("JLogFilterInvalid", note())
+
+    ws:clear_filters()
+    assert.is_nil(note())
+  end)
+
   it("should set the group from a field name", function()
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/loki.json", ":p") })
     ws.sidebar:cursor_to_value("request_id")
@@ -659,7 +746,8 @@ describe("sidebar", function()
 
       vim.api.nvim_buf_set_lines(sb, 2, 3, false, { "level=ERROR", "status>" })
       ws.sidebar:auto_sync()
-      assert.are.same({ "level=ERROR", "status>" }, ws.state.filters)
+      -- applied with its operator written out; the buffer keeps the line as typed until insert mode ends
+      assert.are.same({ "level=ERROR", "AND status>" }, ws.state.filters)
       assert.is_true(vim.bo[sb].modified)
       assert.are.same({ "level=ERROR", "status>" }, vim.api.nvim_buf_get_lines(sb, 2, 4, false))
 

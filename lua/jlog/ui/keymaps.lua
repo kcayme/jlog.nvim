@@ -28,7 +28,7 @@ local HELP = {
     title = "Sidebar",
     rows = {
       { key = ":w", text = "apply FILTERS, GROUP BY and LIMIT" },
-      { actions = { "add_filter" }, text = "on a value: add it as a filter" },
+      { actions = { "add_filter" }, text = "on a value: add/remove it (OR within a field)" },
       { actions = { "toggle_sidebar" }, text = "hide the sidebar" },
       { actions = { "group_by" }, text = "on a field: group by it" },
       { actions = { "ignore_field" }, text = "on a field: hide/show it in compact lines" },

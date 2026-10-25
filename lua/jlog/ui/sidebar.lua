@@ -6,7 +6,7 @@ local keymaps = require("jlog.ui.keymaps")
 
 ---@class JLogFilterError
 ---@field text string the filter line as written
----@field msg string
+---@field msg string empty on the other lines of a failed OR group: one line holds the message
 
 ---@class JLogSidebarRow
 ---@field name string field path
@@ -126,19 +126,6 @@ local function summary(facet, width)
   end
 
   return facet.distinct .. (facet.capped and "+" or "") .. " values"
-end
-
----`field=value`, quoting the value when the filter parser needs it; a newline is written as `\n`.
----@param name string
----@param value string
----@return string
-local function clause(name, value)
-  name = filter.escape_field(name)
-  if value ~= "" and not value:find('[%s"]') then
-    return name .. "=" .. value
-  end
-
-  return name .. '="' .. value:gsub('[\\"]', "\\%0"):gsub("\n", "\\n") .. '"'
 end
 
 ---Text cells field lines may fill: the sidebar window's (or the configured width while hidden), less the padding.
@@ -357,9 +344,10 @@ Sidebar.render = function(self, progress)
   local winid = vim.fn.bufwinid(self.bufnr)
   local cursor = winid ~= -1 and vim.api.nvim_win_get_cursor(winid)
   local anchor = cursor and self.rows[cursor[1]]
-  local fields_row, anchor_row
+  local fields_row, filters_row, anchor_row
   local limit_rows = {}
   local dim
+  local msg, col, end_col
 
   progress = progress or (self.stale and COUNTING or nil)
   self.width = width
@@ -374,11 +362,25 @@ Sidebar.render = function(self, progress)
     end
     if section == "filters" then
       lines[#lines + 1] = HEADERS.filters
+      filters_row = #lines
       vim.list_extend(lines, state.filters)
       for _, err in ipairs(self.errors) do
         lines[#lines + 1] = err.text
-        diagnostics[#diagnostics + 1] =
-          { lnum = #lines - 1, col = 0, severity = vim.diagnostic.severity.WARN, message = err.msg, source = "jlog" }
+        -- underline the part that fails, or the whole line when it fails only with its group
+        msg, col, end_col = filter.locate(err.text)
+        if not msg then
+          col, end_col = 0, #err.text
+        end
+        if err.msg ~= "" then
+          diagnostics[#diagnostics + 1] = {
+            lnum = #lines - 1,
+            col = col,
+            end_col = end_col,
+            severity = vim.diagnostic.severity.WARN,
+            message = err.msg,
+            source = "jlog",
+          }
+        end
       end
       -- an empty section keeps a blank input line
       if #state.filters == 0 and #self.errors == 0 then
@@ -435,6 +437,11 @@ Sidebar.render = function(self, progress)
       hl_group = hl[4],
     })
     add_caps(self, hl)
+  end
+  if #self.errors > 0 and filters_row then
+    vim.api.nvim_buf_set_extmark(self.bufnr, hl_ns, filters_row - 1, 0, {
+      virt_text = { { "  invalid filter", "JLogFilterInvalid" } },
+    })
   end
   if progress and fields_row then
     vim.api.nvim_buf_set_extmark(self.bufnr, hl_ns, fields_row - 1, 0, {
@@ -657,7 +664,7 @@ Sidebar.cursor_to_value = function(self, name, value)
   end
 end
 
----`<CR>`: on a value, add it as a filter; on a field name, fold/unfold it.
+---`<CR>`: on a value, add it to or take it out of its field's filter line; on a field name, fold/unfold it.
 ---@return boolean handled
 Sidebar.activate = function(self)
   local row = self:row_at_cursor()
@@ -666,7 +673,7 @@ Sidebar.activate = function(self)
     return false
   end
   if row.value then
-    self.ws:add_filter(clause(row.name, row.value))
+    self.ws:toggle_value(row.name, row.value)
   else
     self:expand_field(row.name, not self.expanded[row.name])
   end

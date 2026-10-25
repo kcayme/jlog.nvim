@@ -35,7 +35,8 @@ With [lazy.nvim](https://github.com/folke/lazy.nvim):
 1. Open a log file and run `:JLog` (or `:JLog path/to/app.log`). It opens in its own tab, with the sidebar on the right.
 2. Press `<CR>` on an entry to expand it, `E` to expand them all.
 3. In the sidebar, type `status>=500` under `FILTERS`, or `request_id` under `GROUP BY`, then `:w`.
-4. Or press `<CR>` on a value in `FIELDS` to filter by it, `g` on a field to group by it.
+4. Or press `<CR>` on values in `FIELDS` to filter by them (one line each, `OR` between values of a field), `g` on a
+   field to group by it.
 5. `?` in the sidebar lists every key; `q` closes the workspace.
 
 ## Usage
@@ -122,14 +123,24 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
 | `s` | log view | Focus the sidebar |
 | `S` | log view, sidebar | Toggle the sidebar |
 | `q` | log view, sidebar | Close the workspace (closes the float in the raw popup) |
-| `<CR>` | sidebar | On a field value, add it as a filter |
+| `<CR>` | sidebar | On a field value, add it as a filter line (`OR` after the field's other values, else `AND`); again to remove it |
 | `g` | sidebar | On a field, group by it |
 | `s` | sidebar | On a field, hide it from compact lines, or show it again |
 | `?` | sidebar | Open a guide to these keys (`? help` on the sidebar's first line) |
 
 ### Filter syntax
 
-One clause per `:JLog filter` call or sidebar `FILTERS` line:
+One clause per `:JLog filter` call or sidebar `FILTERS` line. Every line after the first starts with its operator:
+`AND` starts a new condition that must also match, `OR` adds an alternative to the condition above. A line typed
+without one is taken as `AND`, and the operator is written in when the filter applies.
+
+```
+service=user-api
+AND request_id=req-00000001
+OR request_id=req-00000002
+```
+
+This reads as `service=user-api AND (request_id=req-00000001 OR request_id=req-00000002)`.
 
 ```
 :JLog filter status>=500 path=/api/licence-checks
@@ -143,13 +154,16 @@ One clause per `:JLog filter` call or sidebar `FILTERS` line:
 | `field~regex` | Vim regex (same flavor as `/`, honors `'ignorecase'`) against the field's string form. |
 | `value` | Bare term: Vim regex against the entry's raw source text. |
 | `-term` | Negate a term. |
-| `term term` | Space means AND. |
+| `term term`, `term AND term` | Inside a line, a space or `AND` means AND. |
 | `a OR b` | Uppercase `OR` separates alternatives; AND binds tighter. |
-| `"quoted value"` | Needed for spaces or the word `OR`, e.g. `msg="request completed"`. |
+| `"quoted value"` | Needed for spaces or the words `OR` and `AND`, e.g. `msg="request completed"`, `"AND"`. |
 
 - Fields are dotted paths (`req.headers.host`). `time`, `level` and `msg` resolve through the configured `fields`
   aliases (e.g. `message`, `severity`); `level` compares case-insensitively.
 - A missing field never matches, so `-term` matches it. Filtering while grouped keeps whole groups.
+- A condition made only of `field=value` alternatives on one field (picked values on `OR` lines, or
+  `status=500 OR status=502`) leaves that field's FIELDS counts as if it were off, so all its values stay listed to
+  pick from; the other fields count only the matches.
 - In field names a newline is written `\n` and a backslash `\\`. Inside quotes only `\"`, `\\` and `\n` are
   escapes, so a quoted `~` regex that needs a literal backslash writes `\\\\` (`msg~"a\\\\b"` matches `a\b`).
 - A typed time without a zone is local time, like the view shows (UTC with `view.time_utc`); a date alone is
@@ -318,6 +332,7 @@ linked group's color, reversed and bold, so the level reads as a colored label i
 | `JLogFieldCount` | counts in the FIELDS section | `Comment` |
 | `JLogFieldStale` | FIELDS counts kept from the last apply while new ones are counted | `NonText` |
 | `JLogFieldIgnored` | FIELDS names of fields hidden from compact lines | `NonText` |
+| `JLogFilterInvalid` | The "invalid filter" note beside FILTERS while a filter line fails to parse | `DiagnosticWarn` |
 | `JLogHint` | sidebar examples on empty FILTERS / GROUP BY / LIMIT lines, `:w to apply`, and the SORT order | `Comment` |
 | `JLogWinbar` | jlog winbar text | `WinBar` |
 | `JLogOverlap` | entries a page shares with its neighbours | `Comment` |

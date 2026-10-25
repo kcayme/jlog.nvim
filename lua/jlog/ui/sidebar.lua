@@ -150,7 +150,7 @@ end
 local function add_fields(sidebar, lines, highlights, width)
   local count_group = sidebar.stale and "JLogFieldStale" or "JLogFieldCount"
   local opts = sidebar.ws.opts
-  local pill = opts.sidebar.pill
+  local pill = opts.sidebar.fields.pill
   local name, group, cap_group, caps
   local head
   local count
@@ -278,7 +278,7 @@ end
 ---@param sidebar JLogSidebar
 ---@param hl {[1]: integer, [2]: integer, [3]: integer, [4]: string, [5]: string|nil}
 local function add_caps(sidebar, hl)
-  local pill = sidebar.ws.opts.sidebar.pill
+  local pill = sidebar.ws.opts.sidebar.fields.pill
 
   if not hl[5] then
     return

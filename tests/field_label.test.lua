@@ -17,13 +17,13 @@ describe("field_label", function()
   end)
 
   it("should use JLogFieldName for every name when sidebar field colors are off", function()
-    local opts = config.setup({ sidebar = { field_colors = false } })
+    local opts = config.setup({ sidebar = { fields = { colors = false } } })
 
     assert.are.same({ "status", "JLogFieldName" }, { field_label.of(opts, "status", 3) })
   end)
 
   it("should draw every name as a badge of its color when the sidebar style is inverted", function()
-    local opts = config.setup({ sidebar = { style = "inverted" } })
+    local opts = config.setup({ sidebar = { fields = { style = "inverted" } } })
     local color = highlights.field_group("msg")
 
     assert.are.same({ "msg", highlights.badge_of(color) }, { field_label.of(opts, "msg", 3) })
@@ -31,7 +31,7 @@ describe("field_label", function()
 
   it("should style a field by its name before its role, and give a pill its cap group", function()
     local opts = config.setup({
-      sidebar = { fields = { level = { style = "inverted" }, lvl = { style = "pill" } } },
+      sidebar = { fields = { styles = { level = { style = "inverted" }, lvl = { style = "pill" } } } },
       fields = { level = { "lvl" } },
     })
     local color = highlights.field_group("lvl")
@@ -40,7 +40,7 @@ describe("field_label", function()
   end)
 
   it("should style a field by its role when the name has no entry", function()
-    local opts = config.setup({ sidebar = { fields = { level = { style = "inverted" } } } })
+    local opts = config.setup({ sidebar = { fields = { styles = { level = { style = "inverted" } } } } })
     local color = highlights.field_group("severity")
 
     assert.are.same({ "severity", highlights.badge_of(color) }, { field_label.of(opts, "severity", 3) })
@@ -51,12 +51,14 @@ describe("field_label", function()
     local opts = config.setup({
       sidebar = {
         fields = {
-          ["req.method"] = {
-            format = function(ctx)
-              seen = { ctx.name, ctx.distinct }
+          styles = {
+            ["req.method"] = {
+              format = function(ctx)
+                seen = { ctx.name, ctx.distinct }
 
-              return ctx.name:upper(), "Special"
-            end,
+                return ctx.name:upper(), "Special"
+              end,
+            },
           },
         },
       },
@@ -71,10 +73,12 @@ describe("field_label", function()
     local opts = config.setup({
       sidebar = {
         fields = {
-          msg = {
-            format = function()
-              error("boom")
-            end,
+          styles = {
+            msg = {
+              format = function()
+                error("boom")
+              end,
+            },
           },
         },
       },

@@ -18,19 +18,19 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `compact.pill.right` | `string` | `"\u{e0b4}"` | Right cap of `pill` fields. Needs a Nerd Font; `""` gives a square end. |
 | `view.mode` | `JLogViewMode` | `"compact"` | Initial view: `"compact"` (one line per entry) or `"expanded"` (indented JSON). |
 | `view.sort` | `JLogSort` | `"desc"` | Initial order: `"asc"` (oldest first) or `"desc"` (newest first). |
-| `view.field_colors` | `boolean` | `true` | Color each field's keys in the log view, cycling through `JLogField1`…`JLogField8` in first-seen order; a field keeps the same color in FIELDS when `sidebar.field_colors` is on. A key never takes a value's color, and the cycle uses only distinct colors from the colorscheme. `false` uses `JLogKey`. |
+| `view.field_colors` | `boolean` | `true` | Color each field's keys in the log view, cycling through `JLogField1`…`JLogField8` in first-seen order; a field keeps the same color in FIELDS when `sidebar.fields.colors` is on. A key never takes a value's color, and the cycle uses only distinct colors from the colorscheme. `false` uses `JLogKey`. |
 | `unwrap.enable` | `boolean` | `true` | Unwrap double-encoded JSON inside string values. |
 | `unwrap.max_depth` | `integer` | `4` | Maximum levels of nested unwrapping. |
 | `sidebar.width` | `integer` | `45` | Sidebar width in columns. |
 | `sidebar.position` | `JLogSidebarPosition` | `"right"` | Sidebar side: `"left"` or `"right"`. |
 | `sidebar.sections` | `JLogSidebarSection[]` | `{ "filters", "group", "sort", "fields" }` | Sidebar sections in the order shown: `"filters"`, `"group"`, `"sort"`, `"fields"`. A section left out is hidden; `:w` then leaves its filters or group as the field actions and `:JLog` commands set them. Unknown or repeated names are skipped with a warning. |
-| `sidebar.field_colors` | `boolean` | `true` | Color each field name in FIELDS by field, in the same `JLogField1`…`JLogField8` color its keys get in the log view. `false` uses `JLogFieldName`. Independent of `view.field_colors`. |
-| `sidebar.style` | `JLogFieldStyle` | `"plain"` | Default style of field names in FIELDS: `"plain"` (colored text), `"inverted"` (the name as a colored block) or `"pill"` (inverted with caps). |
-| `sidebar.fields` | `table<string, JLogSidebarField>` | `{}` | Per field overrides for FIELDS names, keyed by the field path FIELDS shows (e.g. `req.method`) or a role (`time`, `level`, `message`, `status`); a path's entry wins over its role's. |
-| `sidebar.fields[...].style` | `JLogFieldStyle` | `sidebar.style` | Style of that field's name. |
-| `sidebar.fields[...].format` | `fun(ctx): string, string\|nil` | none | Returns the name's text and optionally a highlight group. `ctx` has `name` (the field path) and `distinct` (distinct values counted); it is reused, do not keep it. Newlines in the text are shown as `\n`. Errors, a non-string return or an invalid group name fall back to the default and warn once per field. |
-| `sidebar.pill.left` | `string` | `"\u{e0b6}"` | Left cap of `pill` field names, drawn as inline virtual text. Needs a Nerd Font; `""` gives a square end. |
-| `sidebar.pill.right` | `string` | `"\u{e0b4}"` | Right cap of `pill` field names. Needs a Nerd Font; `""` gives a square end. |
+| `sidebar.fields.colors` | `boolean` | `true` | Color each field name in FIELDS by field, in the same `JLogField1`…`JLogField8` color its keys get in the log view. `false` uses `JLogFieldName`. Independent of `view.field_colors`. |
+| `sidebar.fields.style` | `JLogFieldStyle` | `"plain"` | Default style of field names in FIELDS: `"plain"` (colored text), `"inverted"` (the name as a colored block) or `"pill"` (inverted with caps). |
+| `sidebar.fields.styles` | `table<string, JLogSidebarField>` | `{}` | Per field overrides for FIELDS names, keyed by the field path FIELDS shows (e.g. `req.method`) or a role (`time`, `level`, `message`, `status`); a path's entry wins over its role's. |
+| `sidebar.fields.styles[...].style` | `JLogFieldStyle` | `sidebar.fields.style` | Style of that field's name. |
+| `sidebar.fields.styles[...].format` | `fun(ctx): string, string\|nil` | none | Returns the name's text and optionally a highlight group. `ctx` has `name` (the field path) and `distinct` (distinct values counted); it is reused, do not keep it. Newlines in the text are shown as `\n`. Errors, a non-string return or an invalid group name fall back to the default and warn once per field. |
+| `sidebar.fields.pill.left` | `string` | `"\u{e0b6}"` | Left cap of `pill` field names, drawn as inline virtual text. Needs a Nerd Font; `""` gives a square end. |
+| `sidebar.fields.pill.right` | `string` | `"\u{e0b4}"` | Right cap of `pill` field names. Needs a Nerd Font; `""` gives a square end. |
 | `facets.top_values` | `integer` | `10` | Number of top values listed per field in the sidebar. |
 | `paging.size` | `integer` | `100000` | Page size: source lines for JSONL, array elements for JSON arrays and timestamped exports. A JSONL page boundary moves on up to `size / 10` lines to the next line that starts an entry, so an entry does not split; a longer run of plain lines is split there. |
 | `paging.overlap` | `integer` | `2000` | How much of each neighbouring page is also shown on a page, so a request at a page edge stays whole: source lines for JSONL (extended so an entry is never cut), elements for JSON arrays and timestamped exports. |

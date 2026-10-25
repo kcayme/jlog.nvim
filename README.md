@@ -164,10 +164,12 @@ require("jlog").setup({
   sidebar = {
     width = 45,
     position = "right",
-    field_colors = true, -- false: every FIELDS name uses JLogFieldName
-    style = "plain", -- FIELDS names: "plain", "inverted" or "pill"
-    fields = {}, -- per field path or role: { style = ..., format = function(ctx) return text, group end }
-    pill = { left = "\238\130\182", right = "\238\130\180" }, -- Nerd Font caps; "" for square ends
+    fields = { -- how FIELDS shows field names
+      colors = true, -- false: every name uses JLogFieldName
+      style = "plain", -- "plain", "inverted" or "pill"
+      pill = { left = "\238\130\182", right = "\238\130\180" }, -- Nerd Font caps; "" for square ends
+      styles = {}, -- per field path or role: { style = ..., format = function(ctx) return text, group end }
+    },
     sections = { "filters", "group", "sort", "fields" }, -- order shown; a section left out is hidden
   },
   facets = { top_values = 10 },
@@ -291,7 +293,7 @@ linked group's color, reversed and bold, so the level reads as a colored label i
 | `JLogPlain` | non-JSON entries and continuation lines | `Comment` |
 | `JLogGroupHeader` | group headers (virtual lines and closed group folds) | `Title` |
 | `JLogSectionHeader` | sidebar `FILTERS` / `GROUP BY` / `SORT` / `FIELDS` | `Title` |
-| `JLogFieldName` | field names in the FIELDS section, when `sidebar.field_colors = false` | `Identifier` |
+| `JLogFieldName` | field names in the FIELDS section, when `sidebar.fields.colors = false` | `Identifier` |
 | `JLogFieldCount` | counts in the FIELDS section | `Comment` |
 | `JLogFieldStale` | FIELDS counts kept from the last apply while new ones are counted | `NonText` |
 | `JLogHint` | sidebar examples on empty FILTERS / GROUP BY lines, `:w to apply`, and the SORT order | `Comment` |

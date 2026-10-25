@@ -485,7 +485,7 @@ describe("sidebar", function()
       assert.are.equal(highlights.field_group("request_id"), name_groups().request_id)
       ws:close()
 
-      require("jlog.config").setup({ sidebar = { field_colors = false } })
+      require("jlog.config").setup({ sidebar = { fields = { colors = false } } })
       ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
       assert.is_true(vim.wait(2000, function()
         return name_groups().request_id ~= nil
@@ -498,7 +498,7 @@ describe("sidebar", function()
   it("should draw a pill field name with inline caps and keep the summaries aligned", function()
     local ns, lines, caps, columns
 
-    require("jlog.config").setup({ sidebar = { fields = { request_id = { style = "pill" } } } })
+    require("jlog.config").setup({ sidebar = { fields = { styles = { request_id = { style = "pill" } } } } })
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
     ns = vim.api.nvim_get_namespaces()["jlog.sidebar"]
     assert.is_true(vim.wait(2000, function()

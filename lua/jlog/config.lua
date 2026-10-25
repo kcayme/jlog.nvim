@@ -50,13 +50,16 @@
 
 ---@alias JLogSidebarSection "filters"|"group"|"sort"|"fields"
 
+---@class JLogSidebarFieldsOptions
+---@field colors boolean color each field name in FIELDS by field; false uses `JLogFieldName`
+---@field style JLogFieldStyle default style of field names in FIELDS
+---@field pill JLogPillOptions caps of `pill` field names
+---@field styles table<string, JLogSidebarField> per field path or role (`time`, `level`, `message`, `status`)
+
 ---@class JLogSidebarOptions
 ---@field width integer
 ---@field position JLogSidebarPosition
----@field field_colors boolean color each field name in FIELDS by field; false uses `JLogFieldName`
----@field style JLogFieldStyle default style of field names in FIELDS
----@field fields table<string, JLogSidebarField> per field path or role (`time`, `level`, `message`, `status`)
----@field pill JLogPillOptions caps of `pill` field names
+---@field fields JLogSidebarFieldsOptions how FIELDS shows its field names
 ---@field sections JLogSidebarSection[] sections in the order shown; one left out is hidden
 
 ---@class JLogFacetsOptions
@@ -120,10 +123,12 @@ M.defaults = {
   sidebar = {
     width = 45,
     position = "right",
-    field_colors = true,
-    style = "plain",
-    fields = {},
-    pill = { left = "\238\130\182", right = "\238\130\180" },
+    fields = {
+      colors = true,
+      style = "plain",
+      pill = { left = "\238\130\182", right = "\238\130\180" },
+      styles = {},
+    },
     sections = { "filters", "group", "sort", "fields" },
   },
   facets = { top_values = 10 },

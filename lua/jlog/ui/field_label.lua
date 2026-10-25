@@ -76,13 +76,13 @@ end
 ---@return string group
 ---@return string|nil cap_group set when the name is drawn as a pill
 M.of = function(opts, name, distinct)
-  local sidebar = opts.sidebar
+  local fields = opts.sidebar.fields
   local role = role_of(opts, name)
-  local by_name = sidebar.fields[name]
-  local by_role = role and sidebar.fields[role]
-  local style = (by_name and by_name.style) or (by_role and by_role.style) or sidebar.style
+  local by_name = fields.styles[name]
+  local by_role = role and fields.styles[role]
+  local style = (by_name and by_name.style) or (by_role and by_role.style) or fields.style
   local format = (by_name and by_name.format) or (by_role and by_role.format)
-  local color = sidebar.field_colors and highlights.field_group(name) or "JLogFieldName"
+  local color = fields.colors and highlights.field_group(name) or "JLogFieldName"
   local text, group
 
   if format then

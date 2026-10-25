@@ -136,6 +136,7 @@ One clause per `:JLog filter` call or sidebar `FILTERS` line:
 |--------|---------|
 | `field=value`, `field!=value` | Equality on the value's text; numbers also compare numerically (`status=500`). |
 | `field>n`, `>=`, `<`, `<=` | Numeric comparison; non-numeric values never match. |
+| `time>=2026-10-22T10:00`, `<`, ... | Time comparison when the value is a date (`2026-10-22`), a date and time, or a full ISO time; fields holding ISO 8601 times compare as instants, whatever their offset. |
 | `field~regex` | Vim regex (same flavor as `/`, honors `'ignorecase'`) against the field's string form. |
 | `value` | Bare term: Vim regex against the entry's raw source text. |
 | `-term` | Negate a term. |
@@ -148,6 +149,8 @@ One clause per `:JLog filter` call or sidebar `FILTERS` line:
 - A missing field never matches, so `-term` matches it. Filtering while grouped keeps whole groups.
 - In field names a newline is written `\n` and a backslash `\\`. Inside quotes only `\"`, `\\` and `\n` are
   escapes, so a quoted `~` regex that needs a literal backslash writes `\\\\` (`msg~"a\\\\b"` matches `a\b`).
+- A typed time without a zone is local time, like the view shows (UTC with `view.time_utc`); a date alone is
+  midnight. Quote one with a space: `time<"2026-10-22 11:00"`. `=` and `~` still match the time's text.
 - Integers are exact at any size: `id=12345678901234567890` works. `>`, `>=`, `<` and `<=` compare as doubles, so
   past 2^53 they are approximate.
 

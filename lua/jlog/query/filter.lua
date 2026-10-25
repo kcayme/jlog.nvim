@@ -1,4 +1,6 @@
+local config = require("jlog.config")
 local entry_model = require("jlog.parse.entry")
+local time = require("jlog.parse.time")
 
 local M = {}
 
@@ -9,6 +11,7 @@ local M = {}
 ---@field value string
 ---@field re any|nil compiled vim.regex for `~` and bare terms
 ---@field num number|nil numeric form of `value`, when it is one
+---@field epoch number|nil `value` as seconds since the epoch, for `>`, `>=`, `<`, `<=` on a typed time
 ---@field lower string|nil lowercased `value`, for the case-insensitive `level` field
 
 ---@class JLogMatchCtx
@@ -16,6 +19,7 @@ local M = {}
 ---@field raw string entry raw text plus continuation lines
 
 local TWO_CHAR_OPS = { ["!="] = true, [">="] = true, ["<="] = true }
+local ORDER_OPS = { [">"] = true, [">="] = true, ["<"] = true, ["<="] = true }
 local FIELD_ESCAPES = { n = "\n", ["\\"] = "\\" }
 
 -- Field names are written with `\n` for a newline and `\\` for a backslash, so they fit on one line.
@@ -121,6 +125,9 @@ local function finish_term(term)
   if term.field == "level" then
     term.lower = term.value:lower()
   end
+  if ORDER_OPS[term.op] and not term.num then
+    term.epoch = time.parse_input(term.value, config.options.view.time_utc)
+  end
 
   return nil
 end
@@ -172,7 +179,8 @@ local function matches_term(term, ctx)
   local op = term.op
   local value
   local text
-  local number
+  local number, term_number
+  local seconds, fraction
   local equal
 
   if not op then
@@ -212,19 +220,28 @@ local function matches_term(term, ctx)
     return false
   end
 
-  number = tonumber(value)
-  if not number or not term.num then
+  if term.epoch then
+    seconds, fraction = time.parse_iso(entry_model.text(value))
+    number = seconds and seconds + (fraction ~= "" and tonumber("0." .. fraction) or 0)
+    if not number then
+      return false
+    end
+    term_number = term.epoch
+  else
+    number, term_number = tonumber(value), term.num
+  end
+  if not number or not term_number then
     return false
   end
   if op == ">" then
-    return number > term.num
+    return number > term_number
   elseif op == ">=" then
-    return number >= term.num
+    return number >= term_number
   elseif op == "<" then
-    return number < term.num
+    return number < term_number
   end
 
-  return number <= term.num
+  return number <= term_number
 end
 
 local function matches_alternative(alternative, ctx)

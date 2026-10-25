@@ -1,7 +1,7 @@
 local compact = require("jlog.ui.compact")
 local entry_model = require("jlog.parse.entry")
 local highlights = require("jlog.ui.highlights")
-local time = require("jlog.ui.time")
+local time = require("jlog.parse.time")
 
 ---0-based start col, exclusive end col, highlight group, and a pill's cap color group.
 ---@alias JLogSpan {[1]: integer, [2]: integer, [3]: string, [4]: string|nil}

@@ -96,24 +96,79 @@ M.format_epoch = function(seconds, millis, view, value)
   return (cache_text:gsub(MILLIS_MARK, millis))
 end
 
+---Seconds since the epoch for a UTC date and time of day.
+---@return integer
+local function utc_seconds(year, month, day, hour, minute, second)
+  return days_from_civil(tonumber(year), tonumber(month), tonumber(day)) * 86400
+    + tonumber(hour) * 3600
+    + tonumber(minute) * 60
+    + tonumber(second)
+end
+
+---Read an ISO 8601 date-time from a log; no zone suffix is UTC.
+---@param value string
+---@return integer|nil seconds since the epoch, UTC; nil when `value` is not an ISO 8601 date-time
+---@return string|nil fraction the digits after the seconds' dot, maybe empty
+M.parse_iso = function(value)
+  local year, month, day, hour, minute, second, fraction, zone =
+    value:match("^(%d%d%d%d)-(%d%d)-(%d%d)[T ](%d%d):(%d%d):(%d%d)%.?(%d*)(.*)$")
+  local offset = zone and zone_offset(zone)
+
+  if not offset then
+    return nil
+  end
+
+  return utc_seconds(year, month, day, hour, minute, second) - offset, fraction
+end
+
+---Read a time typed in a filter: a date, a date and time, or a full ISO time; without a zone it is local time.
+---@param text string
+---@param utc boolean read a time without a zone as UTC instead
+---@return number|nil seconds since the epoch, with the fraction; nil when `text` is not a time
+M.parse_input = function(text, utc)
+  local year, month, day = text:match("^(%d%d%d%d)-(%d%d)-(%d%d)$")
+  local hour, minute, second, fraction, zone, offset, seconds
+
+  if not year then
+    year, month, day, hour, minute, second, fraction, zone =
+      text:match("^(%d%d%d%d)-(%d%d)-(%d%d)[T ](%d%d):(%d%d):?(%d*)%.?(%d*)(.*)$")
+  end
+  if not year then
+    return nil
+  end
+  hour, minute, second, fraction, zone = hour or "0", minute or "0", second or "", fraction or "", zone or ""
+  second = second ~= "" and second or "0"
+  offset = zone ~= "" and zone_offset(zone)
+  if offset == nil then
+    return nil
+  end
+  if offset or utc then
+    seconds = utc_seconds(year, month, day, hour, minute, second) - (offset or 0)
+  else
+    -- os.time reads a table as local time, daylight saving included
+    seconds = os.time({
+      year = tonumber(year),
+      month = tonumber(month),
+      day = tonumber(day),
+      hour = tonumber(hour),
+      min = tonumber(minute),
+      sec = tonumber(second),
+    })
+  end
+
+  return seconds + (fraction ~= "" and tonumber("0." .. fraction) or 0)
+end
+
 ---Format an ISO 8601 date-time with `view.time_format`; a function is called for any value.
 ---@param value string
 ---@param view JLogViewOptions
 ---@return string|nil nil when `value` is not an ISO 8601 date-time and the format is a string
 M.format_iso = function(value, view)
-  local year, month, day, hour, minute, second, fraction, zone =
-    value:match("^(%d%d%d%d)-(%d%d)-(%d%d)[T ](%d%d):(%d%d):(%d%d)%.?(%d*)(.*)$")
-  local offset = zone and zone_offset(zone)
-  local seconds = offset
-    and days_from_civil(tonumber(year), tonumber(month), tonumber(day)) * 86400
-      + tonumber(hour) * 3600
-      + tonumber(minute) * 60
-      + tonumber(second)
-      - offset
-  local millis = offset and (fraction .. "000"):sub(1, 3)
+  local seconds, fraction = M.parse_iso(value)
+  local millis = fraction and (fraction .. "000"):sub(1, 3)
 
   if type(view.time_format) == "function" then
-    return call_format(view.time_format, value, seconds or nil, millis or nil)
+    return call_format(view.time_format, value, seconds, millis)
   end
   if not seconds then
     return nil

@@ -14,6 +14,38 @@ local function match(lines, fields, raw)
 end
 
 describe("filter", function()
+  describe("time ranges", function()
+    local early = { time = "2026-10-22T09:59:59.999Z" }
+    local inside = { time = "2026-10-22T12:30:00+02:00" }
+    local late = { time = "2026-10-22T11:00:00.000Z" }
+    local range = "time>=2026-10-22T10:00:00Z time<2026-10-22T11:00:00Z"
+
+    it("should compare ISO times as instants, whatever their offset or fraction", function()
+      assert.is_false(match(range, early))
+      assert.is_true(match(range, inside))
+      assert.is_false(match(range, late))
+      assert.is_true(match("time>2026-10-22T09:59:59.998Z", early))
+    end)
+
+    it("should take a date-only bound as local midnight", function()
+      local midnight = os.time({ year = 2026, month = 10, day = 22, hour = 0, min = 0, sec = 0 })
+
+      assert.is_true(match("time>=2026-10-22", { time = os.date("!%Y-%m-%dT%H:%M:%SZ", midnight) }))
+      assert.is_false(match("time>=2026-10-22", { time = os.date("!%Y-%m-%dT%H:%M:%SZ", midnight - 1) }))
+    end)
+
+    it("should work on any field and never match a value that is not a time", function()
+      assert.is_true(match("created_at<2026-10-23", { created_at = "2026-10-01T00:00:00Z" }))
+      assert.is_false(match("time>2026-10-22", { time = "yesterday" }))
+      assert.is_false(match("time>2026-10-22", {}))
+    end)
+
+    it("should keep numeric comparisons for numbers", function()
+      assert.is_true(match("ts>1760000000", { ts = 1760619024 }))
+      assert.is_true(match("status>=500", { status = 502 }))
+    end)
+  end)
+
   local row = { status = 502, path = "/api/licence-checks", level = "ERROR", msg = "request completed" }
 
   it("should AND space-separated terms", function()

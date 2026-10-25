@@ -1,4 +1,4 @@
-local time = require("jlog.ui.time")
+local time = require("jlog.parse.time")
 
 describe("time", function()
   local utc = { time_format = "%Y-%m-%d %H:%M:%S.%L", time_utc = true }
@@ -59,6 +59,24 @@ describe("time", function()
 
     assert.are.equal(1, #warnings)
     assert.is_truthy(warnings[1]:find("boom", 1, true))
+  end)
+
+  it("should read a typed date, date and time, or ISO time, without a zone as local time", function()
+    local local_midnight = os.time({ year = 2026, month = 10, day = 22, hour = 0, min = 0, sec = 0 })
+    local local_ten = os.time({ year = 2026, month = 10, day = 22, hour = 10, min = 0, sec = 5 })
+
+    assert.are.equal(local_midnight, time.parse_input("2026-10-22", false))
+    assert.are.equal(local_ten + 0.25, time.parse_input("2026-10-22 10:00:05.25", false))
+    assert.are.equal(local_ten - 5, time.parse_input("2026-10-22T10:00", false))
+    assert.are.equal(1792663200, time.parse_input("2026-10-22T10:00:00Z", false))
+    assert.are.equal(1792656000, time.parse_input("2026-10-22T10:00+02:00", false))
+    assert.are.equal(1792663200, time.parse_input("2026-10-22 10:00", true))
+  end)
+
+  it("should not read a typed value that is not a time", function()
+    assert.is_nil(time.parse_input("10:00", false))
+    assert.is_nil(time.parse_input("2026-10-22T10:00 PST", false))
+    assert.is_nil(time.parse_input("request_id", false))
   end)
 
   it("should format an epoch with a new format even within the same second", function()

@@ -349,6 +349,7 @@ Sidebar.render = function(self, progress)
   local anchor = cursor and self.rows[cursor[1]]
   local fields_row, anchor_row
   local limit_rows = {}
+  local dim
 
   progress = progress or (self.stale and COUNTING or nil)
   self.width = width
@@ -394,9 +395,12 @@ Sidebar.render = function(self, progress)
   self.limit_marks = {}
   for _, limit in ipairs(LIMITS) do
     if limit_rows[limit.label] then
+      -- the groups limit does nothing without a group, so its line is dimmed until one is set
+      dim = limit.field == "group_limit" and not state.group and "JLogHint" or nil
       -- virtual, so an edit cannot delete it; it stays left of what is typed at the start of the line
       self.limit_marks[limit.label] = vim.api.nvim_buf_set_extmark(self.bufnr, limit_ns, limit_rows[limit.label], 0, {
-        virt_text = { { ("  %-7s "):format(limit.label) } },
+        virt_text = { { ("  %-7s "):format(limit.label), dim } },
+        line_hl_group = dim,
         virt_text_pos = "inline",
         right_gravity = false,
         invalidate = true,

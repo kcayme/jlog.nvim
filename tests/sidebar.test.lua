@@ -461,6 +461,27 @@ describe("sidebar", function()
       assert.are.same({ "LIMIT", "", "2" }, vim.api.nvim_buf_get_lines(sb, row_of("LIMIT"), row_of("LIMIT") + 3, false))
     end)
 
+    it("should dim the groups line only while no group is set", function()
+      local function groups_mark()
+        local ns = vim.api.nvim_get_namespaces()["jlog.limit"]
+
+        return vim.api.nvim_buf_get_extmark_by_id(
+          ws.sidebar.bufnr,
+          ns,
+          ws.sidebar.limit_marks.groups,
+          { details = true }
+        )[3]
+      end
+
+      ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+      assert.are.equal("JLogHint", groups_mark().line_hl_group)
+      assert.are.equal("JLogHint", groups_mark().virt_text[1][2])
+
+      ws:set_group("request_id")
+      assert.is_nil(groups_mark().line_hl_group)
+      assert.is_nil(groups_mark().virt_text[1][2])
+    end)
+
     it("should apply the entries and groups limits typed under LIMIT, and show them after a redraw", function()
       local sb
 

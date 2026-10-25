@@ -304,6 +304,40 @@ describe("workspace", function()
     ws:close()
   end)
 
+  it("should not sort FIELDS by entries from the first slice while the rest of the file loads", function()
+    local lines = { '{"b":1,"a":1}', '{"b":1}', '{"b":1}', '{"b":1}' }
+    local path = vim.fn.tempname() .. ".jsonl"
+    local ws, first
+
+    for _ = 1, 30 do
+      lines[#lines + 1] = '{"c":1}'
+    end
+    vim.fn.writefile(lines, path)
+    config.setup({ sidebar = { fields = { sort = "count" } } })
+    loader.load_sizes = { first = 4 }
+    reader.chunk_size = 2
+    ws = assert(workspace.open({ path = path, force = true }))
+    first = vim.tbl_map(function(facet)
+      return facet.name
+    end, ws.sidebar.facets)
+    assert.is_true(vim.wait(5000, function()
+      return not ws.loading and not ws.sidebar.stale and #ws.sidebar.facets == 3
+    end))
+    loader.load_sizes = { first = 2000 }
+    reader.chunk_size = 500
+
+    -- the first slice counts b 4 times and a once, but those counts are partial: a, b keep their alphabetical order
+    assert.are.same({ "a", "b" }, first)
+    assert.are.same(
+      { "c", "b", "a" },
+      vim.tbl_map(function(facet)
+        return facet.name
+      end, ws.sidebar.facets)
+    )
+    ws:close()
+    vim.fn.delete(path)
+  end)
+
   it("should reverse without counting fields again when the counts are already final", function()
     local ws = assert(workspace.open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") }))
     local counts, facets, first

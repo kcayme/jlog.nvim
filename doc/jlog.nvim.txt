@@ -50,7 +50,8 @@ QUICK START                                            *jlog.nvim-quick-start*
 1. Open a log file and run `:JLog` (or `:JLog path/to/app.log`). It opens in its own tab, with the sidebar on the right.
 2. Press `<CR>` on an entry to expand it, `E` to expand them all.
 3. In the sidebar, type `status>=500` under `FILTERS`, or `request_id` under `GROUP BY`, then `:w`.
-4. Or press `<CR>` on a value in `FIELDS` to filter by it, `g` on a field to group by it.
+4. Or press `<CR>` on values in `FIELDS` to filter by them (one line each, `OR` between values of a field), `g` on a
+field to group by it.
 5. `?` in the sidebar lists every key; `q` closes the workspace.
 
 
@@ -189,7 +190,9 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
                                              the float in the raw popup)
 
   <CR>              sidebar                  On a field value, add it as
-                                             a filter
+                                             a filter line (OR after the
+                                             field’s other values, else
+                                             AND); again to remove it
 
   g                 sidebar                  On a field, group by it
 
@@ -204,7 +207,19 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
 
 FILTER SYNTAX ~
 
-One clause per `:JLog filter` call or sidebar `FILTERS` line:
+One clause per `:JLog filter` call or sidebar `FILTERS` line. Every line after
+the first starts with its operator: `AND` starts a new condition that must also
+match, `OR` adds an alternative to the condition above. A line typed without
+one is taken as `AND`, and the operator is written in when the filter applies.
+
+>
+    service=user-api
+    AND request_id=req-00000001
+    OR request_id=req-00000002
+<
+
+This reads as `service=user-api AND (request_id=req-00000001 OR
+request_id=req-00000002)`.
 
 >
     :JLog filter status>=500 path=/api/licence-checks
@@ -235,17 +250,22 @@ One clause per `:JLog filter` call or sidebar `FILTERS` line:
 
   -term                             Negate a term.
 
-  term term                         Space means AND.
+  term term, term AND term          Inside a line, a space or AND means
+                                    AND.
 
   a OR b                            Uppercase OR separates alternatives;
                                     AND binds tighter.
 
-  "quoted value"                    Needed for spaces or the word OR,
-                                    e.g. msg="request completed".
+  "quoted value"                    Needed for spaces or the words OR and
+                                    AND, e.g. msg="request completed",
+                                    "AND".
   -----------------------------------------------------------------------
 - Fields are dotted paths (`req.headers.host`). `time`, `level` and `msg` resolve through the configured `fields`
     aliases (e.g. `message`, `severity`); `level` compares case-insensitively.
 - A missing field never matches, so `-term` matches it. Filtering while grouped keeps whole groups.
+- A condition made only of `field=value` alternatives on one field (picked values on `OR` lines, or
+    `status=500 OR status=502`) leaves that field’s FIELDS counts as if it were off, so all its values stay listed to
+    pick from; the other fields count only the matches.
 - In field names a newline is written `\n` and a backslash `\\`. Inside quotes only `\"`, `\\` and `\n` are
     escapes, so a quoted `~` regex that needs a literal backslash writes `\\\\` (`msg~"a\\\\b"` matches `a\b`).
 - A typed time without a zone is local time, like the view shows (UTC with `view.time_utc`); a date alone is
@@ -480,6 +500,10 @@ level reads as a colored label in compact lines. Override them with
 
   JLogFieldIgnored    FIELDS names of fields hidden   NonText
                       from compact lines              
+
+  JLogFilterInvalid   The “invalid filter” note       DiagnosticWarn
+                      beside FILTERS while a filter   
+                      line fails to parse             
 
   JLogHint            sidebar examples on empty       Comment
                       FILTERS / GROUP BY / LIMIT      
@@ -717,7 +741,9 @@ options are optional; omitted keys fall back to the defaults shown below.
   keymaps.close                       string\|false                     "q"                                                                      Close the workspace (in the sidebar and log view).
 
   keymaps.add_filter                  string\|false                     "<CR>"                                                                   Sidebar: add the field value under the cursor as a
-                                                                                                                                                 filter.
+                                                                                                                                                 filter line: OR field=value under that field’s other
+                                                                                                                                                 values, else a new AND line; on a value already
+                                                                                                                                                 picked, take it out.
 
   keymaps.group_by                    string\|false                     "g"                                                                      Sidebar: group by the field under the cursor.
 

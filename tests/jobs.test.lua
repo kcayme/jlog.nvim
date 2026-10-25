@@ -180,6 +180,14 @@ describe("jobs", function()
       assert.are.same({ 1, 2 }, srcs_of(result))
     end)
 
+    it("should count a picked field's values under its other lines, skipping one with a regex", function()
+      local text = '{"status":500,"msg":"a"}\n{"status":200,"msg":"b"}\n{"status":200,"msg":"c"}'
+
+      assert.are.same({ ["500"] = 1, ["200"] = 2 }, scan(text, { "status=500" }).values.status.counts)
+      assert.are.same({ ["200"] = 1 }, scan(text, { "status=500", "msg=b" }).values.status.counts)
+      assert.is_nil(scan(text, { "status=500", "msg~b" }).values.status)
+    end)
+
     it("should use the options it is sent, not the defaults", function()
       -- a bound without an offset is UTC with time_utc, so 05:00Z is before 10:00 whatever the local zone
       local text = '{"time":"2026-10-22T05:00:00Z"}\n{"time":"2026-10-22T11:00:00Z"}'

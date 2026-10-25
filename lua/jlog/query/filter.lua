@@ -451,6 +451,34 @@ M.clause = function(name, value)
   return name .. '="' .. value:gsub('[\\"]', "\\%0"):gsub("\n", "\\n") .. '"'
 end
 
+---Per field with `field=value` groups (see `facet_of`), the text of all the other groups: what its values count under.
+---@param lines string[]
+---@return table<string, string[]>
+M.facet_others = function(lines)
+  local groups = M.groups(lines)
+  local own, out = {}, {}
+  local name, others
+
+  for index, filter_group in ipairs(groups) do
+    name = M.facet_of(filter_group.text)
+    if name then
+      own[name] = own[name] or {}
+      own[name][index] = true
+    end
+  end
+  for field, indexes in pairs(own) do
+    others = {}
+    for index, filter_group in ipairs(groups) do
+      if not indexes[index] then
+        others[#others + 1] = filter_group.text
+      end
+    end
+    out[field] = others
+  end
+
+  return out
+end
+
 ---A field name as written in filter and group text.
 ---@param name string
 ---@return string

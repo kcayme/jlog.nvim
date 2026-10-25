@@ -48,24 +48,9 @@ M.timing = { tick_ns = 12e6 }
 ---@param lines string[]
 ---@return table<string, fun(ctx: table): boolean>
 local function facet_preds(lines)
-  local groups = filter.groups(lines)
-  local own, preds = {}, {}
-  local name, others
+  local preds = {}
 
-  for index, filter_group in ipairs(groups) do
-    name = filter.facet_of(filter_group.text)
-    if name then
-      own[name] = own[name] or {}
-      own[name][index] = true
-    end
-  end
-  for field, indexes in pairs(own) do
-    others = {}
-    for index, filter_group in ipairs(groups) do
-      if not indexes[index] then
-        others[#others + 1] = filter_group.text
-      end
-    end
+  for field, others in pairs(filter.facet_others(lines)) do
     preds[field] = filter.compile(others)
   end
 

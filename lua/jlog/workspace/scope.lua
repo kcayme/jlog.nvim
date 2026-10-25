@@ -1,3 +1,4 @@
+local facets = require("jlog.query.facets")
 local gc = require("jlog.core.gc")
 local scan_mod = require("jlog.query.scan")
 
@@ -198,6 +199,28 @@ M.goto_match_page = function(ws, dir)
     page = page + dir
   end
   notify(ws, why or ("no " .. (dir > 0 and "later" or "earlier") .. " page has matches"))
+end
+
+---In `all` scope, picked fields list their values from every page, as the scan counted them, instead of the view's.
+---@param ws JLogWorkspace
+M.override_facets = function(ws)
+  local scan, store = ws.scan, ws.store
+  local counter = facets.counter()
+
+  if ws.scope ~= "all" or not (scan and scan.done) then
+    return
+  end
+  for _, name in ipairs(store.facet_counter.names) do
+    if not scan.facet_names[name] then
+      facets.merge(counter, { [name] = store.facet_counter.fields[name] })
+    end
+  end
+  for name in pairs(scan.facet_names) do
+    if scan.facets.fields[name] then
+      facets.merge(counter, { [name] = scan.facets.fields[name] })
+    end
+  end
+  store.facet_counter = counter
 end
 
 ---The matches on every page once counted; else nil and how far the count is; nil, nil when nothing is counted.

@@ -54,16 +54,17 @@ end
 
 ---Runs in a worker thread: the entries of a JSONL chunk that match `filters`, regex terms deferred (see `chunk.match`).
 ---@param payload string vim.mpack of `{ text, first_src, first_byte, filters, opts = { unwrap, fields, time_utc } }`
----@return string vim.mpack of a `JLogChunkMatch` plus `exact`
+---@return string vim.mpack of a `JLogChunkMatch` plus `exact` and `values`, picked fields' counts (`chunk.field_preds`)
 M.scan_lines = function(payload)
   local args = vim.mpack.decode(payload)
+  local counter = facets.counter()
   local opts, pred, result, exact, _
 
   opts =
     config.setup({ unwrap = args.opts.unwrap, fields = args.opts.fields, view = { time_utc = args.opts.time_utc } })
   pred, _, exact = filter.compile(args.filters, { defer_regex = true })
-  result = chunk.match(args.text, args.first_src, args.first_byte, pred, opts)
-  result.exact = exact
+  result = chunk.match(args.text, args.first_src, args.first_byte, pred, opts, chunk.field_preds(args.filters), counter)
+  result.exact, result.values = exact, counter.fields
 
   return vim.mpack.encode(result)
 end

@@ -1,5 +1,6 @@
 local chunk = require("jlog.query.chunk")
 local entry_model = require("jlog.parse.entry")
+local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")
 local gc = require("jlog.core.gc")
 local reader = require("jlog.parse.reader")
@@ -24,6 +25,8 @@ local workers = require("jlog.worker")
 ---@field index JLogPageIndex the pages scanned
 ---@field format JLogFormat
 ---@field matches JLogScanMatch[] in file order; candidates until `done` when the filter has regex terms
+---@field facets JLogFacetCounter values of picked fields on every page, counted under their other filter lines
+---@field facet_names table<string, boolean> the picked fields `facets` counts; one with a regex in its other lines is not
 ---@field done boolean
 ---@field fraction number how far the scan is, 0..1
 ---@field cancelled boolean|nil
@@ -182,6 +185,7 @@ end
 ---@param on_done fun()
 local function scan_lines(scan, text, filters, opts, on_progress, on_done)
   local pred, _, exact = filter.compile(filters, { defer_regex = true })
+  local field_preds = chunk.field_preds(filters)
   local merge = merger(scan.matches)
   local payload_opts = { unwrap = opts.unwrap, fields = opts.fields, time_utc = opts.view.time_utc }
   -- dispatched and not yet merged, in source order
@@ -189,6 +193,10 @@ local function scan_lines(scan, text, filters, opts, on_progress, on_done)
   local cut = 1
   local fallback = false
   local progress_at = vim.uv.now()
+
+  for name in pairs(field_preds) do
+    scan.facet_names[name] = true
+  end
 
   local function dispatch(job)
     local payload = vim.mpack.encode({
@@ -228,7 +236,7 @@ local function scan_lines(scan, text, filters, opts, on_progress, on_done)
       if fallback then
         job, waiting = cut_chunk(text, cut, M.main_chunk_bytes), false
         cut = job.next_pos
-        merge(chunk.match(text:sub(job.first, job.last), 1, job.first, pred, opts))
+        merge(chunk.match(text:sub(job.first, job.last), 1, job.first, pred, opts, field_preds, scan.facets))
       else
         -- the shared cap also counts jobs of a cancelled scan that are still running
         while cut <= #text and #jobs < workers.limit() and workers.in_flight() < workers.limit() do
@@ -245,7 +253,9 @@ local function scan_lines(scan, text, filters, opts, on_progress, on_done)
           fallback, cut, jobs = true, job.first, {}
         elseif job and job.done then
           table.remove(jobs, 1)
-          merge(vim.mpack.decode(job.result))
+          job.result = vim.mpack.decode(job.result)
+          facets.merge(scan.facets, job.result.values)
+          merge(job.result)
         elseif waiting and vim.uv.now() - progress_at > workers.stall_ms then
           fallback, cut, jobs, waiting = true, job and job.first or cut, {}, false
         end
@@ -276,6 +286,7 @@ end
 ---@param on_done fun()
 local function scan_pages(scan, index, format, filters, opts, on_progress, on_done)
   local pred = filter.compile(filters)
+  local field_preds = {}
   local ctx, set = entry_ctx(opts)
   local count = index:count()
   local page = 0
@@ -305,8 +316,15 @@ local function scan_pages(scan, index, format, filters, opts, on_progress, on_do
       for at = matched + 1, #entries do
         entry = entries[at]
         set(entry)
-        if entry.src >= core_first and entry.src <= core_last and pred(ctx) then
-          scan.matches[#scan.matches + 1] = { src = entry.src }
+        if entry.src >= core_first and entry.src <= core_last then
+          if pred(ctx) then
+            scan.matches[#scan.matches + 1] = { src = entry.src }
+          end
+          for name, field_pred in pairs(field_preds) do
+            if field_pred(ctx) then
+              facets.add_value(scan.facets, name, ctx.get(name))
+            end
+          end
         end
       end
       matched = #entries
@@ -333,6 +351,11 @@ local function scan_pages(scan, index, format, filters, opts, on_progress, on_do
     on_done()
   end
 
+  -- the main thread has vim.regex, so every picked field counts exactly
+  for name, others in pairs(filter.facet_others(filters)) do
+    field_preds[name] = filter.compile(others)
+    scan.facet_names[name] = true
+  end
   next_page()
   step()
 end
@@ -346,7 +369,15 @@ end
 ---@param on_done fun(scan: JLogScan)
 ---@return JLogScan
 M.run = function(index, format, filters, opts, on_progress, on_done)
-  local scan = { index = index, format = format, matches = {}, done = false, fraction = 0 }
+  local scan = {
+    index = index,
+    format = format,
+    matches = {},
+    facets = facets.counter(),
+    facet_names = {},
+    done = false,
+    fraction = 0,
+  }
   local published = 0
 
   local function progress()

@@ -1,4 +1,6 @@
 local entry_model = require("jlog.parse.entry")
+local facets = require("jlog.query.facets")
+local filter = require("jlog.query.filter")
 local json = require("jlog.parse.json")
 
 local M = {}
@@ -12,14 +14,33 @@ local M = {}
 ---@field last_json_src integer|nil source line of the chunk's last JSON line
 ---@field lines integer lines in the chunk, blank ones included; an empty chunk is one blank line
 
+---Per picked field of `filters`, its other lines compiled with regex terms deferred; only those with none deferred.
+---@param filters string[]
+---@return table<string, fun(ctx: JLogMatchCtx): boolean>
+M.field_preds = function(filters)
+  local preds = {}
+  local pred, exact, _
+
+  for name, others in pairs(filter.facet_others(filters)) do
+    pred, _, exact = filter.compile(others, { defer_regex = true })
+    if exact then
+      preds[name] = pred
+    end
+  end
+
+  return preds
+end
+
 ---The entries of a JSONL chunk that `pred` accepts, as `source.append_lines` builds them.
 ---@param text string the chunk, lines joined by "\n"
 ---@param first_src integer source line of its first line
 ---@param first_byte integer absolute byte of its first line
 ---@param pred fun(ctx: JLogMatchCtx): boolean
 ---@param opts JLogOptions
+---@param field_preds table<string, fun(ctx: JLogMatchCtx): boolean>|nil per picked field, its other filter lines
+---@param counter JLogFacetCounter|nil counts each picked field's values on the JSON lines its predicate accepts
 ---@return JLogChunkMatch
-M.match = function(text, first_src, first_byte, pred, opts)
+M.match = function(text, first_src, first_byte, pred, opts, field_preds, counter)
   local src, pos = first_src, first_byte
   local lead, spans = {}, {}
   local lead_last = 0
@@ -50,6 +71,11 @@ M.match = function(text, first_src, first_byte, pred, opts)
       ctx.raw = line
       if json_at then
         last_json_src, open = src, nil
+        for name, field_pred in pairs(field_preds or {}) do
+          if field_pred(ctx) then
+            facets.add_value(counter, name, ctx.get(name))
+          end
+        end
         if pred(ctx) then
           count = #spans
           spans[count + 1], spans[count + 2], spans[count + 3] = src, pos, line_end

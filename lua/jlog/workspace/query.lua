@@ -155,6 +155,7 @@ M.apply = function(ws, on_done, counted, keep_counts)
     ws.shown = shown
     ws.view:set_winbar(M.winbar_text(ws, shown))
     ws.sidebar:refresh(prefilled and { counter = counted } or nil)
+    scope.override_facets(ws)
     -- counting does not wait for the render: a superseded render never calls its on_done
     if ws.sidebar.stale then
       ws.store:count(function(counter)

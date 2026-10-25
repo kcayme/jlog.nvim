@@ -461,5 +461,46 @@ describe("scope", function()
       end)
       assert.are.same({ "m5", "m10", "m15", "m20", "m25", "m30", "m35", "m40", "m45" }, texts_of(ws.entries))
     end)
+
+    ---Field counts once the sidebar has them for the current apply.
+    local function field(name)
+      wait(function()
+        return not ws.sidebar.stale and ws.store.counter ~= nil
+      end)
+
+      return ws.store.counter.fields[name]
+    end
+
+    it("should count fields over the combined matches", function()
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:add_filter("status=500")
+      wait(counted)
+      ws:toggle_scope()
+      wait(in_all)
+      assert.are.equal(7, field("msg").present)
+    end)
+
+    it("should list a picked field's other values from every page for an exact filter", function()
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:add_filter("status=500")
+      wait(counted)
+      ws:toggle_scope()
+      wait(in_all)
+      assert.are.same({ ["500"] = 7, ["200"] = 28 }, field("status").counts)
+    end)
+
+    it("should list a picked field's values from the combined matches when its other lines have a regex", function()
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws.state.filters = { "status=500", "msg~m1" }
+      ws:apply()
+      wait(counted)
+      ws:toggle_scope()
+      wait(in_all)
+      -- m10 and m15
+      assert.are.same({ ["500"] = 2 }, field("status").counts)
+    end)
   end)
 end)

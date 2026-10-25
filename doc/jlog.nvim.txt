@@ -193,6 +193,10 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
 
   g                 sidebar                  On a field, group by it
 
+  s                 sidebar                  On a field, hide it from
+                                             compact lines, or show it
+                                             again
+
   ?                 sidebar                  Open a guide to these keys
                                              (? help on the sidebar’s
                                              first line)
@@ -277,6 +281,7 @@ Defaults (all optional):
         -- function(t) return t.value end shows the time unformatted
         time_format = "%Y-%m-%d %H:%M:%S",
         time_utc = false, -- show time_format times in UTC instead of local time
+        ignore_fields = {}, -- field paths left out of compact lines, e.g. { "hostname", "req.headers" }
       },
       unwrap = { enable = true, max_depth = 4 },
       sidebar = {
@@ -321,6 +326,7 @@ Defaults (all optional):
         close = "q",
         add_filter = "<CR>",
         group_by = "g",
+        ignore_field = "s",
         help = "?",
       },
     })
@@ -472,6 +478,9 @@ level reads as a colored label in compact lines. Override them with
                       last apply while new ones are   
                       counted                         
 
+  JLogFieldIgnored    FIELDS names of fields hidden   NonText
+                      from compact lines              
+
   JLogHint            sidebar examples on empty       Comment
                       FILTERS / GROUP BY / LIMIT      
                       lines, :w to apply, and the     
@@ -569,6 +578,13 @@ options are optional; omitted keys fall back to the defaults shown below.
 
   view.time_utc                       boolean                           false                                                                    Show view.time_format times in UTC instead of your
                                                                                                                                                  local time.
+
+  view.ignore_fields                  string[]                          {}                                                                       Fields hidden from compact lines when a workspace
+                                                                                                                                                 opens: a field path as FIELDS shows it (hostname,
+                                                                                                                                                 req.headers); an object’s path hides all its fields.
+                                                                                                                                                 They stay in the expanded view, filters and groups,
+                                                                                                                                                 and are dimmed in FIELDS, where keymaps.ignore_field
+                                                                                                                                                 shows one again for the session.
 
   view.field_colors                   boolean                           true                                                                     Color each field’s keys in the log view, cycling
                                                                                                                                                  through JLogField1…JLogField8 in first-seen order; a
@@ -704,6 +720,9 @@ options are optional; omitted keys fall back to the defaults shown below.
                                                                                                                                                  filter.
 
   keymaps.group_by                    string\|false                     "g"                                                                      Sidebar: group by the field under the cursor.
+
+  keymaps.ignore_field                string\|false                     "s"                                                                      Sidebar: hide the field under the cursor from compact
+                                                                                                                                                 lines, or show it again.
 
   keymaps.help                        string\|false                     "?"                                                                      Sidebar: open a guide to the keys; shown as ? help on
                                                                                                                                                  the sidebar’s first line.

@@ -77,7 +77,10 @@ time, so only that page is held in memory: the winbar and sidebar show `page 2/5
 pages, and each page also shows `paging.overlap` lines of its neighbours, dimmed, so a request at a page edge stays
 whole. Filters, group and mode carry over to another page. A filter applies to the page shown, and every page is
 counted in the background: the winbar shows the total (`55 in all`), the sidebar's PAGE section the matches on each
-page, and `]m` / `[m` jump to the next or previous page with matches.
+page, and `]m` / `[m` jump to the next or previous page with matches. `A` (or `:JLog scope all`) shows the matches of
+every page in one view, with FIELDS and GROUP BY over all of them, so a request whose lines cross a page edge reads
+whole; `A` again goes back to the page holding the cursor entry. A filter matching more than `paging.size` entries
+stays on its page.
 
 While a large page is still being drawn, `/` may match the raw text of rows not drawn yet; it is exact once drawing
 is done.
@@ -105,6 +108,7 @@ uses `vim.notify`, `progress = "off"` turns them off.
 | `:JLog group {field}` | Group entries by a field. |
 | `:JLog group` | Clear grouping. |
 | `:JLog page {n}` | Go to page `n` of a paged log. |
+| `:JLog scope all\|page` | Show the filter matches of every page in one view, or go back to a page. |
 | `:JLog raw` | Open the source in a new tab. |
 | `:JLog close` | Close the workspace. |
 
@@ -123,6 +127,7 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
 | `]e` / `[e` | log view | Next / previous ERROR-level entry |
 | `]p` / `[p` | log view | Next / previous page of a paged log |
 | `]m` / `[m` | log view | Next / previous page with filter matches |
+| `A` | log view | Filter matches of every page in one view; again to go back to a page |
 | `s` | log view | Focus the sidebar |
 | `S` | log view, sidebar | Toggle the sidebar |
 | `q` | log view, sidebar | Close the workspace (closes the float in the raw popup) |
@@ -243,6 +248,7 @@ require("jlog").setup({
     prev_page = "[p",
     next_match_page = "]m",
     prev_match_page = "[m",
+    toggle_scope = "A",
     focus_sidebar = "s",
     toggle_sidebar = "S",
     close = "q",

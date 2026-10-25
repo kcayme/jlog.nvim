@@ -12,7 +12,7 @@ local SIZES = { 10000, 100000, 500000 }
 local opts = config.options
 local has_jq = vim.fn.executable("jq") == 1
 -- parsing: jlog against vim.json.decode and jq; workspace: what a user waits for in the plugin, no jq equivalent
-local rows = { parsing = {}, workspace = {}, scan = {} }
+local rows = { parsing = {}, workspace = {}, scan = {}, all = {} }
 
 local function write_file(path, text)
   local fd = assert(io.open(path, "wb"))
@@ -227,6 +227,55 @@ local function scan_rows(input, path)
   collectgarbage("collect")
 end
 
+---One combined-view row: median ms from `toggle_scope` to every page's `filter` matches shown, stall and heap.
+local function all_rows(input, path, filter)
+  local ws = assert(workspace.open({ path = path }))
+  local stall = 0
+  local ms, heap
+
+  wait_settled(ws)
+  ws:add_filter(filter)
+  assert(vim.wait(120000, function()
+    return ws.scan ~= nil and ws.scan.done and not ws.loading and ws.rendered == ws.store.generation
+  end, 1))
+  ms = median(function()
+    local timer = vim.uv.new_timer()
+    local last = now_ms()
+    local start
+
+    if ws.scope == "all" then
+      ws:toggle_scope()
+      wait_settled(ws)
+    end
+    collectgarbage("collect")
+    start, last = now_ms(), now_ms()
+    timer:start(1, 1, function()
+      stall = math.max(stall, now_ms() - last)
+      last = now_ms()
+    end)
+    ws:toggle_scope()
+    assert(vim.wait(120000, function()
+      return ws.scope == "all" and not ws.loading and ws.rendered == ws.store.generation
+    end, 1))
+    timer:stop()
+    timer:close()
+
+    return now_ms() - start
+  end)
+  collectgarbage("collect")
+  heap = collectgarbage("count") / 1024
+  rows.all[#rows.all + 1] = {
+    input,
+    tostring(#ws.entries),
+    ms_cell(ms),
+    ms_cell(stall),
+    string.format("%.0f", heap),
+    string.format("%.0f", vim.uv.fs_stat(path).size / 1024 / 1024),
+  }
+  ws:close()
+  collectgarbage("collect")
+end
+
 local function bench_jsonl(size)
   local input = string.format("jsonl %dk", size / 1000)
   local path = ensure("app-" .. size .. ".jsonl", function()
@@ -266,15 +315,16 @@ collectgarbage("collect")
 for _, size in ipairs(SIZES) do
   if size > config.options.paging.size then
     scan_rows(string.format("jsonl %dk", size / 1000), DATA_DIR .. "/app-" .. size .. ".jsonl")
+    -- one entry in five is an error: 100k at 500k lines, the most the combined view takes
+    all_rows(string.format("jsonl %dk", size / 1000), DATA_DIR .. "/app-" .. size .. ".jsonl", "level=ERROR")
   end
 end
 -- arrays scan on the main thread, page by page
-scan_rows(
-  "array 500k",
-  ensure("array-500000.json", function()
-    return "[\n" .. table.concat(gen.jsonl_lines(500000, true), ",\n") .. "\n]\n"
-  end)
-)
+local array_path = ensure("array-500000.json", function()
+  return "[\n" .. table.concat(gen.jsonl_lines(500000, true), ",\n") .. "\n]\n"
+end)
+scan_rows("array 500k", array_path)
+all_rows("array 500k", array_path, "level=ERROR")
 
 ---Append a Markdown table of `list` to `out`, with its header and alignment rows.
 local function table_lines(out, header, align, list)
@@ -352,5 +402,18 @@ out[#out + 1] = "- The exact filter is `status>=500`, matched on worker threads;
 out[#out + 1] = "- Longest stall is the longest the main loop was busy in one go while counting, in any run, as a 1ms timer "
   .. "sees it; applying the filter to the page shown is in the Workspace table."
 out[#out + 1] = "- Lua heap is after a full collection with the workspace open and the count done."
+out[#out + 1] = ""
+out[#out + 1] = "## All pages in one view"
+out[#out + 1] = ""
+out[#out + 1] = "Median ms from `A` to every page's matches of `level=ERROR` shown in one view, once they are counted."
+out[#out + 1] = ""
+table_lines(
+  out,
+  "| input | entries shown | to shown (ms) | longest stall (ms) | Lua heap (MB) | file (MB) |",
+  "|---|---:|---:|---:|---:|---:|",
+  rows.all
+)
+out[#out + 1] =
+  "- 100k entries is paging.size, the most the view takes; longest stall is over every run, as a 1ms timer sees it."
 
 io.write(table.concat(out, "\n"), "\n")

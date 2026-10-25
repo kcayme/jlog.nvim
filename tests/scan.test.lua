@@ -30,9 +30,10 @@ end
 
 ---@param text string
 ---@param format JLogFormat
+---@param from_end boolean|nil page 1 holds the end of the text
 ---@return JLogPageIndex
-local function index_of(text, format)
-  local index = pages.new(text, format, PAGING, false)
+local function index_of(text, format, from_end)
+  local index = pages.new(text, format, PAGING, from_end == true)
 
   while not index:scan(vim.uv.hrtime() + 1e9) do
   end
@@ -204,14 +205,16 @@ describe("scan", function()
     )
   end)
 
-  it("should scan a JSON array page by page on the main thread", function()
-    local text = "[\n" .. table.concat(gen.jsonl_lines(500, true), ",\n") .. "\n]"
-    local index = index_of(text, "array")
-    local result = run(index, "array", { "status>=500" })
+  for _, from_end in ipairs({ false, true }) do
+    it("should scan a JSON array page by page on the main thread, from_end " .. tostring(from_end), function()
+      local text = "[\n" .. table.concat(gen.jsonl_lines(500, true), ",\n") .. "\n]"
+      local index = index_of(text, "array", from_end)
+      local result = run(index, "array", { "status>=500" })
 
-    assert.is_true(index:count() > 2)
-    assert.are.same(expected_srcs(text, "array", { "status>=500" }), srcs_of(result))
-  end)
+      assert.is_true(index:count() > 2)
+      assert.are.same(expected_srcs(text, "array", { "status>=500" }), srcs_of(result))
+    end)
+  end
 
   describe("entries", function()
     ---The entries a scan's matches read back into, once done.
@@ -264,16 +267,18 @@ describe("scan", function()
       end
     end)
 
-    it("should read the matched elements of a JSON array once each, overlap left out", function()
-      local text = "[\n" .. table.concat(gen.jsonl_lines(500, true), ",\n") .. "\n]"
+    for _, from_end in ipairs({ false, true }) do
+      it("should read matched array elements once each, in file order, from_end " .. tostring(from_end), function()
+        local text = "[\n" .. table.concat(gen.jsonl_lines(500, true), ",\n") .. "\n]"
 
-      assert.are.same(
-        expected_srcs(text, "array", { "status>=500" }),
-        vim.tbl_map(function(entry)
-          return entry.src
-        end, entries_of(run(index_of(text, "array"), "array", { "status>=500" })))
-      )
-    end)
+        assert.are.same(
+          expected_srcs(text, "array", { "status>=500" }),
+          vim.tbl_map(function(entry)
+            return entry.src
+          end, entries_of(run(index_of(text, "array", from_end), "array", { "status>=500" })))
+        )
+      end)
+    end
 
     it("should never call on_done once cancelled", function()
       local text = edge_text()

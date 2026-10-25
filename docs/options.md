@@ -56,6 +56,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `keymaps.prev_page` | `string\|false` | `"[p"` | Previous page of a paged log. |
 | `keymaps.next_match_page` | `string\|false` | `"]m"` | Next page of a paged log with matches of the filters, counted in the background; notifies while counting or when no later page has matches. |
 | `keymaps.prev_match_page` | `string\|false` | `"[m"` | Previous page of a paged log with matches of the filters. |
+| `keymaps.toggle_scope` | `string\|false` | `"A"` | On a paged log with a filter, show the matches of every page in one view once they are counted, with FIELDS and GROUP BY over them; again, back to the page holding the cursor entry. Refused when more than `paging.size` entries match. Same as `:JLog scope all` / `:JLog scope page`. |
 | `keymaps.focus_sidebar` | `string\|false` | `"s"` | Focus the sidebar. |
 | `keymaps.toggle_sidebar` | `string\|false` | `"S"` | Show/hide the sidebar (in the log view and the sidebar). |
 | `keymaps.close` | `string\|false` | `"q"` | Close the workspace (in the sidebar and log view). |

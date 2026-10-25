@@ -64,6 +64,14 @@ local function cut_chunk(text, pos, size)
   return { first = pos, last = newline - 1, next_pos = newline + 1 }
 end
 
+---The page `step` pages into the text, so pages come in file order; page 1 holds the end when the index is from the end.
+---@param index JLogPageIndex its scan done
+---@param step integer
+---@return integer
+local function file_page(index, step)
+  return index.from_end and index:count() - step + 1 or step
+end
+
 ---A predicate context reading `entry` as the store does: simple fields from the text, the rest from one decode.
 ---@param opts JLogOptions
 ---@return table ctx
@@ -297,7 +305,7 @@ local function scan_pages(scan, index, format, filters, opts, on_progress, on_do
 
   local function next_page()
     page = page + 1
-    range = index:range(page)
+    range = page <= count and index:range(file_page(index, page))
     entries, matched, read = {}, 0, range and reader.page(index.text, format, range)
     core_first = range and (range.core_first_line or range.core_first_element)
     core_last = range and (range.core_last_line or range.core_last_element)
@@ -343,10 +351,6 @@ local function scan_pages(scan, index, format, filters, opts, on_progress, on_do
 
       return
     end
-    -- pages run newest first when the index starts from the end
-    table.sort(scan.matches, function(left, right)
-      return left.src < right.src
-    end)
     scan.fraction = 1
     on_done()
   end
@@ -420,7 +424,8 @@ M.entries = function(scan, on_done)
   local entries = {}
   local matches = scan.matches
   local wanted = {}
-  local next_index, page = 1, 0
+  local next_index, page, ticks = 1, 0, 0
+  local count = scan.index:count()
   local page_entries, read, read_to, range, core_first, core_last
   local cancelled = false
 
@@ -455,7 +460,7 @@ M.entries = function(scan, on_done)
   local function next_page()
     repeat
       page = page + 1
-      range = scan.index:range(page)
+      range = page <= count and scan.index:range(file_page(scan.index, page))
       core_first = range and (range.core_first_line or range.core_first_element)
       core_last = range and (range.core_last_line or range.core_last_element)
     until not range or M.count_between(scan, core_first, core_last) > 0
@@ -484,14 +489,15 @@ M.entries = function(scan, on_done)
         next_page()
       end
     until not read or vim.uv.hrtime() >= deadline
+    ticks = ticks + 1
+    if ticks % ARRAY_GC_TICKS == 0 then
+      gc.step(deadline)
+    end
     if read then
       vim.defer_fn(pages_step, 0)
 
       return
     end
-    table.sort(entries, function(left, right)
-      return left.src < right.src
-    end)
     on_done(entries)
   end
 

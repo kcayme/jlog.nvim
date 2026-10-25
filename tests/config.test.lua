@@ -14,6 +14,10 @@ describe("config", function()
     assert.are.equal("all", opts.paging.filter_scope)
   end)
 
+  it("should keep paging = false, which turns paging off", function()
+    assert.is_false(config.setup({ paging = false }).paging)
+  end)
+
   it("should deep-merge user options", function()
     local opts = config.setup({ sidebar = { width = 60 }, keymaps = { close = false } })
     assert.are.equal(60, opts.sidebar.width)

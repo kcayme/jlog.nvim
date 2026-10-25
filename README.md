@@ -81,7 +81,8 @@ page, and `]m` / `[m` jump to the next or previous page with matches. Once count
 page in one view, with FIELDS and GROUP BY over all of them, so a request whose lines cross a page edge reads whole; a
 filter matching more than `paging.size` entries stays on its page. `A` (or `:JLog scope page|all`) switches between that
 view and the page holding the cursor entry, and keeps the choice for later filters; set `paging.filter_scope = "page"`
-to filter one page at a time by default.
+to filter one page at a time by default, or `paging = false` to load every entry into one view however large the log
+(slower and heavier on large files).
 
 While a large page is still being drawn, `/` may match the raw text of rows not drawn yet; it is exact once drawing
 is done.

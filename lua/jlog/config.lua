@@ -117,7 +117,7 @@
 ---@field unwrap JLogUnwrapOptions
 ---@field sidebar JLogSidebarOptions
 ---@field facets JLogFacetsOptions
----@field paging JLogPagingOptions
+---@field paging JLogPagingOptions|false `false` loads every entry into one view, however large the log
 ---@field keymaps JLogKeymapsOptions
 ---@field compact JLogCompactOptions
 ---@field progress JLogProgress `auto` (Neovim 0.12+ progress messages, else `vim.notify`), `notify` or `off`

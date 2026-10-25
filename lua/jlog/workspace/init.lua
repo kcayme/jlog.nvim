@@ -210,7 +210,7 @@ M.open = function(target)
     entries = (slice.early or not slice.more) and slice.entries or {},
     stored_newest_first = slice.order == "desc",
     scope = "page",
-    scope_pref = opts.paging.filter_scope,
+    scope_pref = opts.paging and opts.paging.filter_scope or "page",
     opts = opts,
     rendered = 0,
     timer = vim.uv.new_timer(),

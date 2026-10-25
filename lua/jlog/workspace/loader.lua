@@ -131,14 +131,15 @@ local function set_stored_order(ws, order)
   end
 end
 
----A page index over `text`, or nil for an unordered loki export, which is sorted whole instead.
+---A page index over `text`, or nil when paging is off or for an unordered loki export, which is sorted whole.
 ---@param text string
 ---@param format JLogFormat
 ---@param order "asc"|"desc"|"none"
 ---@param opts JLogOptions
 ---@return JLogPageIndex|nil
 local function new_index(text, format, order, opts)
-  if format == "loki" and order == "none" then
+  -- `paging = false` loads every entry; an unordered loki export is sorted whole
+  if not opts.paging or (format == "loki" and order == "none") then
     return nil
   end
 

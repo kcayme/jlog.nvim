@@ -114,6 +114,19 @@ describe("paging", function()
     assert.is_nil(page_mark())
   end)
 
+  it("should load every entry into one view when paging is false", function()
+    require("jlog").setup({ paging = false })
+    ws = workspace.open({ path = path })
+    wait(settled)
+    assert.is_nil(ws.pages)
+    assert.are.equal(35, #ws.entries)
+    assert.is_nil(ws.view.winbar_text:find("page", 1, true))
+    ws:add_filter("msg~m3")
+    wait(settled)
+    vim.wait(200)
+    assert.is_nil(ws.scan)
+  end)
+
   it("should keep filters and land on the page's first own entry, past the overlap, when changing page", function()
     local winid
 

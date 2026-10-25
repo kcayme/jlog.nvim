@@ -21,6 +21,8 @@ local workers = require("jlog.worker")
 ---@field result string|nil the job's mpack result
 
 ---@class JLogScan
+---@field index JLogPageIndex the pages scanned
+---@field format JLogFormat
 ---@field matches JLogScanMatch[] in file order; candidates until `done` when the filter has regex terms
 ---@field done boolean
 ---@field fraction number how far the scan is, 0..1
@@ -344,7 +346,7 @@ end
 ---@param on_done fun(scan: JLogScan)
 ---@return JLogScan
 M.run = function(index, format, filters, opts, on_progress, on_done)
-  local scan = { matches = {}, done = false, fraction = 0 }
+  local scan = { index = index, format = format, matches = {}, done = false, fraction = 0 }
   local published = 0
 
   local function progress()
@@ -379,20 +381,119 @@ M.run = function(index, format, filters, opts, on_progress, on_done)
   return scan
 end
 
+---Read a done scan's matched entries in file order, in ticks: jsonl from their spans, arrays by reading pages again.
+---@param scan JLogScan
+---@param on_done fun(entries: JLogEntry[])
+---@return fun() cancel
+M.entries = function(scan, on_done)
+  local entries = {}
+  local matches = scan.matches
+  local wanted = {}
+  local next_index, page = 1, 0
+  local page_entries, read, read_to, range, core_first, core_last
+  local cancelled = false
+
+  -- jsonl: a batch of spans per tick, each one entry
+  local function lines_step()
+    local deadline = utils.tick_deadline(M.timing.tick_ns)
+    local match
+
+    if cancelled then
+      return
+    end
+    repeat
+      for index = next_index, math.min(next_index + CONFIRM_BATCH - 1, #matches) do
+        match = matches[index]
+        source.append_lines(
+          entries,
+          vim.split(scan.index.text:sub(match.first, match.last), "\n", { plain = true }),
+          match.src
+        )
+      end
+      next_index = next_index + CONFIRM_BATCH
+    until next_index > #matches or vim.uv.hrtime() >= deadline
+    if next_index <= #matches then
+      vim.defer_fn(lines_step, 0)
+
+      return
+    end
+    on_done(entries)
+  end
+
+  -- the next page with matches, or nil past the last
+  local function next_page()
+    repeat
+      page = page + 1
+      range = scan.index:range(page)
+      core_first = range and (range.core_first_line or range.core_first_element)
+      core_last = range and (range.core_last_line or range.core_last_element)
+    until not range or M.count_between(scan, core_first, core_last) > 0
+    page_entries, read_to = {}, 0
+    read = range and reader.page(scan.index.text, scan.format, range)
+  end
+
+  -- arrays: the pages holding matches are read again, keeping the matched elements of their own range
+  local function pages_step()
+    local deadline = utils.tick_deadline(M.timing.tick_ns)
+    local fraction, entry
+
+    if cancelled then
+      return
+    end
+    repeat
+      fraction = read(page_entries, nil, READ_BATCH)
+      for at = read_to + 1, #page_entries do
+        entry = page_entries[at]
+        if wanted[entry.src] and entry.src >= core_first and entry.src <= core_last then
+          entries[#entries + 1] = entry
+        end
+      end
+      read_to = #page_entries
+      if not fraction then
+        next_page()
+      end
+    until not read or vim.uv.hrtime() >= deadline
+    if read then
+      vim.defer_fn(pages_step, 0)
+
+      return
+    end
+    table.sort(entries, function(left, right)
+      return left.src < right.src
+    end)
+    on_done(entries)
+  end
+
+  if scan.format == "jsonl" then
+    vim.defer_fn(lines_step, 0)
+  else
+    for _, match in ipairs(matches) do
+      wanted[match.src] = true
+    end
+    next_page()
+    vim.defer_fn(read and pages_step or function()
+      on_done(entries)
+    end, 0)
+  end
+
+  return function()
+    cancelled = true
+  end
+end
+
 ---Stop `scan`: no more work runs and `on_done` is never called; results of jobs already queued are dropped.
 ---@param scan JLogScan
 M.cancel = function(scan)
   scan.cancelled = true
 end
 
----How many matches each page holds of its own entries, overlap left out.
+---How many of a scan's matches have a source position in `first..last`.
 ---@param scan JLogScan
----@param index JLogPageIndex its scan done
----@return integer[]
-M.page_counts = function(scan, index)
-  local counts = {}
+---@param first integer
+---@param last integer
+---@return integer
+M.count_between = function(scan, first, last)
   local matches = scan.matches
-  local range, first, last
 
   ---The index of the first match whose `src` is at least `src`.
   local function lower_bound(src)
@@ -411,11 +512,24 @@ M.page_counts = function(scan, index)
     return low
   end
 
+  return lower_bound(last + 1) - lower_bound(first)
+end
+
+---How many matches each page holds of its own entries, overlap left out.
+---@param scan JLogScan
+---@param index JLogPageIndex its scan done
+---@return integer[]
+M.page_counts = function(scan, index)
+  local counts = {}
+  local range
+
   for page = 1, index:count() or 0 do
     range = index:range(page)
-    first = range.core_first_line or range.core_first_element
-    last = range.core_last_line or range.core_last_element
-    counts[page] = lower_bound(last + 1) - lower_bound(first)
+    counts[page] = M.count_between(
+      scan,
+      range.core_first_line or range.core_first_element,
+      range.core_last_line or range.core_last_element
+    )
   end
 
   return counts

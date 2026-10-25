@@ -286,23 +286,6 @@ local function load_page(ws, page, keep)
   end, 0)
 end
 
----The page whose own entries hold source position `src`, else 1.
----@param index JLogPageIndex
----@param src integer|nil
----@return integer
-local function page_holding(index, src)
-  local core
-
-  for page = 1, src and index:count() or 0 do
-    core = M.core_of(index:range(page))
-    if src >= core[1] and src <= core[2] then
-      return page
-    end
-  end
-
-  return 1
-end
-
 ---Index the text again with the lines appended since, in a tick of its own: joining ~100MB takes ~20ms.
 ---@param ws JLogWorkspace
 local function reindex(ws)
@@ -350,7 +333,7 @@ local function rebuild(ws)
     set_stored_order(ws, order)
     if paged then
       ws.pages = index
-      load_page(ws, page_holding(index, cursor and ws.entries[cursor].src), true)
+      load_page(ws, index:page_of(cursor and ws.entries[cursor].src), true)
 
       return
     end

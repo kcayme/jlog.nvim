@@ -416,6 +416,25 @@ Index.range = function(self, page)
   return element_range(self, page)
 end
 
+---The page whose own entries hold source position `src`, else 1.
+---@param src integer|nil
+---@return integer
+Index.page_of = function(self, src)
+  local range
+
+  for page = 1, src and self:count() or 0 do
+    range = self:range(page)
+    if
+      src >= (range.core_first_line or range.core_first_element)
+      and src <= (range.core_last_line or range.core_last_element)
+    then
+      return page
+    end
+  end
+
+  return 1
+end
+
 ---A page index over `text`, built by `scan` in steps.
 ---@param text string
 ---@param format JLogFormat

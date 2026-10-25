@@ -212,4 +212,79 @@ describe("scan", function()
     assert.is_true(index:count() > 2)
     assert.are.same(expected_srcs(text, "array", { "status>=500" }), srcs_of(result))
   end)
+
+  describe("entries", function()
+    ---The entries a scan's matches read back into, once done.
+    local function entries_of(result)
+      local entries
+
+      scan.entries(result, function(read)
+        entries = read
+      end)
+      assert.is_true(vim.wait(20000, function()
+        return entries ~= nil
+      end, 5))
+
+      return entries
+    end
+
+    ---The loaded source's entries the full predicate matches, as raw text, continuation lines and source.
+    local function expected_entries(text, format, filters)
+      local srcs = {}
+      local out = {}
+
+      for _, src in ipairs(expected_srcs(text, format, filters)) do
+        srcs[src] = true
+      end
+      for _, entry in ipairs(source.build(text, format)) do
+        if srcs[entry.src] then
+          out[#out + 1] = { src = entry.src, raw = entry.raw, cont = entry.cont }
+        end
+      end
+
+      return out
+    end
+
+    local function shape(entries)
+      return vim.tbl_map(function(entry)
+        return { src = entry.src, raw = entry.raw, cont = entry.cont }
+      end, entries)
+    end
+
+    it("should read the matched jsonl entries with their continuation lines, in file order", function()
+      local text = edge_text()
+
+      scan.chunk_bytes = 700
+      for _, filters in ipairs({ { "status>=500" }, { "frame" }, { "-status=200" } }) do
+        assert.are.same(
+          expected_entries(text, "jsonl", filters),
+          shape(entries_of(run(index_of(text, "jsonl"), "jsonl", filters))),
+          table.concat(filters, " / ")
+        )
+      end
+    end)
+
+    it("should read the matched elements of a JSON array once each, overlap left out", function()
+      local text = "[\n" .. table.concat(gen.jsonl_lines(500, true), ",\n") .. "\n]"
+
+      assert.are.same(
+        expected_srcs(text, "array", { "status>=500" }),
+        vim.tbl_map(function(entry)
+          return entry.src
+        end, entries_of(run(index_of(text, "array"), "array", { "status>=500" })))
+      )
+    end)
+
+    it("should never call on_done once cancelled", function()
+      local text = edge_text()
+      local called = false
+      local cancel = scan.entries(run(index_of(text, "jsonl"), "jsonl", { "status>=500" }), function()
+        called = true
+      end)
+
+      cancel()
+      vim.wait(300)
+      assert.is_false(called)
+    end)
+  end)
 end)

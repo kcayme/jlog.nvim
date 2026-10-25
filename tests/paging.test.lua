@@ -62,6 +62,58 @@ describe("paging", function()
     assert.is_truthy(vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, 1, false)[1]:find("m35", 1, true))
   end)
 
+  ---The sidebar's PAGE line and the 0-based row its virtual lines are drawn at, or nil when it shows none.
+  local function page_mark()
+    local ns = vim.api.nvim_create_namespace("jlog.status")
+
+    for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, ns, 0, -1, { details = true })) do
+      for _, line in ipairs(mark[4].virt_lines) do
+        local text = table.concat(vim.tbl_map(function(chunk)
+          return chunk[1]
+        end, line))
+
+        if text:find("^PAGE") then
+          return text, mark[2]
+        end
+      end
+    end
+  end
+
+  it("should show the page and its keys in the sidebar when the log is paged", function()
+    ws = workspace.open({ path = path })
+    wait(settled)
+    assert.are.equal("PAGE  1/4  (]p next, [p prev)", page_mark())
+    assert.is_true(ws:goto_page(2))
+    wait(function()
+      return settled() and ws.page == 2
+    end)
+    assert.are.equal("PAGE  2/4  (]p next, [p prev)", page_mark())
+  end)
+
+  it("should place PAGE by its own entry in sidebar.sections, apart from SORT", function()
+    local text, row
+
+    require("jlog").setup({
+      paging = { size = 10, overlap = 2 },
+      sidebar = { sections = { "filters", "page", "fields" } },
+    })
+    ws = workspace.open({ path = path })
+    wait(settled)
+    text, row = page_mark()
+    assert.are.equal("PAGE  1/4  (]p next, [p prev)", text)
+    assert.are.equal("FIELDS", vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, row, row + 1, false)[1])
+  end)
+
+  it("should hide PAGE when sidebar.sections leaves it out", function()
+    require("jlog").setup({
+      paging = { size = 10, overlap = 2 },
+      sidebar = { sections = { "sort", "filters", "fields" } },
+    })
+    ws = workspace.open({ path = path })
+    wait(settled)
+    assert.is_nil(page_mark())
+  end)
+
   it("should keep filters and reset the cursor when changing page", function()
     local winid
 

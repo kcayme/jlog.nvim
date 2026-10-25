@@ -10,7 +10,7 @@ describe("sidebar", function()
   ---The text of the virtual lines drawn above the FIELDS header.
   local function sort_lines()
     local sb = ws.sidebar.bufnr
-    local ns = vim.api.nvim_get_namespaces()["jlog.sort"]
+    local ns = vim.api.nvim_get_namespaces()["jlog.status"]
     local texts = {}
 
     for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(sb, ns, 0, -1, { details = true })) do
@@ -51,6 +51,7 @@ describe("sidebar", function()
     require("jlog.config").setup()
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
 
+    -- an unpaged log shows no PAGE line
     assert.are.same({ "SORT  newest first (R)", "" }, sort_lines())
     for _, line in ipairs(vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, -1, false)) do
       assert.is_nil(line:find("SORT", 1, true))
@@ -81,7 +82,7 @@ describe("sidebar", function()
 
   ---The row of the SORT virtual lines and whether they sit above it.
   local function sort_mark()
-    local ns = vim.api.nvim_get_namespaces()["jlog.sort"]
+    local ns = vim.api.nvim_get_namespaces()["jlog.status"]
     local mark = vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, ns, 0, -1, { details = true })[1]
 
     return mark and { mark[2], mark[4].virt_lines_above or false }

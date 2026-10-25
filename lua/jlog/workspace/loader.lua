@@ -225,6 +225,8 @@ local function scan_pages(ws, index, on_known, wait_done)
     collect(ws)
   end
   refresh_winbar(ws)
+  -- the page count is known now: PAGE shows it in place of `…`
+  ws.sidebar:show_status()
 end
 
 ---Load page `page` of `ws.pages` in ticks, then show it; `keep` keeps the cursor entry and expanded entries by key.

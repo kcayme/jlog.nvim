@@ -30,6 +30,8 @@ Sidebar.__index = Sidebar
 local M = {}
 
 local HEADERS = { filters = "FILTERS", group = "GROUP BY", limit = "LIMIT", fields = "FIELDS" }
+-- sections drawn as virtual lines, which an edit or `:w` cannot touch
+local STATUS_SECTIONS = { sort = true, page = true }
 local COUNTING = "counting…"
 local INLINE_VALUES = 3
 local NAME_WIDTH = 14
@@ -49,7 +51,7 @@ local HINTS = {
 
 local ns = vim.api.nvim_create_namespace("jlog.filter")
 local hl_ns = vim.api.nvim_create_namespace("jlog.sidebar")
-local sort_ns = vim.api.nvim_create_namespace("jlog.sort")
+local status_ns = vim.api.nvim_create_namespace("jlog.status")
 local hint_ns = vim.api.nvim_create_namespace("jlog.hint")
 local limit_ns = vim.api.nvim_create_namespace("jlog.limit")
 
@@ -353,8 +355,8 @@ Sidebar.render = function(self, progress)
   self.width = width
   self.rows = {}
   for _, section in ipairs(self.ws.opts.sidebar.sections) do
-    -- SORT is virtual lines, drawn by `show_sort`; the other sections are buffer text, a blank line apart
-    if section ~= "sort" then
+    -- SORT and PAGE are virtual lines, drawn by `show_status`; the other sections are buffer text, a blank line apart
+    if not STATUS_SECTIONS[section] then
       in_buffer = in_buffer + 1
       if in_buffer > 1 then
         lines[#lines + 1] = ""
@@ -450,7 +452,7 @@ Sidebar.render = function(self, progress)
   end
   -- a reload can render while the user types in the sidebar
   show_hints(self, vim.api.nvim_get_current_buf() == self.bufnr and vim.fn.mode():find("^[iR]") ~= nil)
-  self:show_sort()
+  self:show_status()
 end
 
 ---@class JLogSidebarUpdate
@@ -458,7 +460,7 @@ end
 ---@field partial boolean|nil the counts are still coming in (loading, or lines appended since the last apply)
 ---@field progress string|nil shown after the FIELDS header, e.g. `loading 40%`
 
----Take new field counts if given, then redraw; unapplied FILTERS or GROUP BY edits are kept, only SORT follows them.
+---Take new field counts if given, then redraw; unapplied FILTERS or GROUP BY edits are kept, only SORT and PAGE follow them.
 ---@param update JLogSidebarUpdate|nil
 Sidebar.refresh = function(self, update)
   local ws = self.ws
@@ -474,40 +476,88 @@ Sidebar.refresh = function(self, update)
     ws.published.names = #counter.names
   end
   if vim.bo[self.bufnr].modified then
-    self:show_sort()
+    self:show_status()
 
     return
   end
   self:render(update and update.progress)
 end
 
----Show the order as virtual lines (never in the buffer or `:w`): above the next section's header, else below the end.
-Sidebar.show_sort = function(self)
-  local sections = self.ws.opts.sidebar.sections
-  local key = self.ws.opts.keymaps.reverse
-  local newest_first = self.ws.stored_newest_first ~= self.ws.state.reverse
-  local order = (newest_first and "newest first" or "oldest first") .. (key and (" (" .. key .. ")") or "")
-  local sort_line = { { "SORT", "JLogSectionHeader" }, { "  " .. order, "JLogHint" } }
-  local lines = vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)
-  local position = vim.fn.index(sections, "sort") + 1
-  local next_header = sections[position + 1] and HEADERS[sections[position + 1]]
+---The PAGE line of a paged log: which page, of how many, and the keys that move between pages.
+---@param ws table workspace
+---@return table[]|nil
+local function page_line(ws)
+  local keys = ws.opts.keymaps
+  local moves = {}
 
-  vim.api.nvim_buf_clear_namespace(self.bufnr, sort_ns, 0, -1)
-  if position == 0 then
-    return
+  if not (ws.pages and ws.page) then
+    return nil
   end
-  for row, line in ipairs(lines) do
-    if next_header and vim.trim(line) == next_header then
-      vim.api.nvim_buf_set_extmark(self.bufnr, sort_ns, row - 1, 0, {
-        virt_lines = { sort_line, {} },
-        virt_lines_above = true,
-      })
+  if keys.next_page then
+    moves[#moves + 1] = keys.next_page .. " next"
+  end
+  if keys.prev_page then
+    moves[#moves + 1] = keys.prev_page .. " prev"
+  end
 
-      return
+  return {
+    { "PAGE", "JLogSectionHeader" },
+    { "  " .. ws.page .. "/" .. (ws.pages:count() or "…"), "JLogFieldCount" },
+    { #moves > 0 and ("  (" .. table.concat(moves, ", ") .. ")") or "", "JLogHint" },
+  }
+end
+
+---The virtual line of status section `section`, or nil when it has nothing to show.
+---@param ws table workspace
+---@param section JLogSidebarSection
+---@return table[]|nil
+local function status_line(ws, section)
+  local key = ws.opts.keymaps.reverse
+  local newest_first = ws.stored_newest_first ~= ws.state.reverse
+  local order = (newest_first and "newest first" or "oldest first") .. (key and (" (" .. key .. ")") or "")
+
+  if section == "page" then
+    return page_line(ws)
+  end
+
+  return { { "SORT", "JLogSectionHeader" }, { "  " .. order, "JLogHint" } }
+end
+
+---Show SORT and PAGE as virtual lines (never in the buffer or `:w`): above the next section's header, else below the end.
+Sidebar.show_status = function(self)
+  local sections = self.ws.opts.sidebar.sections
+  local lines = vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)
+  local header_rows = {}
+  local pending, tail = {}, {}
+  local next_section, row
+
+  vim.api.nvim_buf_clear_namespace(self.bufnr, status_ns, 0, -1)
+  for index, line in ipairs(lines) do
+    header_rows[vim.trim(line)] = header_rows[vim.trim(line)] or index - 1
+  end
+  -- consecutive status sections share one block of virtual lines
+  for index, section in ipairs(sections) do
+    if STATUS_SECTIONS[section] then
+      pending[#pending + 1] = status_line(self.ws, section)
+      next_section = sections[index + 1]
+      if #pending > 0 and not STATUS_SECTIONS[next_section] then
+        row = next_section and header_rows[HEADERS[next_section]]
+        if row then
+          vim.api.nvim_buf_set_extmark(self.bufnr, status_ns, row, 0, {
+            virt_lines = vim.list_extend(pending, { {} }),
+            virt_lines_above = true,
+          })
+        else
+          -- last, or the header after it was deleted by an edit
+          vim.list_extend(tail, pending)
+        end
+        pending = {}
+      end
     end
   end
-  -- last, or the header after it was deleted by an edit
-  vim.api.nvim_buf_set_extmark(self.bufnr, sort_ns, #lines - 1, 0, { virt_lines = { {}, sort_line } })
+  if #tail > 0 then
+    vim.api.nvim_buf_set_extmark(self.bufnr, status_ns, #lines - 1, 0, { virt_lines = vim.list_extend({ {} }, tail) })
+  end
 end
 
 ---What is typed under each header, limits by their label's line, unchecked; without GROUP BY a blank ends filters.

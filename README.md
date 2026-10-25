@@ -73,7 +73,7 @@ how FIELDS lists and styles field names are configurable: see `sidebar` under [C
 Large JSONL files are parsed on background threads: the first screen shows right away and the rest loads in the
 background, with FIELDS adding fields as they are found (`loading N%`); a timestamped export that has to be reordered
 first appears once it has loaded. A log larger than `paging.size` (100k lines or array elements) is shown one page at a
-time, so only that page is held in memory: the winbar shows `page 2/5`, `]p` / `[p` or `:JLog page {n}` move between
+time, so only that page is held in memory: the winbar and sidebar show `page 2/5`, `]p` / `[p` or `:JLog page {n}` move between
 pages, and each page also shows `paging.overlap` lines of its neighbours, dimmed, so a request at a page edge stays
 whole. Filters, group and mode carry over to another page.
 
@@ -221,7 +221,7 @@ require("jlog").setup({
     },
     -- sections in the order shown, e.g. { "fields", "filters", "group" }; one left out is hidden, and :w then keeps
     -- the filters or group that field actions and commands set
-    sections = { "filters", "group", "limit", "sort", "fields" },
+    sections = { "sort", "page", "filters", "group", "limit", "fields" },
   },
   facets = { top_values = 10 },
   paging = { size = 100000, overlap = 2000 }, -- source lines (JSONL) or array elements

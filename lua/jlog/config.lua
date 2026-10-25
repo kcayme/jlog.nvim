@@ -51,7 +51,7 @@
 ---@field style JLogFieldStyle|nil
 ---@field format (fun(ctx: JLogSidebarFormatContext): string, string|nil)|nil the name's text and an optional group
 
----@alias JLogSidebarSection "filters"|"group"|"limit"|"sort"|"fields"
+---@alias JLogSidebarSection "filters"|"group"|"limit"|"sort"|"page"|"fields"
 
 ---@alias JLogFieldSort "alphabetical"|"count"
 
@@ -155,7 +155,7 @@ M.defaults = {
       pinned = {},
       sort = "alphabetical",
     },
-    sections = { "filters", "group", "limit", "sort", "fields" },
+    sections = { "sort", "page", "filters", "group", "limit", "fields" },
   },
   facets = { top_values = 10 },
   paging = { size = 100000, overlap = 2000 },
@@ -185,7 +185,7 @@ M.defaults = {
 ---@type JLogOptions
 M.options = vim.deepcopy(M.defaults)
 
-local SIDEBAR_SECTIONS = { filters = true, group = true, limit = true, sort = true, fields = true }
+local SIDEBAR_SECTIONS = { filters = true, group = true, limit = true, sort = true, page = true, fields = true }
 
 ---@param message string
 local function warn(message)

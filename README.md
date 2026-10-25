@@ -170,7 +170,14 @@ require("jlog").setup({
     pill = { left = "\238\130\182", right = "\238\130\180" }, -- Nerd Font caps; "" for square ends
     style_values = { "level", "status" }, -- keys or roles styled on the value instead of the key
   },
-  view = { mode = "compact", sort = "desc", field_colors = true }, -- "desc" shows the newest entries first
+  view = {
+    mode = "compact",
+    sort = "desc", -- "desc" shows the newest entries first
+    field_colors = true,
+    -- os.date format for compact-line times, %L is milliseconds; false shows HH:MM:SS.mmm as written
+    time_format = "%Y-%m-%d %H:%M:%S.%L",
+    time_utc = false, -- show time_format times in UTC instead of local time
+  },
   unwrap = { enable = true, max_depth = 4 },
   sidebar = {
     width = 45,

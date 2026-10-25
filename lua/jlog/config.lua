@@ -33,6 +33,8 @@
 ---@field mode JLogViewMode
 ---@field sort JLogSort
 ---@field field_colors boolean color each field's key by field, cycling through `JLogField1`..`JLogField8`; false uses `JLogKey`
+---@field time_format string|false `os.date` format for compact times, `%L` for milliseconds; false shows `HH:MM:SS.mmm`
+---@field time_utc boolean show `time_format` times in UTC instead of local time
 
 ---@class JLogUnwrapOptions
 ---@field enable boolean
@@ -123,7 +125,13 @@ M.defaults = {
     pill = { left = "\238\130\182", right = "\238\130\180" },
     style_values = { "level", "status" },
   },
-  view = { mode = "compact", sort = "desc", field_colors = true },
+  view = {
+    mode = "compact",
+    sort = "desc",
+    field_colors = true,
+    time_format = "%Y-%m-%d %H:%M:%S.%L",
+    time_utc = false,
+  },
   unwrap = { enable = true, max_depth = 4 },
   sidebar = {
     width = 45,

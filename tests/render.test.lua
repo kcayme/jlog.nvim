@@ -1,7 +1,8 @@
 local render = require("jlog.ui.render")
 local highlights = require("jlog.ui.highlights")
 local source = require("jlog.parse.source")
-local opts = require("jlog.config").setup()
+-- the time-of-day display, independent of the local timezone
+local opts = require("jlog.config").setup({ view = { time_format = false } })
 local function one(text)
   return source.build(text, "jsonl")[1]
 end
@@ -87,6 +88,20 @@ describe("render.compact", function()
     assert.are.equal("12:50:24.000", time_of("2026-10-16T12:50:24.Z"))
     assert.are.equal("12:50:24.123", time_of("2026-10-16T12:50:24.123456+02:00"))
     assert.are.equal("12:50:24.120", time_of("2026-10-16 T12:50:2412"))
+  end)
+
+  it("should format the time field and the loki timestamp with view.time_format", function()
+    local formatted = vim.deepcopy(opts)
+    local entry = one('{"msg":"m"}')
+
+    formatted.view.time_format, formatted.view.time_utc = "%b %d %H:%M:%S.%L", true
+    entry.ts = "1760619024970389138"
+    assert.are.equal(
+      "Oct 16 12:50:24.970 m",
+      render.compact(one('{"time":"2026-10-16T12:50:24.970Z","msg":"m"}'), formatted)[1]
+    )
+    assert.are.equal("Oct 16 12:50:24.970 m", render.compact(entry, formatted)[1])
+    assert.are.equal("yesterday m", render.compact(one('{"time":"yesterday","msg":"m"}'), formatted)[1])
   end)
 
   it("should show unrecognised time values as-is", function()
@@ -214,7 +229,7 @@ describe("compact styles", function()
   local detect = require("jlog.parse.detect")
 
   local function styled(compact, view)
-    return config.setup({ compact = compact, view = view })
+    return config.setup({ compact = compact, view = vim.tbl_extend("force", { time_format = false }, view or {}) })
   end
 
   local function with_cap(spans)
@@ -411,7 +426,7 @@ describe("compact order", function()
     '{"time":"2026-10-16T12:50:24.970Z","level":"ERROR","msg":"failed","path":"/a","status":500,"id":"r1"}'
 
   local function ordered(compact)
-    return config.setup({ compact = compact })
+    return config.setup({ compact = compact, view = { time_format = false } })
   end
 
   after_each(function()

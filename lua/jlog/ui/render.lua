@@ -1,6 +1,7 @@
 local compact = require("jlog.ui.compact")
 local entry_model = require("jlog.parse.entry")
 local highlights = require("jlog.ui.highlights")
+local time = require("jlog.ui.time")
 
 ---0-based start col, exclusive end col, highlight group, and a pill's cap color group.
 ---@alias JLogSpan {[1]: integer, [2]: integer, [3]: string, [4]: string|nil}
@@ -43,6 +44,7 @@ local COLLAPSED = { object = "{…}", array = "[…]" }
 ---@field resolved JLogCompactResolved|nil set only when compact styles are active
 ---@field entry JLogEntry|nil the entry handed to format functions
 ---@field after_role boolean|nil the last ordered item was a time, level or message field
+---@field view JLogViewOptions|nil set only when `view.time_format` is
 
 -- scratch buffers shared by all builders, reused per line so tables are not regrown (the main GC cost of a render)
 local scratch_parts, scratch_spans = {}, {}
@@ -233,17 +235,29 @@ local function short_time(value)
     .. str_sub(str_sub(value, clock_at + 9, fraction_end) .. "000", 1, 3)
 end
 
----UTC `HH:MM:SS.mmm` from a nanosecond epoch string, sliced to avoid float precision loss.
+---UTC `HH:MM:SS.mmm`, or `view.time_format`, from a nanosecond epoch string, sliced to avoid float precision loss.
 ---@param ts string
+---@param view JLogViewOptions|nil
 ---@return string
-local function loki_time(ts)
+local function loki_time(ts, view)
   local padded = str_rep("0", 10 - #ts) .. ts
+  local seconds, millis = tonumber(str_sub(padded, 1, -10)), str_sub(padded, -9, -7)
 
   if not str_find(ts, "^%d+$") then
     return ts
   end
+  if view then
+    return time.format_epoch(seconds, millis, view)
+  end
 
-  return os.date("!%H:%M:%S", tonumber(str_sub(padded, 1, -10))) .. "." .. str_sub(padded, -9, -7)
+  return os.date("!%H:%M:%S", seconds) .. "." .. millis
+end
+
+---@param value string
+---@param view JLogViewOptions|nil
+---@return string
+local function field_time(value, view)
+  return view and time.format_iso(value, view) or short_time(value)
 end
 
 ---Append `text`, preceded by the separator owed by the previous item.
@@ -435,9 +449,9 @@ local function push_role_at(line, entry, node, index, role)
   local level
 
   if index == 0 then
-    push_role(line, loki_time(entry.ts), "JLogTime", "time", "time")
+    push_role(line, loki_time(entry.ts, line.view), "JLogTime", "time", "time")
   elseif role == "time" then
-    push_role(line, short_time(scalar_text(value)), "JLogTime", key, "time")
+    push_role(line, field_time(scalar_text(value), line.view), "JLogTime", key, "time")
   elseif role == "level" then
     level = scalar_text(value)
     push_role(line, str_upper(level), level_group(level), key, "level")
@@ -581,6 +595,7 @@ local function compact_json(entry, node, prefix, opts, lines, spans)
 
   -- colors are assigned as keys are first highlighted, not when lines are rendered without highlights
   line.field_colors = spans ~= nil and opts.view.field_colors
+  line.view = opts.view.time_format and opts.view or nil
   if resolved.active then
     line.resolved, line.entry = resolved, entry
   end

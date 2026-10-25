@@ -41,6 +41,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `sidebar.fields.pill.right` | `string` | `"\u{e0b4}"` | Right cap of `pill` field names. Needs a Nerd Font; `""` gives a square end. |
 | `facets.top_values` | `integer` | `10` | Number of top values listed per field in the sidebar. |
 | `paging.size` | `integer` | `100000` | Page size: source lines for JSONL, array elements for JSON arrays and timestamped exports. A JSONL page boundary moves on up to `size / 10` lines to the next line that starts an entry, so an entry does not split; a longer run of plain lines is split there. |
+| `paging.filter_scope` | `JLogFilterScope` | `"all"` | What a filter shows on a paged log. `"all"`: the filter applies to the page shown at once, then, once every page is counted in the background, the view shows the matches of every page in one view, unless more than `paging.size` entries match (then it stays on the page; the winbar shows the total). `"page"`: the filter stays on the page shown; `A` shows every page's matches when asked. `A` and `:JLog scope` change it for the workspace. |
 | `paging.overlap` | `integer` | `2000` | How much of each neighbouring page is also shown on a page, so a request at a page edge stays whole: source lines for JSONL (extended so an entry is never cut), elements for JSON arrays and timestamped exports. |
 | `progress` | `JLogProgress` | `"auto"` | How long-running work (loading, indexing, applying, rendering) reports: `"auto"` sends progress messages on Neovim 0.12+, which UIs that draw progress show with a spinner, and uses `vim.notify` on older versions; `"notify"` always uses `vim.notify`; `"off"` shows no progress messages. |
 | `keymaps.toggle_entry` | `string\|false` | `"<CR>"` | Expand/collapse the entry under the cursor. |
@@ -56,7 +57,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `keymaps.prev_page` | `string\|false` | `"[p"` | Previous page of a paged log. |
 | `keymaps.next_match_page` | `string\|false` | `"]m"` | Next page of a paged log with matches of the filters, counted in the background; notifies while counting or when no later page has matches. |
 | `keymaps.prev_match_page` | `string\|false` | `"[m"` | Previous page of a paged log with matches of the filters. |
-| `keymaps.toggle_scope` | `string\|false` | `"A"` | On a paged log with a filter, show the matches of every page in one view once they are counted, with FIELDS and GROUP BY over them; again, back to the page holding the cursor entry. Refused when more than `paging.size` entries match. Same as `:JLog scope all` / `:JLog scope page`. |
+| `keymaps.toggle_scope` | `string\|false` | `"A"` | On a paged log with a filter, switch between the matches of every page in one view (once counted, with FIELDS and GROUP BY over them) and the page holding the cursor entry; the choice holds for later filters in the workspace (see `paging.filter_scope`). Every page's matches are refused when more than `paging.size` entries match. Same as `:JLog scope all` / `:JLog scope page`. |
 | `keymaps.focus_sidebar` | `string\|false` | `"s"` | Focus the sidebar. |
 | `keymaps.toggle_sidebar` | `string\|false` | `"S"` | Show/hide the sidebar (in the log view and the sidebar). |
 | `keymaps.close` | `string\|false` | `"q"` | Close the workspace (in the sidebar and log view). |

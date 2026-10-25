@@ -35,7 +35,8 @@ describe("scope", function()
   end
 
   before_each(function()
-    require("jlog").setup({ paging = { size = 10, overlap = 2 } })
+    -- the combined view only when asked for, so tests of `A` do not race the default swap
+    require("jlog").setup({ paging = { size = 10, overlap = 2, filter_scope = "page" } })
     path = vim.fn.tempname() .. ".jsonl"
     vim.fn.writefile(log_lines(35), path)
   end)
@@ -253,7 +254,10 @@ describe("scope", function()
     assert.is_truthy(vim.fn.maparg("]m", "n", false, true).buffer)
     ws:close()
 
-    require("jlog").setup({ paging = { size = 10, overlap = 2 }, keymaps = { next_match_page = false } })
+    require("jlog").setup({
+      paging = { size = 10, overlap = 2, filter_scope = "page" },
+      keymaps = { next_match_page = false },
+    })
     ws = workspace.open({ path = path })
     wait(settled)
     assert.are.same({}, vim.fn.maparg("]m", "n", false, true))
@@ -501,6 +505,63 @@ describe("scope", function()
       wait(in_all)
       -- m10 and m15
       assert.are.same({ ["500"] = 2 }, field("status").counts)
+    end)
+  end)
+
+  describe("filter_scope all", function()
+    local function in_all()
+      return ws.scope == "all" and settled()
+    end
+
+    before_each(function()
+      require("jlog").setup({ paging = { size = 10, overlap = 2, filter_scope = "all" } })
+    end)
+
+    it("should show the page's matches at once, then every page's once counted", function()
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:add_filter("status=500")
+      wait(settled)
+      -- page 1 holds m26..m35 of its own and m24, m25 as overlap
+      assert.are.equal("page", ws.scope)
+      wait(in_all)
+      assert.are.equal(7, #ws.entries)
+    end)
+
+    it("should stay on the page without a notice when more than paging.size match", function()
+      local notify = vim.notify
+      local notified
+
+      ws = workspace.open({ path = path })
+      wait(settled)
+      vim.notify = function(msg)
+        notified = msg
+      end
+      ws:add_filter("status=200")
+      wait(function()
+        return winbar():find("28 in all", 1, true) ~= nil
+      end)
+      vim.wait(200)
+      vim.notify = notify
+      assert.are.equal("page", ws.scope)
+      assert.is_nil(notified)
+    end)
+
+    it("should keep a page for later filters once A picked it", function()
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:add_filter("status=500")
+      wait(in_all)
+      ws:toggle_scope()
+      wait(function()
+        return ws.scope == "page" and settled()
+      end)
+      ws:add_filter("msg~m1")
+      wait(function()
+        return winbar():find("2 in all", 1, true) ~= nil
+      end)
+      vim.wait(200)
+      assert.are.equal("page", ws.scope)
     end)
   end)
 end)

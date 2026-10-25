@@ -78,9 +78,12 @@
 ---@class JLogFacetsOptions
 ---@field top_values integer
 
+---@alias JLogFilterScope "all"|"page"
+
 ---@class JLogPagingOptions
 ---@field size integer source lines (jsonl) or array elements per page, before overlap
 ---@field overlap integer neighbouring source lines (jsonl, extended so an entry is never cut) or elements shown with a page
+---@field filter_scope JLogFilterScope a filter shows the matches of every page (`all`) or of the page shown (`page`)
 
 ---Every key may be `false` to disable the mapping.
 ---@class JLogKeymapsOptions
@@ -161,7 +164,7 @@ M.defaults = {
     sections = { "sort", "page", "filters", "group", "limit", "fields" },
   },
   facets = { top_values = 10 },
-  paging = { size = 100000, overlap = 2000 },
+  paging = { size = 100000, overlap = 2000, filter_scope = "all" },
   progress = "auto",
   keymaps = {
     toggle_entry = "<CR>",

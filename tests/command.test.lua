@@ -94,7 +94,7 @@ describe(":JLog", function()
       lines[index] = string.format('{"msg":"m%d","status":%d}', index, index % 5 == 0 and 500 or 200)
     end
     vim.fn.writefile(lines, path)
-    require("jlog").setup({ paging = { size = 10, overlap = 2 } })
+    require("jlog").setup({ paging = { size = 10, overlap = 2, filter_scope = "page" } })
     vim.cmd("JLog " .. path)
     ws = require("jlog.workspace").find(path)
     vim.cmd("JLog filter status=500")

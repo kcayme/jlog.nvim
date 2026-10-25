@@ -73,14 +73,15 @@ how FIELDS lists and styles field names are configurable: see `sidebar` under [C
 Large JSONL files are parsed on background threads: the first screen shows right away and the rest loads in the
 background, with FIELDS adding fields as they are found (`loading N%`); a timestamped export that has to be reordered
 first appears once it has loaded. A log larger than `paging.size` (100k lines or array elements) is shown one page at a
-time, so only that page is held in memory: the winbar and sidebar show `page 2/5`, `]p` / `[p` or `:JLog page {n}` move between
-pages, and each page also shows `paging.overlap` lines of its neighbours, dimmed, so a request at a page edge stays
-whole. Filters, group and mode carry over to another page. A filter applies to the page shown, and every page is
+time, so only that page is held in memory: the winbar and sidebar show `page 2/5`, `]p` / `[p` or `:JLog page {n}` move
+between pages, and each page also shows `paging.overlap` lines of its neighbours, dimmed, so a request at a page edge
+stays whole. Filters, group and mode carry over to another page. A filter applies to the page shown, and every page is
 counted in the background: the winbar shows the total (`55 in all`), the sidebar's PAGE section the matches on each
-page, and `]m` / `[m` jump to the next or previous page with matches. `A` (or `:JLog scope all`) shows the matches of
-every page in one view, with FIELDS and GROUP BY over all of them, so a request whose lines cross a page edge reads
-whole; `A` again goes back to the page holding the cursor entry. A filter matching more than `paging.size` entries
-stays on its page.
+page, and `]m` / `[m` jump to the next or previous page with matches. Once counted, the view shows the matches of every
+page in one view, with FIELDS and GROUP BY over all of them, so a request whose lines cross a page edge reads whole; a
+filter matching more than `paging.size` entries stays on its page. `A` (or `:JLog scope page|all`) switches between that
+view and the page holding the cursor entry, and keeps the choice for later filters; set `paging.filter_scope = "page"`
+to filter one page at a time by default.
 
 While a large page is still being drawn, `/` may match the raw text of rows not drawn yet; it is exact once drawing
 is done.
@@ -232,7 +233,8 @@ require("jlog").setup({
     sections = { "sort", "page", "filters", "group", "limit", "fields" },
   },
   facets = { top_values = 10 },
-  paging = { size = 100000, overlap = 2000 }, -- source lines (JSONL) or array elements
+  -- size and overlap: source lines (JSONL) or array elements
+  paging = { size = 100000, overlap = 2000, filter_scope = "all" },
   progress = "auto", -- "auto" (progress messages on Neovim 0.12+), "notify" (always vim.notify) or "off"
   keymaps = {
     toggle_entry = "<CR>",

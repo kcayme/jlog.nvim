@@ -4,7 +4,7 @@ local scan_mod = require("jlog.query.scan")
 
 local M = {}
 
----@alias JLogScope "page"|"all"
+---@alias JLogScope JLogFilterScope
 ---@alias JLogReplaceEntries fun(ws: JLogWorkspace, entries: JLogEntry[]) swaps in entries, keeping cursor and expanded
 
 ---The filters a scan was made for, as one string.
@@ -47,13 +47,16 @@ end
 ---Show every page's matches in one view, read from the done scan; over `paging.size` matches it stays on a page.
 ---@param ws JLogWorkspace
 ---@param replace JLogReplaceEntries
-local function show_all(ws, replace)
+---@param quiet boolean|nil shown by default rather than asked for: over the cap, the winbar's total says enough
+local function show_all(ws, replace, quiet)
   local scan = ws.scan
   local cap = ws.opts.paging.size
 
   if #scan.matches > cap then
     if ws.scope == "all" then
       leave(ws)
+    elseif quiet then
+      return
     end
     notify(
       ws,
@@ -112,10 +115,10 @@ M.update = function(ws, start, on_change, replace)
     -- compiled code keeps the finished scan's closures and every candidate they checked; flushed once they returned
     vim.defer_fn(gc.release_compiled, 0)
     on_change()
-    -- the combined view follows a changed filter, and one asked for while counting opens now
-    if ws.scope == "all" or ws.enter_pending then
+    -- the combined view follows a changed filter, opens when asked for while counting, or by default
+    if ws.scope == "all" or ws.enter_pending or ws.scope_pref == "all" then
+      show_all(ws, replace, ws.scope ~= "all" and not ws.enter_pending)
       ws.enter_pending = nil
-      show_all(ws, replace)
     end
   end)
 end
@@ -156,11 +159,13 @@ M.set = function(ws, scope, replace)
   show_all(ws, replace)
 end
 
----Toggle between the combined view of every page's matches and the page holding the cursor entry.
+---Make `scope` the workspace's choice for every later filter, and show it now.
 ---@param ws JLogWorkspace
+---@param scope JLogScope
 ---@param replace JLogReplaceEntries
-M.toggle = function(ws, replace)
-  M.set(ws, ws.scope == "all" and "page" or "all", replace)
+M.choose = function(ws, scope, replace)
+  ws.scope_pref = scope
+  M.set(ws, scope, replace)
 end
 
 ---Show the page after (`dir` 1) or before (-1) the current one; in `all` scope, the cursor entry's page is current.

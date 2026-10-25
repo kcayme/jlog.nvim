@@ -71,6 +71,7 @@ local watcher = require("jlog.workspace.watcher")
 ---@field scope JLogScope `all` while the view shows the matches of every page instead of one page
 ---@field reading fun()|nil stops reading the scan's matches into the combined view
 ---@field enter_pending boolean|nil the combined view was asked for while counting: it opens once counted
+---@field scope_pref JLogScope what a filter shows once counted: `paging.filter_scope` until `A` or `:JLog scope` picks
 local Workspace = {}
 Workspace.__index = Workspace
 Workspace.focus_sidebar = layout.focus_sidebar
@@ -91,11 +92,12 @@ Workspace.step_page = scope.step_page
 ---Show the matches of every page in one view (`all`), or go back to a page (`page`).
 ---@param name JLogScope
 Workspace.set_scope = function(self, name)
-  scope.set(self, name, query.replace_entries)
+  scope.choose(self, name, query.replace_entries)
 end
 
+---Switch between every page's matches and a page, and keep that choice for later filters.
 Workspace.toggle_scope = function(self)
-  scope.toggle(self, query.replace_entries)
+  scope.choose(self, self.scope == "all" and "page" or "all", query.replace_entries)
 end
 Workspace.reload = loader.reload
 
@@ -208,6 +210,7 @@ M.open = function(target)
     entries = (slice.early or not slice.more) and slice.entries or {},
     stored_newest_first = slice.order == "desc",
     scope = "page",
+    scope_pref = opts.paging.filter_scope,
     opts = opts,
     rendered = 0,
     timer = vim.uv.new_timer(),

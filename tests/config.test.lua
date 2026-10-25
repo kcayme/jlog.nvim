@@ -11,6 +11,7 @@ describe("config", function()
     assert.are.equal("s", opts.keymaps.ignore_field)
     assert.are.equal(600, opts.sidebar.auto_apply.debounce_ms)
     assert.are.equal("]m", opts.keymaps.next_match_page)
+    assert.are.equal("all", opts.paging.filter_scope)
   end)
 
   it("should deep-merge user options", function()

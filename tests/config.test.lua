@@ -16,4 +16,47 @@ describe("config", function()
     assert.is_false(opts.keymaps.close)
     assert.are.equal(opts, config.options)
   end)
+
+  describe("sidebar.sections", function()
+    local real_notify = vim.notify
+    local warnings
+
+    before_each(function()
+      warnings = {}
+      vim.notify = function(msg, level)
+        if level == vim.log.levels.WARN then
+          warnings[#warnings + 1] = msg
+        end
+      end
+    end)
+
+    after_each(function()
+      vim.notify = real_notify
+      config.setup()
+    end)
+
+    it("should warn when setup is given unknown or repeated sections and drop them", function()
+      local opts = config.setup({ sidebar = { sections = { "fields", "bogus", "sort", "fields" } } })
+
+      assert.are.same({ "fields", "sort" }, opts.sidebar.sections)
+      assert.are.equal(2, #warnings)
+      assert.is_truthy(warnings[1]:find('sidebar.sections: unknown section "bogus"', 1, true))
+      assert.is_truthy(warnings[2]:find('sidebar.sections: "fields" is listed twice', 1, true))
+    end)
+
+    it("should warn and fall back to the default order when sections is not a list of names", function()
+      local opts = config.setup({ sidebar = { sections = "fields" } })
+
+      assert.are.same({ "filters", "group", "sort", "fields" }, opts.sidebar.sections)
+      assert.are.equal(1, #warnings)
+      assert.is_truthy(warnings[1]:find("sidebar.sections", 1, true))
+    end)
+
+    it("should not warn about the default or a valid list", function()
+      config.setup()
+      config.setup({ sidebar = { sections = { "fields" } } })
+
+      assert.are.same({}, warnings)
+    end)
+  end)
 end)

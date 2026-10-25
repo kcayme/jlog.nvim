@@ -32,10 +32,6 @@ local NAME_WIDTH = 14
 local RIGHT_PADDING = 2
 
 local HINTS = { [HEADERS.filters] = "status>=500 level=ERROR -health", [HEADERS.group] = "request_id" }
-local SECTIONS = { filters = true, group = true, sort = true, fields = true }
-
--- weak cache: the valid sections of each `opts`, so a bad list warns once
-local sections_cache = setmetatable({}, { __mode = "k" })
 
 local ns = vim.api.nvim_create_namespace("jlog.filter")
 local hl_ns = vim.api.nvim_create_namespace("jlog.sidebar")
@@ -209,37 +205,11 @@ local function find_row(rows, anchor)
   return field_row
 end
 
----The sidebar's sections in order: `sidebar.sections` without unknown or repeated names, which warn once.
----@param opts JLogOptions
----@return JLogSidebarSection[]
-local function sections_of(opts)
-  local sections = sections_cache[opts]
-  local seen = {}
-
-  if sections then
-    return sections
-  end
-  sections = {}
-  for _, name in ipairs(opts.sidebar.sections) do
-    if not SECTIONS[name] then
-      vim.notify(("jlog: sidebar.sections: unknown section %q"):format(tostring(name)), vim.log.levels.WARN)
-    elseif seen[name] then
-      vim.notify(("jlog: sidebar.sections: %q is listed twice"):format(name), vim.log.levels.WARN)
-    else
-      seen[name] = true
-      sections[#sections + 1] = name
-    end
-  end
-  sections_cache[opts] = sections
-
-  return sections
-end
-
 ---@param opts JLogOptions
 ---@param name JLogSidebarSection
 ---@return boolean
 local function shows(opts, name)
-  return vim.tbl_contains(sections_of(opts), name)
+  return vim.tbl_contains(opts.sidebar.sections, name)
 end
 
 ---Show how to apply on the first row and, outside insert mode, an example on each blank section line.
@@ -315,7 +285,7 @@ Sidebar.render = function(self, progress)
   progress = progress or (self.stale and COUNTING or nil)
   self.width = width
   self.rows = {}
-  for _, section in ipairs(sections_of(self.ws.opts)) do
+  for _, section in ipairs(self.ws.opts.sidebar.sections) do
     -- SORT is virtual lines, drawn by `show_sort`; the other sections are buffer text, a blank line apart
     if section ~= "sort" then
       in_buffer = in_buffer + 1
@@ -377,7 +347,7 @@ end
 
 ---Show the order as virtual lines (never in the buffer or `:w`): above the next section's header, else below the end.
 Sidebar.show_sort = function(self)
-  local sections = sections_of(self.ws.opts)
+  local sections = self.ws.opts.sidebar.sections
   local key = self.ws.opts.keymaps.reverse
   local newest_first = self.ws.stored_newest_first ~= self.ws.state.reverse
   local order = (newest_first and "newest first" or "oldest first") .. (key and (" (" .. key .. ")") or "")

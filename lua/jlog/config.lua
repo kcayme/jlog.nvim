@@ -163,10 +163,43 @@ M.defaults = {
 ---@type JLogOptions
 M.options = vim.deepcopy(M.defaults)
 
+local SIDEBAR_SECTIONS = { filters = true, group = true, sort = true, fields = true }
+
+---@param message string
+local function warn(message)
+  vim.notify("jlog: " .. message, vim.log.levels.WARN)
+end
+
+---`sections` with unknown and repeated names dropped, or the default order when it is not a list; each problem warns.
+---@param sections any
+---@return JLogSidebarSection[]
+local function checked_sections(sections)
+  local checked, seen = {}, {}
+
+  if type(sections) ~= "table" or not vim.islist(sections) then
+    warn("sidebar.sections: expected a list of section names, using the default order")
+
+    return vim.deepcopy(M.defaults.sidebar.sections)
+  end
+  for _, name in ipairs(sections) do
+    if not SIDEBAR_SECTIONS[name] then
+      warn(("sidebar.sections: unknown section %q"):format(tostring(name)))
+    elseif seen[name] then
+      warn(("sidebar.sections: %q is listed twice"):format(name))
+    else
+      seen[name] = true
+      checked[#checked + 1] = name
+    end
+  end
+
+  return checked
+end
+
 ---@param opts table|nil
 ---@return JLogOptions
 M.setup = function(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
+  M.options.sidebar.sections = checked_sections(M.options.sidebar.sections)
 
   return M.options
 end

@@ -4,7 +4,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `fields.time` | `string[]` | `{ "time", "ts", "timestamp", "@timestamp" }` | Keys tried in order for the `time` field. |
+| `fields.time` | `string[]` | `{ "time", "ts", "timestamp", "@timestamp", "time_stamp", "timeStamp" }` | Keys tried in order for the `time` field. |
 | `fields.level` | `string[]` | `{ "level", "lvl", "severity" }` | Keys tried in order for the `level` field. |
 | `fields.message` | `string[]` | `{ "msg", "message" }` | Keys tried in order for the `msg` field. |
 | `fields.status` | `string[]` | `{ "status", "status_code" }` | Keys of the status-code field, class-colored (`JLogStatus2xx`..`JLogStatus5xx`) in compact lines when its style is `inverted` or `pill`, e.g. `compact.fields.status = { style = "inverted" }`; a plain status field keeps its key color. |
@@ -18,7 +18,7 @@ Full reference for all options accepted by `require("jlog").setup()`. All option
 | `compact.pill.right` | `string` | `"\u{e0b4}"` | Right cap of `pill` fields. Needs a Nerd Font; `""` gives a square end. |
 | `view.mode` | `JLogViewMode` | `"compact"` | Initial view: `"compact"` (one line per entry) or `"expanded"` (indented JSON). |
 | `view.sort` | `JLogSort` | `"desc"` | Initial order: `"asc"` (oldest first) or `"desc"` (newest first). |
-| `view.time_format` | `string\|false` | `"%Y-%m-%d %H:%M:%S.%L"` | `os.date` format for the time on compact lines, e.g. `"%b %d %H:%M:%S.%L"` → `Oct 22 10:00:01.000`; `%L` is the milliseconds. Applies to ISO 8601 times and Loki timestamps; other values are shown as written. `false` shows `HH:MM:SS.mmm` as written in the log. Expanded JSON always shows the value as written. |
+| `view.time_format` | `string\|false\|function` | `"%Y-%m-%d %H:%M:%S"` | `os.date` format for the time on compact lines, e.g. `"%b %d %H:%M:%S.%L"` → `Oct 22 10:00:01.000`; `%L` is the milliseconds. Applies to ISO 8601 times and Loki timestamps; other values are shown as written. `false` shows `HH:MM:SS.mmm` as written in the log. A function gets `{ value, seconds, millis }` (the time as written, the epoch in UTC and three digits of milliseconds, both `nil` when the value is not a time jlog reads, such as anything that is not ISO 8601) and returns the text; `function(t) return t.value end` shows the time unformatted. A function that errors shows the value as written and warns once. Expanded JSON always shows the value as written. |
 | `view.time_utc` | `boolean` | `false` | Show `view.time_format` times in UTC instead of your local time. |
 | `view.field_colors` | `boolean` | `true` | Color each field's keys in the log view, cycling through `JLogField1`…`JLogField8` in first-seen order; a field keeps the same color in FIELDS when `sidebar.fields.colors` is on. A key never takes a value's color, and the cycle uses only distinct colors from the colorscheme. `false` uses `JLogKey`. |
 | `unwrap.enable` | `boolean` | `true` | Unwrap double-encoded JSON inside string values. |

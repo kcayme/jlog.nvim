@@ -247,7 +247,7 @@ local function loki_time(ts, view)
     return ts
   end
   if view then
-    return time.format_epoch(seconds, millis, view)
+    return time.format_epoch(seconds, millis, view, ts)
   end
 
   return os.date("!%H:%M:%S", seconds) .. "." .. millis

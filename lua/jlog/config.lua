@@ -33,7 +33,7 @@
 ---@field mode JLogViewMode
 ---@field sort JLogSort
 ---@field field_colors boolean color each field's key by field, cycling through `JLogField1`..`JLogField8`; false uses `JLogKey`
----@field time_format string|false `os.date` format for compact times, `%L` for milliseconds; false shows `HH:MM:SS.mmm`
+---@field time_format string|false|fun(time: JLogTime): string `os.date` format (`%L` ms), a function, or false
 ---@field time_utc boolean show `time_format` times in UTC instead of local time
 
 ---@class JLogUnwrapOptions
@@ -113,7 +113,7 @@ local M = {}
 ---@type JLogOptions
 M.defaults = {
   fields = {
-    time = { "time", "ts", "timestamp", "@timestamp" },
+    time = { "time", "ts", "timestamp", "@timestamp", "time_stamp", "timeStamp" },
     level = { "level", "lvl", "severity" },
     message = { "msg", "message" },
     status = { "status", "status_code" },
@@ -129,7 +129,7 @@ M.defaults = {
     mode = "compact",
     sort = "desc",
     field_colors = true,
-    time_format = "%Y-%m-%d %H:%M:%S.%L",
+    time_format = "%Y-%m-%d %H:%M:%S",
     time_utc = false,
   },
   unwrap = { enable = true, max_depth = 4 },

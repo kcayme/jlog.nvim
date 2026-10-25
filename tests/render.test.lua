@@ -104,6 +104,29 @@ describe("render.compact", function()
     assert.are.equal("yesterday m", render.compact(one('{"time":"yesterday","msg":"m"}'), formatted)[1])
   end)
 
+  it("should take time_stamp and timeStamp as the time field", function()
+    assert.are.equal(
+      "12:50:24.970 m",
+      render.compact(one('{"msg":"m","time_stamp":"2026-10-16T12:50:24.970Z"}'), opts)[1]
+    )
+    assert.are.equal(
+      "12:50:24.970 m",
+      render.compact(one('{"msg":"m","timeStamp":"2026-10-16T12:50:24.970Z"}'), opts)[1]
+    )
+  end)
+
+  it("should show the time as written when time_format returns it unchanged", function()
+    local raw = vim.deepcopy(opts)
+
+    raw.view.time_format = function(t)
+      return t.value
+    end
+    assert.are.equal(
+      "2026-10-16T12:50:24.970Z m",
+      render.compact(one('{"time":"2026-10-16T12:50:24.970Z","msg":"m"}'), raw)[1]
+    )
+  end)
+
   it("should show unrecognised time values as-is", function()
     assert.are.equal("yesterday m", render.compact(one('{"time":"yesterday","msg":"m"}'), opts)[1])
   end)

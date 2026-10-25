@@ -158,7 +158,7 @@ Defaults (all optional):
 ```lua
 require("jlog").setup({
   fields = {
-    time = { "time", "ts", "timestamp", "@timestamp" },
+    time = { "time", "ts", "timestamp", "@timestamp", "time_stamp", "timeStamp" },
     level = { "level", "lvl", "severity" },
     message = { "msg", "message" },
     status = { "status", "status_code" }, -- class-colored (2xx-5xx) when styled inverted/pill
@@ -174,8 +174,9 @@ require("jlog").setup({
     mode = "compact",
     sort = "desc", -- "desc" shows the newest entries first
     field_colors = true,
-    -- os.date format for compact-line times, %L is milliseconds; false shows HH:MM:SS.mmm as written
-    time_format = "%Y-%m-%d %H:%M:%S.%L",
+    -- os.date format for compact-line times (%L is milliseconds), false for HH:MM:SS.mmm as written, or a function:
+    -- function(t) return t.value end shows the time unformatted
+    time_format = "%Y-%m-%d %H:%M:%S",
     time_utc = false, -- show time_format times in UTC instead of local time
   },
   unwrap = { enable = true, max_depth = 4 },

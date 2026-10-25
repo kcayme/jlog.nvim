@@ -24,6 +24,43 @@ describe("time", function()
     assert.are.equal(os.date("%H:%M", 1760619024), time.format_iso("2026-10-16T12:50:24Z", view))
   end)
 
+  it("should call a time_format function with the value as written and the parsed epoch", function()
+    local seen
+    local view = {
+      time_format = function(t)
+        seen = { t.value, t.seconds, t.millis }
+
+        return t.value
+      end,
+    }
+
+    assert.are.equal("2026-10-16T12:50:24.970Z", time.format_iso("2026-10-16T12:50:24.970Z", view))
+    assert.are.same({ "2026-10-16T12:50:24.970Z", 1792155024, "970" }, seen)
+    assert.are.equal("yesterday", time.format_iso("yesterday", view))
+    assert.are.same({ "yesterday" }, seen)
+    assert.are.equal("1760619024970389138", time.format_epoch(1760619024, "970", view, "1760619024970389138"))
+  end)
+
+  it("should show the value as written and warn once when a time_format function fails", function()
+    local notify = vim.notify
+    local warnings = {}
+    local view = {
+      time_format = function()
+        error("boom")
+      end,
+    }
+
+    vim.notify = function(message)
+      warnings[#warnings + 1] = message
+    end
+    assert.are.equal("2026-10-16T12:50:24Z", time.format_iso("2026-10-16T12:50:24Z", view))
+    assert.are.equal("2026-10-16T12:50:25Z", time.format_iso("2026-10-16T12:50:25Z", view))
+    vim.notify = notify
+
+    assert.are.equal(1, #warnings)
+    assert.is_truthy(warnings[1]:find("boom", 1, true))
+  end)
+
   it("should format an epoch with a new format even within the same second", function()
     assert.are.equal(
       "12:50:24.001",

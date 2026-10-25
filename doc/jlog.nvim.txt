@@ -13,8 +13,7 @@ Table of Contents                                *jlog.nvim-table-of-contents*
   - Benchmark                                            |jlog.nvim-benchmark|
   - Configuration Options                    |jlog.nvim-configuration-options|
 Read JSON server and container logs in Neovim. Logs pulled from servers,
-containers and CI are often unformatted, one giant line, and double-encoded;
-jlog makes them readable, filterable and groupable without leaving the editor.
+containers and CI are often unformatted, one giant line, and double-encoded.
 
 
 

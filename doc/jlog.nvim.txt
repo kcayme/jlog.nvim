@@ -7,14 +7,16 @@ Table of Contents                                *jlog.nvim-table-of-contents*
   - Requirements                                      |jlog.nvim-requirements|
   - Installation                                      |jlog.nvim-installation|
   - Quick start                                        |jlog.nvim-quick-start|
-  - Usage                                                    |jlog.nvim-usage|
   - Configuration                                    |jlog.nvim-configuration|
+  - Usage                                                    |jlog.nvim-usage|
   - Highlights                                          |jlog.nvim-highlights|
   - Benchmark                                            |jlog.nvim-benchmark|
   - Configuration Options                    |jlog.nvim-configuration-options|
   - Highlight Groups                              |jlog.nvim-highlight-groups|
-Read JSON server and container logs in Neovim. Logs pulled from servers,
-containers and CI are often unformatted, one giant line, and double-encoded.
+Exported logs from servers, containers, and CI are often unformatted, one giant
+line, and sometimes double-encoded even. This plugin presents logs into a more
+human-readable format, capabilities to search, filter, and group the data, and
+customizability.
 
 
 FEATURES                                                  *jlog.nvim-features*
@@ -55,83 +57,146 @@ field to group by it.
 5. `?` in the sidebar lists every key; `q` closes the workspace.
 
 
+CONFIGURATION                                        *jlog.nvim-configuration*
+
+Defaults (all optional):
+
+>lua
+    require("jlog").setup({
+      fields = {
+        time = { "time", "ts", "timestamp", "@timestamp", "time_stamp", "timeStamp" },
+        level = { "level", "lvl", "severity" },
+        message = { "msg", "message" },
+        status = { "status", "status_code" }, -- class-colored (2xx-5xx) when styled inverted/pill
+      },
+      compact = {
+        style = "plain", -- "plain" | "inverted" | "pill"; level defaults to "inverted"
+        order = {}, -- top-level keys shown first, e.g. { "method", "path", "status" }
+        fields = {}, -- per key or role: { style = "pill", format = function(ctx) return ctx.value end }
+        pill = { left = "\238\130\182", right = "\238\130\180" }, -- Nerd Font caps; "" for square ends
+        style_values = { "level", "status" }, -- keys or roles styled on the value instead of the key
+      },
+      view = {
+        mode = "compact",
+        sort = "desc", -- "desc" shows the newest entries first
+        field_colors = true,
+        -- os.date format for compact-line times (%L is milliseconds), false for HH:MM:SS.mmm as written, or a function:
+        -- function(t) return t.value end shows the time unformatted
+        time_format = "%Y-%m-%d %H:%M:%S",
+        time_utc = false, -- show time_format times in UTC instead of local time
+        ignore_fields = {}, -- field paths left out of compact lines, e.g. { "hostname", "req.headers" }
+      },
+      unwrap = { enable = true, max_depth = 4 },
+      sidebar = {
+        width = 45,
+        position = "right",
+        line_numbers = false, -- show line numbers in the sidebar
+        -- apply FILTERS, GROUP BY and LIMIT edits without :w, once edits pause for debounce_ms
+        auto_apply = { enable = false, debounce_ms = 600 },
+        fields = { -- how FIELDS lists and styles field names
+          colors = true, -- false: every name uses JLogFieldName
+          style = "plain", -- "plain", "inverted" or "pill", like compact fields
+          pill = { left = "\238\130\182", right = "\238\130\180" }, -- Nerd Font caps; "" for square ends
+          -- per field path or role, e.g. { level = { style = "pill" } }; a format(ctx) gets ctx.name and ctx.distinct
+          -- and returns the name's text and optionally a highlight group
+          styles = {},
+          pinned = {}, -- field paths or roles listed first, e.g. { "level", "status", "path" }
+          -- the other fields: "alphabetical", or "count" (in the most entries first; applied once the counts are final,
+          -- so rows hold still while a file loads)
+          sort = "alphabetical",
+        },
+        -- sections in the order shown, e.g. { "fields", "filters", "group" }; one left out is hidden, and :w then keeps
+        -- the filters or group that field actions and commands set
+        sections = { "sort", "page", "filters", "group", "limit", "fields" },
+      },
+      facets = { top_values = 10 },
+      -- size and overlap: source lines (JSONL) or array elements
+      paging = { size = 100000, overlap = 500, filter_scope = "all" },
+      progress = "auto", -- "auto" (progress messages on Neovim 0.12+), "notify" (always vim.notify) or "off"
+      keymaps = {
+        toggle_entry = "<CR>",
+        toggle_mode = "E",
+        raw = "gf",
+        reverse = "R",
+        clear = "X",
+        next_entry = "]]",
+        prev_entry = "[[",
+        next_error = "]e",
+        prev_error = "[e",
+        next_page = "]p",
+        prev_page = "[p",
+        next_match_page = "]m",
+        prev_match_page = "[m",
+        toggle_scope = "A",
+        focus_sidebar = "s",
+        toggle_sidebar = "S",
+        close = "q",
+        add_filter = "<CR>",
+        group_by = "g",
+        ignore_field = "s",
+        help = "?",
+      },
+    })
+<
+
+See docs/options.md <docs/options.md> for every option.
+
+
+COMPACT LINE FORMATTING ~
+
+Each field of a compact line has a style, set globally with `compact.style` or
+per field with `compact.fields[key].style` (`key` is a field name or a role:
+`time`, `level`, `message`, `status`):
+
+- `plain`: `key=value`, the key colored per field. Example: `method=GET`.
+- `inverted`: the key as a colored block. Example: `method =GET`.
+- `pill`: like `inverted`, with rounded caps around the key. Example: `(method)=GET`.
+
+Fields in `compact.style_values` (by default `level` and `status`) are styled
+on the value instead (`500`, no key); remove one to give it a styled key.
+`level` is `inverted` by default, colored by its level; a styled status value
+takes its class color (`JLogStatus2xx` … `JLogStatus5xx`); other fields take
+their key’s color. `time` and `message` stay plain unless styled through
+`compact.fields`.
+
+`compact.order` lists top-level keys to show first.
+`compact.fields[key].format(ctx)` replaces a field’s text: `ctx` has `value`,
+`key` and `entry`, and it returns the text and optionally a highlight group. It
+runs on every drawn line; if it errors, the default text is used and jlog warns
+once per field.
+
+>lua
+    compact = {
+      order = { "method", "path", "status" },
+      fields = {
+        method = { style = "pill" },
+        duration_ms = {
+          format = function(ctx)
+            return ctx.value .. "ms", (tonumber(ctx.value) or 0) > 500 and "DiagnosticError" or nil
+          end,
+        },
+      },
+    }
+<
+
+Pill caps are inline virtual text (never yanked or searched) and need a Nerd
+Font; `pill = { left = "", right = "" }` gives square ends.
+
+
+STATUSLINE PLUGINS ~
+
+The log view shows its counts and filters in the winbar. A statusline plugin
+that draws winbars, such as lualine with a `winbar` section, replaces it;
+exclude jlog’s filetypes `jlog` and `jlog_sidebar`:
+
+>lua
+    require("lualine").setup({
+      options = { disabled_filetypes = { winbar = { "jlog", "jlog_sidebar" } } },
+    })
+<
+
+
 USAGE                                                        *jlog.nvim-usage*
-
-
-OPENING LOGS ~
-
-`:JLog` opens the current buffer, `:JLog {path}` a file; the format is detected
-on open. jlog never writes to the source file, and `gf` on an entry shows its
-raw source text.
-
-
-THE LOG VIEW ~
-
-Entries are shown newest first, for JSONL files and timestamped exports alike;
-`R` reverses the order and `view.sort = "asc"` makes oldest first the default.
-`<CR>` expands an entry in place, `E` switches the whole view between compact
-and expanded, `]]` / `[[` move between entries and `]e` / `[e` between errors.
-The winbar shows how many entries match and the active filters and group.
-
-
-THE SIDEBAR ~
-
-- **FILTERS** and **GROUP BY** are typed in the buffer and applied with `:w`, by leaving insert mode, or as you type
-    with `sidebar.auto_apply`. One filter clause per line, ANDed; an empty section shows an example.
-- **LIMIT** has two labelled lines, applied with `:w` too: a number after `entries` shows the first N entries in
-    display order (it follows SORT), and one after `groups` the first N groups of a GROUP BY. With both, the last group
-    can be cut short. The labels cannot be edited; leave a value blank for no limit. FIELDS still counts every match.
-- **SORT** shows the current order. It is not part of the buffer, so it cannot be edited; `R` reverses it.
-- **FIELDS** lists every field with its top values and counts: `<CR>` on a value adds it as a filter, `g` on a field
-    groups by it. After a filter or group, the lines show first and the counts follow, dimmed and marked `counting…`
-    until they arrive. Counts for fields with more than 1000 distinct values are estimates, marked `~`.
-
-`S` hides or shows the sidebar (nothing is counted while it is hidden), `s`
-focuses it. Its sections, their order and how FIELDS lists and styles field
-names are configurable: see `sidebar` under |jlog.nvim-configuration|.
-
-
-LARGE FILES ~
-
-Large JSONL files are parsed on background threads: the first screen shows
-right away and the rest loads in the background, with FIELDS adding fields as
-they are found (`loading N%`); a timestamped export that has to be reordered
-first appears once it has loaded. A log larger than `paging.size` (100k lines
-or array elements) is shown one page at a time, so only that page is held in
-memory: the winbar and sidebar show `page 2/5`, `]p` / `[p` or `:JLog page {n}`
-move between pages, and each page also shows `paging.overlap` lines of its
-neighbours, dimmed, so a request at a page edge stays whole. Filters, group and
-mode carry over to another page. A filter applies to the page shown, and every
-page is counted in the background: the winbar shows the total (`55 in all`),
-the sidebar’s PAGE section the matches on each page, and `]m` / `[m` jump to
-the next or previous page with matches. Once counted, the view shows the
-matches of every page in one view, with FIELDS and GROUP BY over all of them,
-so a request whose lines cross a page edge reads whole; a filter matching more
-than `paging.size` entries stays on its page. `A` (or `:JLog scope page|all`)
-switches between that view and the page holding the cursor entry, and keeps the
-choice for later filters; set `paging.filter_scope = "page"` to filter one page
-at a time by default, or `paging = false` to load every entry into one view
-however large the log (slower and heavier on large files).
-
-While a large page is still being drawn, `/` may match the raw text of rows not
-drawn yet; it is exact once drawing is done.
-
-
-LIVE RELOAD ~
-
-The view follows the file: appended lines stream in, and atomic saves, rotation
-and a file deleted and created again are followed. A rewritten file returns to
-the page holding the entry under the cursor.
-
-
-PROGRESS MESSAGES ~
-
-Work that outlasts the first screen (loading, indexing pages, applying a filter
-or group, rendering) reports one message when it starts and one when it is
-done. On Neovim 0.12+ these are progress messages, so a notification plugin
-that draws progress can show a spinner; on older versions they go through
-`vim.notify`. `progress = "notify"` always uses `vim.notify`, `progress =
-"off"` turns them off.
 
 
 COMMANDS ~
@@ -293,145 +358,6 @@ request_id=req-00000002)`.
     midnight. Quote one with a space: `time<"2026-10-22 11:00"`. `=` and `~` still match the time’s text.
 - Integers are exact at any size: `id=12345678901234567890` works. `>`, `>=`, `<` and `<=` compare as doubles, so
     past 2^53 they are approximate.
-
-
-CONFIGURATION                                        *jlog.nvim-configuration*
-
-Defaults (all optional):
-
->lua
-    require("jlog").setup({
-      fields = {
-        time = { "time", "ts", "timestamp", "@timestamp", "time_stamp", "timeStamp" },
-        level = { "level", "lvl", "severity" },
-        message = { "msg", "message" },
-        status = { "status", "status_code" }, -- class-colored (2xx-5xx) when styled inverted/pill
-      },
-      compact = {
-        style = "plain", -- "plain" | "inverted" | "pill"; level defaults to "inverted"
-        order = {}, -- top-level keys shown first, e.g. { "method", "path", "status" }
-        fields = {}, -- per key or role: { style = "pill", format = function(ctx) return ctx.value end }
-        pill = { left = "\238\130\182", right = "\238\130\180" }, -- Nerd Font caps; "" for square ends
-        style_values = { "level", "status" }, -- keys or roles styled on the value instead of the key
-      },
-      view = {
-        mode = "compact",
-        sort = "desc", -- "desc" shows the newest entries first
-        field_colors = true,
-        -- os.date format for compact-line times (%L is milliseconds), false for HH:MM:SS.mmm as written, or a function:
-        -- function(t) return t.value end shows the time unformatted
-        time_format = "%Y-%m-%d %H:%M:%S",
-        time_utc = false, -- show time_format times in UTC instead of local time
-        ignore_fields = {}, -- field paths left out of compact lines, e.g. { "hostname", "req.headers" }
-      },
-      unwrap = { enable = true, max_depth = 4 },
-      sidebar = {
-        width = 45,
-        position = "right",
-        line_numbers = false, -- show line numbers in the sidebar
-        -- apply FILTERS, GROUP BY and LIMIT edits without :w, once edits pause for debounce_ms
-        auto_apply = { enable = false, debounce_ms = 600 },
-        fields = { -- how FIELDS lists and styles field names
-          colors = true, -- false: every name uses JLogFieldName
-          style = "plain", -- "plain", "inverted" or "pill", like compact fields
-          pill = { left = "\238\130\182", right = "\238\130\180" }, -- Nerd Font caps; "" for square ends
-          -- per field path or role, e.g. { level = { style = "pill" } }; a format(ctx) gets ctx.name and ctx.distinct
-          -- and returns the name's text and optionally a highlight group
-          styles = {},
-          pinned = {}, -- field paths or roles listed first, e.g. { "level", "status", "path" }
-          -- the other fields: "alphabetical", or "count" (in the most entries first; applied once the counts are final,
-          -- so rows hold still while a file loads)
-          sort = "alphabetical",
-        },
-        -- sections in the order shown, e.g. { "fields", "filters", "group" }; one left out is hidden, and :w then keeps
-        -- the filters or group that field actions and commands set
-        sections = { "sort", "page", "filters", "group", "limit", "fields" },
-      },
-      facets = { top_values = 10 },
-      -- size and overlap: source lines (JSONL) or array elements
-      paging = { size = 100000, overlap = 500, filter_scope = "all" },
-      progress = "auto", -- "auto" (progress messages on Neovim 0.12+), "notify" (always vim.notify) or "off"
-      keymaps = {
-        toggle_entry = "<CR>",
-        toggle_mode = "E",
-        raw = "gf",
-        reverse = "R",
-        clear = "X",
-        next_entry = "]]",
-        prev_entry = "[[",
-        next_error = "]e",
-        prev_error = "[e",
-        next_page = "]p",
-        prev_page = "[p",
-        next_match_page = "]m",
-        prev_match_page = "[m",
-        toggle_scope = "A",
-        focus_sidebar = "s",
-        toggle_sidebar = "S",
-        close = "q",
-        add_filter = "<CR>",
-        group_by = "g",
-        ignore_field = "s",
-        help = "?",
-      },
-    })
-<
-
-See docs/options.md <docs/options.md> for every option.
-
-
-COMPACT LINE FORMATTING ~
-
-Each field of a compact line has a style, set globally with `compact.style` or
-per field with `compact.fields[key].style` (`key` is a field name or a role:
-`time`, `level`, `message`, `status`):
-
-- `plain`: `key=value`, the key colored per field. Example: `method=GET`.
-- `inverted`: the key as a colored block. Example: `method =GET`.
-- `pill`: like `inverted`, with rounded caps around the key. Example: `(method)=GET`.
-
-Fields in `compact.style_values` (by default `level` and `status`) are styled
-on the value instead (`500`, no key); remove one to give it a styled key.
-`level` is `inverted` by default, colored by its level; a styled status value
-takes its class color (`JLogStatus2xx` … `JLogStatus5xx`); other fields take
-their key’s color. `time` and `message` stay plain unless styled through
-`compact.fields`.
-
-`compact.order` lists top-level keys to show first.
-`compact.fields[key].format(ctx)` replaces a field’s text: `ctx` has `value`,
-`key` and `entry`, and it returns the text and optionally a highlight group. It
-runs on every drawn line; if it errors, the default text is used and jlog warns
-once per field.
-
->lua
-    compact = {
-      order = { "method", "path", "status" },
-      fields = {
-        method = { style = "pill" },
-        duration_ms = {
-          format = function(ctx)
-            return ctx.value .. "ms", (tonumber(ctx.value) or 0) > 500 and "DiagnosticError" or nil
-          end,
-        },
-      },
-    }
-<
-
-Pill caps are inline virtual text (never yanked or searched) and need a Nerd
-Font; `pill = { left = "", right = "" }` gives square ends.
-
-
-STATUSLINE PLUGINS ~
-
-The log view shows its counts and filters in the winbar. A statusline plugin
-that draws winbars, such as lualine with a `winbar` section, replaces it;
-exclude jlog’s filetypes `jlog` and `jlog_sidebar`:
-
->lua
-    require("lualine").setup({
-      options = { disabled_filetypes = { winbar = { "jlog", "jlog_sidebar" } } },
-    })
-<
 
 
 HIGHLIGHTS                                              *jlog.nvim-highlights*

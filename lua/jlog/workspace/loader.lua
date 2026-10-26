@@ -19,6 +19,7 @@ local watcher = require("jlog.workspace.watcher")
 ---@field tail boolean|nil page 1 is the end of a jsonl file
 ---@field read JLogReader
 ---@field more number|nil fraction read, nil once the slice was everything
+---@field err string|nil the array or loki export is broken: nothing else is set, open reads it as jsonl
 
 local M = {}
 
@@ -52,6 +53,11 @@ local function read_file(path)
   return data, err
 end
 
+---@param err string why the array or loki export is broken
+M.notify_broken = function(err)
+  vim.notify("jlog: broken JSON array: " .. err .. "; shown as jsonl lines", vim.log.levels.ERROR)
+end
+
 ---Show newly found fields while a load or apply runs, at most every `timing.publish_ns`; unsaved edits are kept.
 ---@param ws JLogWorkspace
 ---@param counter JLogFacetCounter
@@ -80,7 +86,7 @@ end
 ---@param notified boolean|nil a load past its first tick says so once, and again when it is done
 local function load_rest(ws, entries, read, on_done, counter, token, notified)
   local deadline = vim.uv.hrtime() + M.timing.tick_ns
-  local fraction, progress, waiting
+  local fraction, progress, waiting, err
   local count_entry = counter
     and function(entry, decoded)
       facets.add(counter, entry_model.flatten(entry, decoded))
@@ -94,8 +100,14 @@ local function load_rest(ws, entries, read, on_done, counter, token, notified)
     return
   end
   repeat
-    fraction, waiting = read(entries, count_entry, nil, merge_fields)
+    fraction, waiting, err = read(entries, count_entry, nil, merge_fields)
   until not fraction or waiting or vim.uv.hrtime() >= deadline
+  if err then
+    progress_mod.finish(ws.key, "load", "load stopped")
+    M.read_as_jsonl(ws, err)
+
+    return
+  end
   if fraction then
     progress = "loading " .. math.floor(fraction * 100) .. "%"
     if not notified then
@@ -204,6 +216,11 @@ local function scan_pages(ws, index, on_known, wait_done)
     return
   end
   done = index:scan(vim.uv.hrtime() + M.timing.tick_ns)
+  if index.err then
+    M.read_as_jsonl(ws, index.err)
+
+    return
+  end
   if on_known and (done or (not wait_done and is_paged(index))) then
     on_known(is_paged(index) == true)
     on_known = nil
@@ -362,6 +379,23 @@ local function rebuild(ws)
   end, 0)
 end
 
+---Read a broken array or loki export again as jsonl lines, the best its text can show.
+---@param ws JLogWorkspace
+---@param err string
+M.read_as_jsonl = function(ws, err)
+  if ws.closed or ws.format == "jsonl" then
+    return
+  end
+  M.notify_broken(err)
+  if ws.index_notified then
+    ws.index_notified = nil
+    progress_mod.finish(ws.key, "index", "indexing stopped")
+  end
+  -- a load still running for the old format stops at its next tick
+  ws.format, ws.load_token = "jsonl", {}
+  rebuild(ws)
+end
+
 ---Load the rest of the first page, or of a source that is not paged, after the first screen.
 ---@param ws JLogWorkspace
 ---@param entries JLogEntry[] read so far; `ws.entries` when `early`
@@ -501,7 +535,7 @@ end
 ---@param count_entry fun(entry: JLogEntry, decoded: table) counts the facets of an entry shown early
 ---@return JLogFirstSlice
 M.prepare = function(text, format, opts, count_entry)
-  local order, read, early, more
+  local order, read, early, more, err, _
   local index, paged, range, deadline, tail
   local entries = {}
 
@@ -514,7 +548,10 @@ M.prepare = function(text, format, opts, count_entry)
     repeat
       index:scan(math.min(deadline, vim.uv.hrtime() + M.timing.tick_ns))
       paged = is_paged(index)
-    until paged ~= nil or vim.uv.hrtime() >= deadline
+    until paged ~= nil or index.err or vim.uv.hrtime() >= deadline
+  end
+  if index and index.err then
+    return { err = index.err }
   end
   range = paged and index:range(1)
   -- the first elements show early only when they are the top of the view; jsonl reverses
@@ -526,7 +563,10 @@ M.prepare = function(text, format, opts, count_entry)
     or reader.source(text, format, order, M.timing.tick_ns)
   -- only the first lines or elements are parsed before the first screen; the rest follows in chunks
   if not index or paged ~= nil or not index.from_end then
-    more = read(entries, early and count_entry or nil, M.load_sizes.first)
+    more, _, err = read(entries, early and count_entry or nil, M.load_sizes.first)
+  end
+  if err then
+    return { err = err }
   end
 
   return {

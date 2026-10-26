@@ -289,7 +289,7 @@ describe("scan", function()
       assert.are.equal(500, result.facets.fields.status.present)
     end)
 
-    it("should stop where a broken array breaks, keeping the matches before it", function()
+    it("should stop where a broken array breaks, keeping the matches before it and the reason", function()
       local lines = gen.jsonl_lines(300, true)
       local text, expected, result
 
@@ -299,6 +299,7 @@ describe("scan", function()
         expected_srcs("[\n" .. table.concat(vim.list_slice(lines, 1, 149), ",\n") .. "\n]", "array", { "status>=500" })
       result = run(index_of(text, "array"), "array", { "status>=500" })
       assert.are.same(expected, srcs_of(result))
+      assert.is_truthy(result.err)
     end)
   end)
 

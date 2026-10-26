@@ -208,13 +208,12 @@ describe("workspace", function()
     assert.are.equal(2, #ws.entries)
     ws, err = workspace.open({ path = truncated, force = true })
     assert.is_nil(err)
-    -- the broken element and everything after it are kept as plain entries
-    assert.are.equal("loki", ws.format)
+    -- a broken export is read as jsonl lines
+    assert.are.equal("jsonl", ws.format)
     assert.is_true(vim.wait(2000, function()
       return not ws.loading
     end))
-    assert.are.equal(2, #ws.entries)
-    assert.is_nil(ws.entries[2].json_at)
+    assert.are.equal(1, #ws.entries)
     vim.fn.delete(prefixed)
     vim.fn.delete(truncated)
   end)
@@ -882,17 +881,17 @@ describe("workspace", function()
       vim.fn.delete(path)
     end)
 
-    local function capture_warnings()
-      local warnings = {}
+    local function capture_errors()
+      local errors = {}
       local notify = vim.notify
 
       vim.notify = function(message, level)
-        if level == vim.log.levels.WARN and message:find("broken JSON array", 1, true) then
-          warnings[#warnings + 1] = message
+        if level == vim.log.levels.ERROR and message:find("broken JSON array", 1, true) then
+          errors[#errors + 1] = message
         end
       end
 
-      return warnings, function()
+      return errors, function()
         vim.notify = notify
       end
     end
@@ -901,70 +900,108 @@ describe("workspace", function()
       return vim.json.encode({ line = '{"msg":"m' .. stamp .. '"}', timestamp = tostring(stamp), fields = {} })
     end
 
-    it("should open an export broken at element 3 with a warning and plain tail lines", function()
+    it("should read an export cut inside an element as jsonl lines, with an error", function()
       local path = vim.fn.tempname() .. ".json"
-      local warnings, restore = capture_warnings()
+      local errors, restore = capture_errors()
+      local first = "[" .. loki_line(20) .. "," .. loki_line(10) .. ',{"line":"cut'
       local ws, err
 
-      vim.fn.writefile({ "[" .. loki_line(20) .. "," .. loki_line(10) .. ',{"line":"cut', "more text", "" }, path)
+      vim.fn.writefile({ first, "more text", "" }, path)
       ws, err = workspace.open({ path = path })
       restore()
 
       assert.is_nil(err)
-      assert.are.equal("loki", ws.format)
-      assert.are.equal(1, #warnings)
-      assert.are.equal(4, #ws.entries)
-      assert.are.equal('{"line":"cut', ws.entries[3].raw)
-      assert.are.equal("more text", ws.entries[4].raw)
-      for _, entry in ipairs(ws.entries) do
-        assert.is_nil(entry.cont)
-      end
+      assert.are.equal("jsonl", ws.format)
+      assert.are.equal(1, #errors)
+      -- both lines kept as written
+      assert.are.same({ first, "more text" }, {
+        ws.entries[1].raw,
+        ws.entries[2].raw,
+      })
       ws:close()
       vim.fn.delete(path)
     end)
 
-    it("should open and reload an export broken past the first slice with a warning", function()
+    it("should not count the fields of a broken export's first read once it is read as jsonl", function()
       local path = vim.fn.tempname() .. ".json"
-      local elements = {}
-      local warnings, restore = capture_warnings()
-      local ws, done
+      local errors, restore = capture_errors()
+      local ws
 
-      for stamp = 9, 1, -1 do
-        elements[#elements + 1] = loki_line(stamp)
-      end
-      vim.fn.writefile({ "[" .. table.concat(elements, ",") .. ',{"line', "tail one", "tail two" }, path)
-      loader.load_sizes = { first = 2 }
-      reader.chunk_size = 2
+      -- newest first, so the first elements are counted as they are read; the second is balanced but not JSON
+      vim.fn.writefile({ "[" .. loki_line(20) .. ',{"line":"x", broken},' .. loki_line(10) .. "]" }, path)
       ws = assert(workspace.open({ path = path }))
-      done = function()
-        return not ws.loading and ws.rendered == ws.store.generation
-      end
-
-      assert.is_true(ws.loading)
-      assert.is_true(vim.wait(2000, done))
-      assert.are.equal(1, #warnings)
-      assert.are.equal(12, #ws.entries)
-      assert.are.same({ '{"line', "tail one", "tail two" }, {
-        ws.entries[10].raw,
-        ws.entries[11].raw,
-        ws.entries[12].raw,
-      })
-      assert.is_nil(ws.entries[9].cont)
-      assert.is_nil(ws.view.winbar_text:find("loading", 1, true))
-
-      table.insert(elements, 1, loki_line(10))
-      vim.fn.writefile({ "[" .. table.concat(elements, ",") .. ',{"line', "tail one", "tail two" }, path)
-      ws:reload()
-      assert.is_true(vim.wait(2000, function()
-        return #ws.entries == 13 and done()
-      end))
       restore()
 
-      assert.are.equal(2, #warnings)
-      assert.are.equal("tail two", ws.entries[13].raw)
-      assert.is_nil(ws.view.winbar_text:find("loading", 1, true))
+      assert.are.equal("jsonl", ws.format)
+      assert.are.equal(1, #errors)
+      assert.is_true(vim.wait(2000, function()
+        return not ws.loading and ws.rendered == ws.store.generation and not ws.sidebar.stale
+      end))
+      -- the one line is plain, so nothing is counted; `msg` would come from the loki element read before the break
+      assert.is_nil(ws.store.counter.fields.msg)
       ws:close()
       vim.fn.delete(path)
+    end)
+
+    describe("a paged array broken where the index cannot see it", function()
+      local path, ws, errors, restore
+
+      ---An array of 300 elements whose element `at` is balanced but not JSON, so only parsing it finds the break.
+      local function open_broken(at)
+        local lines = dofile("bench/gen.lua").jsonl_lines(300, true)
+
+        lines[at] = '{"status":500, broken}'
+        path = vim.fn.tempname() .. ".json"
+        vim.fn.writefile({ "[" .. table.concat(lines, ",") .. "]" }, path)
+        require("jlog").setup({ paging = { size = 120, overlap = 15 } })
+        errors, restore = capture_errors()
+        ws = assert(workspace.open({ path = path }))
+      end
+
+      local function settled()
+        return not ws.loading and ws.indexing == nil and ws.rendered == ws.store.generation
+      end
+
+      after_each(function()
+        restore()
+        ws:close()
+        vim.fn.delete(path)
+        require("jlog").setup()
+      end)
+
+      it("should read it as jsonl lines when the first read of the page shown breaks", function()
+        -- page 1 holds the end of the array
+        open_broken(280)
+        assert.is_true(vim.wait(5000, function()
+          return ws.format == "jsonl" and settled()
+        end))
+        assert.are.equal(1, #errors)
+        assert.are.equal(1, #ws.entries)
+      end)
+
+      it("should read it as jsonl lines when the rest of the page shown breaks while loading", function()
+        -- the first read stops before element 280, so the load after the first screen finds the break
+        loader.load_sizes = { first = 20 }
+        reader.chunk_size = 20
+        open_broken(280)
+        assert.are.equal("array", ws.format)
+        assert.is_true(vim.wait(5000, function()
+          return ws.format == "jsonl" and settled()
+        end))
+        assert.are.equal(1, #errors)
+        assert.are.equal(1, #ws.entries)
+      end)
+
+      it("should read it as jsonl lines once the filter scan of every page breaks", function()
+        open_broken(50)
+        assert.is_true(vim.wait(5000, settled))
+        assert.are.equal("array", ws.format)
+        ws:add_filter("status>=500")
+        assert.is_true(vim.wait(5000, function()
+          return ws.format == "jsonl" and settled()
+        end))
+        assert.are.equal(1, #errors)
+      end)
     end)
 
     it("should group a newest-first export like the same logs stored oldest first", function()

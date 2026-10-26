@@ -24,6 +24,7 @@ local utils = require("jlog.core.utils")
 ---@field seps table<integer, integer> arrays: byte of the `,` or `]` after the elements a range needs
 ---@field scanned integer arrays: elements scanned so far
 ---@field total integer|nil arrays: element count, once known
+---@field err string|nil arrays: the text ends inside an element, so the array is broken
 ---@field chunks { element: integer, first: integer }[] arrays: first element and byte of each scan chunk, in file order
 ---@field done boolean
 ---@field deadline number
@@ -299,7 +300,12 @@ local function walk_elements(index, visit)
     element = element + 1
     sep = element_end(text, pos)
     visit(element, pos, sep)
-    if sep > #text or byte(text, sep) == BYTE_CLOSE_BRACKET then
+    if sep > #text then
+      index.err = string.format("the text ends inside the element at %d", pos)
+
+      return element
+    end
+    if byte(text, sep) == BYTE_CLOSE_BRACKET then
       return element
     end
     pos = skip_space(text, sep + 1)

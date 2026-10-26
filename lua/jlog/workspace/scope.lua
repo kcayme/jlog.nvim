@@ -111,6 +111,11 @@ M.update = function(ws, start, on_change, replace)
   end
   ws.scan_key, ws.scan_index = key, index
   ws.scan = scan_mod.run(index, ws.format, vim.deepcopy(ws.state.filters), ws.opts, on_change, function(scan)
+    if scan.err then
+      ws:read_as_jsonl(scan.err)
+
+      return
+    end
     ws.page_counts = scan_mod.page_counts(scan, index)
     -- compiled code keeps the finished scan's closures and every candidate they checked; flushed once they returned
     vim.defer_fn(gc.release_compiled, 0)

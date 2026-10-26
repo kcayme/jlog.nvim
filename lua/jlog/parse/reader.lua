@@ -6,10 +6,10 @@ local M = {}
 -- lines or array elements read per call when the caller gives no count
 M.chunk_size = 500
 
----Reads `count` more units (default `chunk_size`) into `entries`; returns the fraction read (nil when done)
----and true while waiting on workers.
+---Reads `count` more units (default `chunk_size`) into `entries`; returns the fraction read (nil when done),
+---true while waiting on workers, and why an array or loki text is broken (then nothing more is read).
 ---@alias JLogReader fun(entries: JLogEntry[], on_json: function|nil, count: integer|nil,
----on_fields: fun(fields: table)|nil): number|nil, boolean|nil
+---on_fields: fun(fields: table)|nil): number|nil, boolean|nil, string|nil
 
 ---@param text string
 ---@param pos integer byte position of the next unparsed line
@@ -28,17 +28,6 @@ local function line_reader(text, pos, lnum, stop)
 
     return pos <= stop and (pos - start) / (stop - start + 1) or nil
   end
-end
-
----A broken array keeps what was read; the unparsed rest follows as plain entries, one per line.
----@param entries JLogEntry[] mutated
----@param text string
----@param rest_at integer where the unparsed rest starts
----@param stop integer last byte of the rest
----@param err string
-local function keep_broken_rest(entries, text, rest_at, stop, err)
-  vim.notify("jlog: broken JSON array: " .. err .. "; the rest is shown as plain lines", vim.log.levels.WARN)
-  source.append_plain(entries, text:sub(rest_at, stop))
 end
 
 ---@param text string
@@ -62,9 +51,7 @@ local function element_reader(text, pos, format, first_src, last_src, stop)
     vim.list_extend(entries, chunk)
     pos = not err and next_pos or nil
     if err then
-      keep_broken_rest(entries, text, next_pos, stop, err)
-
-      return nil
+      return nil, nil, err
     end
 
     return pos and (pos - start) / (stop - start + 1) or nil
@@ -122,16 +109,16 @@ local function sorting_reader(read, tick_ns)
   end
 
   return function(entries, on_json, count)
-    local fraction
+    local fraction, err, _
 
     -- read again after the end, as a load started after a first read that finished everything does
     if sorter and coroutine.status(sorter) == "dead" then
       return nil
     end
     if not sorter then
-      fraction = read(entries, on_json, count)
-      if fraction then
-        return fraction
+      fraction, _, err = read(entries, on_json, count)
+      if fraction or err then
+        return fraction, nil, err
       end
       sorter = coroutine.create(function()
         merge_sort(entries, source.older_first, checkpoint)

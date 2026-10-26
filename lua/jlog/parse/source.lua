@@ -412,18 +412,6 @@ M.element_order = function(text, format)
   return falling and "desc" or "asc"
 end
 
----Append each non-blank line of `text` as a plain entry of its own, numbered after the last entry.
----@param entries JLogEntry[] mutated
----@param text string
-M.append_plain = function(entries, text)
-  for _, line in ipairs(vim.split(text, "\n", { plain = true })) do
-    line = line:gsub("\r$", "")
-    if line:find("%S") then
-      entries[#entries + 1] = { src = #entries + 1, raw = line, body = line }
-    end
-  end
-end
-
 ---@param text string
 ---@param format JLogFormat
 ---@return JLogEntry[]|nil

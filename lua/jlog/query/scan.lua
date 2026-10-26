@@ -30,6 +30,7 @@ local workers = require("jlog.worker")
 ---@field done boolean
 ---@field fraction number how far the scan is, 0..1
 ---@field cancelled boolean|nil
+---@field err string|nil arrays: why the text is broken, found while scanning; the matches stop there
 
 local M = {}
 
@@ -263,7 +264,7 @@ local function scan_lines(scan, text, filters, opts, on_progress, on_done)
 end
 
 ---Scan an array or loki text: chunks of elements matched on worker threads, or on the main thread once workers fail
----or stall; a broken array ends the scan where it breaks.
+---or stall; a broken array ends the scan where it breaks, with `scan.err` set.
 ---@param scan JLogScan
 ---@param index JLogPageIndex its scan done
 ---@param format JLogFormat
@@ -336,7 +337,8 @@ local function scan_elements(scan, index, format, filters, opts, on_progress, on
 
   local function finish()
     scan.fraction = exact and 1 or 0.5
-    if exact then
+    -- a broken array is read again as jsonl, so its candidates need no checking
+    if exact or scan.err then
       on_done()
 
       return
@@ -360,6 +362,7 @@ local function scan_elements(scan, index, format, filters, opts, on_progress, on
         spans, pos, src, err =
           chunk.match_elements(text, pos, src, MAIN_ELEMENTS, format, pred, opts, field_preds, scan.facets)
         add(spans)
+        scan.err = err
         pos = not err and src <= total and pos or nil
       elseif not fallback then
         -- the shared cap also counts jobs of a cancelled scan that are still running

@@ -100,6 +100,7 @@ Workspace.toggle_scope = function(self)
   scope.choose(self, self.scope == "all" and "page" or "all", query.replace_entries)
 end
 Workspace.reload = loader.reload
+Workspace.read_as_jsonl = loader.read_as_jsonl
 
 local M = {}
 
@@ -201,6 +202,12 @@ M.open = function(target)
     return nil, "not a recognized log format"
   end
   slice = loader.prepare(text, format, opts, count_entry)
+  -- a broken array or loki export is read as jsonl lines; what the first read counted is dropped
+  if slice.err then
+    loader.notify_broken(slice.err)
+    format, counter = "jsonl", facets.counter()
+    slice = loader.prepare(text, format, opts, count_entry)
+  end
 
   ws = setmetatable({
     key = key,

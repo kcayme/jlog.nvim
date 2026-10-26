@@ -1,3 +1,4 @@
+-- Public API: setup, open and close, and the minimum Neovim version check.
 local M = {}
 
 local MIN_VERSION = "0.10"

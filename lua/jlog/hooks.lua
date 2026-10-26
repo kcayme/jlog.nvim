@@ -1,3 +1,4 @@
+-- Autocommands: re-applies the highlight groups when the colorscheme changes.
 local M = {}
 
 ---(Re)create the `jlog` augroup: re-apply the highlight groups when the colorscheme changes.

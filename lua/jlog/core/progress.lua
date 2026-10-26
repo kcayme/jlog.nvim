@@ -1,3 +1,4 @@
+-- Start and done messages for long work: progress messages on 0.12+, vim.notify before.
 local config = require("jlog.config")
 
 local M = {}

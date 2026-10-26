@@ -1,3 +1,4 @@
+-- Turns entries into buffer lines and highlights, rendered in chunks.
 local compact = require("jlog.ui.compact")
 local entry_model = require("jlog.parse.entry")
 local highlights = require("jlog.ui.highlights")

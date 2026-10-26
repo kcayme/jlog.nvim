@@ -1,3 +1,4 @@
+-- The workspace tab and windows: view and sidebar layout, the raw source tab.
 local M = {}
 
 ---An empty, unmodified buffer, unnamed or named after the file (e.g. a buffer for a file that did not exist yet).

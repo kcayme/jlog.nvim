@@ -1,3 +1,5 @@
+-- Options, their defaults and types, and the deep merge of the user's setup over them.
+
 ---@class JLogFieldsOptions
 ---@field time string[]
 ---@field level string[]

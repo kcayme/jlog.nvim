@@ -1,3 +1,5 @@
+-- Reads log times into epochs for filter ranges, and formats them for the view.
+
 ---@class JLogTime
 ---@field value string the time as written in the log; a Loki timestamp in nanoseconds
 ---@field seconds integer|nil seconds since the epoch, UTC; nil when the value is not a time jlog can read

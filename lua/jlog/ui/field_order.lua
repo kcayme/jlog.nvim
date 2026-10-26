@@ -1,3 +1,4 @@
+-- FIELDS order: pinned fields first, then alphabetical or by entries.
 local M = {}
 
 local ROLES = { time = true, level = true, message = true, status = true }

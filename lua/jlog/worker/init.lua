@@ -1,3 +1,4 @@
+-- Runs a named job on a libuv worker thread and delivers its result on the main loop.
 local M = {}
 
 local work_handle

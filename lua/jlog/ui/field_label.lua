@@ -1,3 +1,4 @@
+-- FIELDS name text and style (plain, inverted, pill, format) from the sidebar options.
 local filter = require("jlog.query.filter")
 local highlights = require("jlog.ui.highlights")
 

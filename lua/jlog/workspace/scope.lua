@@ -1,3 +1,4 @@
+-- Cross-page matches: starts and keeps the scan, the combined view, the total.
 local facets = require("jlog.query.facets")
 local gc = require("jlog.core.gc")
 local scan_mod = require("jlog.query.scan")

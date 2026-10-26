@@ -1,3 +1,4 @@
+-- Buffer-local keymaps from config.keymaps, and the help float.
 local utils = require("jlog.core.utils")
 
 local M = {}

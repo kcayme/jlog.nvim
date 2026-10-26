@@ -1,3 +1,4 @@
+-- The log view buffer and window: rendering, folds, cursor and mode switches.
 local entry_model = require("jlog.parse.entry")
 local cache = require("jlog.ui.cache")
 local keymaps = require("jlog.ui.keymaps")

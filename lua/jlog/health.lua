@@ -1,3 +1,4 @@
+-- :checkhealth jlog: whether this Neovim can run jlog.
 local M = {}
 
 ---`:checkhealth jlog`: reports whether this Neovim can run jlog.

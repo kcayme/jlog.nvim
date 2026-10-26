@@ -1,3 +1,4 @@
+-- Loads the source in ticks: first slice, pages, rebuild, reload, broken arrays as jsonl.
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local gc = require("jlog.core.gc")

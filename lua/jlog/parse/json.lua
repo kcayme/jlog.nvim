@@ -1,3 +1,5 @@
+-- JSON decoder that keeps key order and number literals as written.
+
 ---@class JLogNode
 ---@field t "object"|"array"|"string"|"number"|"boolean"|"null"
 ---@field s integer 1-based start byte offset in the parsed text

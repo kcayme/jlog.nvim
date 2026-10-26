@@ -1,3 +1,4 @@
+-- Jobs run inside worker threads: parse lines, count fields, match lines or elements.
 local chunk = require("jlog.query.chunk")
 local config = require("jlog.config")
 local entry_model = require("jlog.parse.entry")

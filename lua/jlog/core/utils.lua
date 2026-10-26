@@ -1,3 +1,4 @@
+-- Helpers shared across modules: whitespace skipping, centered floats, the tick budget.
 local M = {}
 
 -- the event loop pass the shared tick deadline belongs to, by its cached loop time, and that deadline

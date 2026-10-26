@@ -1,3 +1,4 @@
+-- Highlight group definitions and their defaults.
 local M = {}
 
 ---@class JLogHighlightGroup

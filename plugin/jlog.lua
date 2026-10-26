@@ -1,3 +1,4 @@
+-- Registers the :JLog command, highlights and hooks once Neovim passes the version check.
 local _, err = require("jlog").health_check()
 
 if err then

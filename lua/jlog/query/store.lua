@@ -1,3 +1,4 @@
+-- A page's entries: filter and group queries, and field counts over them.
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")

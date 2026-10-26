@@ -1,3 +1,4 @@
+-- Readers that parse a whole source or one page range into entries, in chunks.
 local parallel = require("jlog.parse.parallel")
 local source = require("jlog.parse.source")
 

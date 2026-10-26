@@ -1,3 +1,5 @@
+-- Groups entries by a field's value into headers and items.
+
 ---@class JLogItem
 ---@field kind "entry"|"header"
 ---@field idx integer|nil entry index

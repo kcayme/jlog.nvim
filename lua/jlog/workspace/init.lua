@@ -1,3 +1,4 @@
+-- Workspace class and lifecycle: open, close and the registry of open workspaces.
 local config = require("jlog.config")
 local detect = require("jlog.parse.detect")
 local entry_model = require("jlog.parse.entry")

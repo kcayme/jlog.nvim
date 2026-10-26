@@ -1,3 +1,4 @@
+-- The :JLog user command: subcommands, arguments and completion.
 local workspace = require("jlog.workspace")
 
 local M = {}

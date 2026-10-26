@@ -1,3 +1,4 @@
+-- Matches a JSONL chunk or an array chunk against a filter, as byte spans; worker-safe.
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")

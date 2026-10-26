@@ -1,3 +1,4 @@
+-- Page index: splits a large source into pages in ticks, and arrays into scan chunks.
 local json = require("jlog.parse.json")
 local utils = require("jlog.core.utils")
 

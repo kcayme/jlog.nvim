@@ -1,3 +1,4 @@
+-- JSONL range reader that parses chunks on worker threads, with a main-thread fallback.
 local source = require("jlog.parse.source")
 local workers = require("jlog.worker")
 

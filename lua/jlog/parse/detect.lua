@@ -1,3 +1,4 @@
+-- Detects the input format: Loki export, JSON array or JSONL.
 local json = require("jlog.parse.json")
 
 ---@alias JLogFormat "loki"|"array"|"jsonl"

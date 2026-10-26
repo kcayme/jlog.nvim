@@ -1,3 +1,4 @@
+-- Compact-line field styles, formats and order, resolved from the options.
 local M = {}
 
 ---@class JLogCompactResolved

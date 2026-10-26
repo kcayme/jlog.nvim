@@ -1,3 +1,4 @@
+-- Entry model: decodes records, unwraps double-encoded JSON, reads fields by role.
 local json = require("jlog.parse.json")
 
 local str_byte, str_find, str_sub = string.byte, string.find, string.sub

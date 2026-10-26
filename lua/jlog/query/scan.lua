@@ -1,3 +1,4 @@
+-- Filter scan across every page: worker chunks, confirms, fallback, per-page counts.
 local chunk = require("jlog.query.chunk")
 local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")

@@ -1,3 +1,4 @@
+-- Turns source lines or array elements into raw records without dropping any input.
 local json = require("jlog.parse.json")
 local pages = require("jlog.parse.pages")
 local utils = require("jlog.core.utils")

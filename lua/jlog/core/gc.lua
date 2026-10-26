@@ -1,3 +1,4 @@
+-- Garbage collection policy: steadier steps while a workspace is open, time-boxed cycles.
 local M = {}
 
 -- the default (200) pays collection debt in one 50-80ms tick at 500k lines; 400 keeps ticks under ~35ms

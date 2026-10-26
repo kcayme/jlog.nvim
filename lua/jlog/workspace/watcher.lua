@@ -1,3 +1,4 @@
+-- Watches the source file or buffer and reads what was appended.
 local M = {}
 
 local DEBOUNCE_MS = 200

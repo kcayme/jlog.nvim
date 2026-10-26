@@ -1,3 +1,4 @@
+-- The sidebar buffer and window: fields, filters and groups.
 local facets_mod = require("jlog.query.facets")
 local field_label = require("jlog.ui.field_label")
 local field_order = require("jlog.ui.field_order")

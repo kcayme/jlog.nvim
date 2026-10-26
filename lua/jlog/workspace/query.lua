@@ -1,3 +1,4 @@
+-- Applies filters, group and order to the view; publishes facets and the winbar.
 local entry_model = require("jlog.parse.entry")
 local filter = require("jlog.query.filter")
 local gc = require("jlog.core.gc")

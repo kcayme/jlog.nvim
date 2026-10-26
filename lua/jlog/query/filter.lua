@@ -1,3 +1,4 @@
+-- Filter language: parses filter strings and matches entries against them.
 local config = require("jlog.config")
 local entry_model = require("jlog.parse.entry")
 local time = require("jlog.parse.time")

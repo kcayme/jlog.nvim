@@ -1,3 +1,4 @@
+-- Counts field values for the sidebar's FIELDS list.
 local entry_model = require("jlog.parse.entry")
 
 ---@class JLogFacet

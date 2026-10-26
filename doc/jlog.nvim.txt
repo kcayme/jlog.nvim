@@ -1,4 +1,4 @@
-*jlog.nvim.txt*          For NVIM v0.8.0          Last change: 2026 October 25
+*jlog.nvim.txt*          For NVIM v0.8.0          Last change: 2026 October 26
 
 ==============================================================================
 Table of Contents                                *jlog.nvim-table-of-contents*
@@ -9,13 +9,12 @@ Table of Contents                                *jlog.nvim-table-of-contents*
   - Quick start                                        |jlog.nvim-quick-start|
   - Usage                                                    |jlog.nvim-usage|
   - Configuration                                    |jlog.nvim-configuration|
-  - Highlight groups                              |jlog.nvim-highlight-groups|
+  - Highlights                                          |jlog.nvim-highlights|
   - Benchmark                                            |jlog.nvim-benchmark|
   - Configuration Options                    |jlog.nvim-configuration-options|
+  - Highlight Groups                              |jlog.nvim-highlight-groups|
 Read JSON server and container logs in Neovim. Logs pulled from servers,
 containers and CI are often unformatted, one giant line, and double-encoded.
-
-
 
 
 FEATURES                                                  *jlog.nvim-features*
@@ -99,10 +98,20 @@ right away and the rest loads in the background, with FIELDS adding fields as
 they are found (`loading N%`); a timestamped export that has to be reordered
 first appears once it has loaded. A log larger than `paging.size` (100k lines
 or array elements) is shown one page at a time, so only that page is held in
-memory: the winbar shows `page 2/5`, `]p` / `[p` or `:JLog page {n}` move
-between pages, and each page also shows `paging.overlap` lines of its
+memory: the winbar and sidebar show `page 2/5`, `]p` / `[p` or `:JLog page {n}`
+move between pages, and each page also shows `paging.overlap` lines of its
 neighbours, dimmed, so a request at a page edge stays whole. Filters, group and
-mode carry over to another page.
+mode carry over to another page. A filter applies to the page shown, and every
+page is counted in the background: the winbar shows the total (`55 in all`),
+the sidebar’s PAGE section the matches on each page, and `]m` / `[m` jump to
+the next or previous page with matches. Once counted, the view shows the
+matches of every page in one view, with FIELDS and GROUP BY over all of them,
+so a request whose lines cross a page edge reads whole; a filter matching more
+than `paging.size` entries stays on its page. `A` (or `:JLog scope page|all`)
+switches between that view and the page holding the cursor entry, and keeps the
+choice for later filters; set `paging.filter_scope = "page"` to filter one page
+at a time by default, or `paging = false` to load every entry into one view
+however large the log (slower and heavier on large files).
 
 While a large page is still being drawn, `/` may match the raw text of rows not
 drawn yet; it is exact once drawing is done.
@@ -146,6 +155,10 @@ COMMANDS ~
 
   :JLog page {n}                        Go to page n of a paged log.
 
+  :JLog scope all\|page                 Show the filter matches of every
+                                        page in one view, or go back to a
+                                        page.
+
   :JLog raw                             Open the source in a new tab.
 
   :JLog close                           Close the workspace.
@@ -182,6 +195,13 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
 
   ]p / [p           log view                 Next / previous page of a
                                              paged log
+
+  ]m / [m           log view                 Next / previous page with
+                                             filter matches
+
+  A                 log view                 Filter matches of every page
+                                             in one view; again to go
+                                             back to a page
 
   s                 log view                 Focus the sidebar
 
@@ -310,7 +330,7 @@ Defaults (all optional):
         position = "right",
         line_numbers = false, -- show line numbers in the sidebar
         -- apply FILTERS, GROUP BY and LIMIT edits without :w, once edits pause for debounce_ms
-        auto_apply = { enable = false, debounce_ms = 300 },
+        auto_apply = { enable = false, debounce_ms = 600 },
         fields = { -- how FIELDS lists and styles field names
           colors = true, -- false: every name uses JLogFieldName
           style = "plain", -- "plain", "inverted" or "pill", like compact fields
@@ -325,10 +345,11 @@ Defaults (all optional):
         },
         -- sections in the order shown, e.g. { "fields", "filters", "group" }; one left out is hidden, and :w then keeps
         -- the filters or group that field actions and commands set
-        sections = { "filters", "group", "limit", "sort", "fields" },
+        sections = { "sort", "page", "filters", "group", "limit", "fields" },
       },
       facets = { top_values = 10 },
-      paging = { size = 100000, overlap = 2000 }, -- source lines (JSONL) or array elements
+      -- size and overlap: source lines (JSONL) or array elements
+      paging = { size = 100000, overlap = 500, filter_scope = "all" },
       progress = "auto", -- "auto" (progress messages on Neovim 0.12+), "notify" (always vim.notify) or "off"
       keymaps = {
         toggle_entry = "<CR>",
@@ -342,6 +363,9 @@ Defaults (all optional):
         prev_error = "[e",
         next_page = "]p",
         prev_page = "[p",
+        next_match_page = "]m",
+        prev_match_page = "[m",
+        toggle_scope = "A",
         focus_sidebar = "s",
         toggle_sidebar = "S",
         close = "q",
@@ -410,112 +434,12 @@ exclude jlog’s filetypes `jlog` and `jlog_sidebar`:
 <
 
 
-HIGHLIGHT GROUPS                                  *jlog.nvim-highlight-groups*
+HIGHLIGHTS                                              *jlog.nvim-highlights*
 
-All groups are defined with `default = true` and re-applied on `ColorScheme`.
-Level groups are badges: the linked group’s color, reversed and bold, so the
-level reads as a colored label in compact lines. Override them with
-`vim.api.nvim_set_hl(0, "JLogLevelError", { ... })` or `:hi`.
+Every color jlog draws is a highlight group defined with `default = true`, so
+`vim.api.nvim_set_hl` or `:hi` overrides it. See docs/highlights.md
+<docs/highlights.md> for every group and its default.
 
-  ------------------------------------------------------------------------------------
-  Group               Used for                        Default link
-  ------------------- ------------------------------- --------------------------------
-  JLogTime            timestamp in compact lines      Comment
-
-  JLogLevelError      ERROR / FATAL / PANIC           badge: DiagnosticError color as
-                                                      background
-
-  JLogLevelWarn       WARN / WARNING                  badge: DiagnosticWarn color as
-                                                      background
-
-  JLogLevelInfo       INFO                            badge: DiagnosticInfo color as
-                                                      background
-
-  JLogLevelDebug      DEBUG                           badge: DiagnosticHint color as
-                                                      background
-
-  JLogLevelTrace      TRACE and unknown levels        badge: Comment color as
-                                                      background
-
-  JLogStatus2xx       status field with a 2xx value,  DiagnosticOk
-                      in compact lines                
-
-  JLogStatus3xx       status field with a 3xx value   DiagnosticInfo
-
-  JLogStatus4xx       status field with a 4xx value   DiagnosticWarn
-
-  JLogStatus5xx       status field with a 5xx value   DiagnosticError
-
-  JLogBadge*          derived on first use: a color   none; redefined on ColorScheme
-                      group’s color reversed and      
-                      bold, for inverted and pill     
-                      fields                          
-                      (e.g. JLogBadgeJLogStatus2xx)   
-
-  JLogMessage         message text                    Normal
-
-  JLogKey             key= in compact, object keys in Identifier
-                      expanded, when                  
-                      view.field_colors = false       
-
-  JLogField1 …        keys and FIELDS names, one      the first distinctly colored of
-  JLogField8          color per field in first-seen   Identifier, Function, Type,
-                      order, cycling                  Constant, Special, Statement,
-                                                      PreProc, Character, Label,
-                                                      Keyword, Tag, Directory,
-                                                      skipping any colored like a
-                                                      value (JLogValue, JLogString,
-                                                      JLogNumber, JLogBoolean,
-                                                      JLogNull)
-
-  JLogValue           compact values                  String
-
-  JLogString          expanded string values          String
-
-  JLogNumber          expanded number values          Number
-
-  JLogBoolean         expanded boolean values         Boolean
-
-  JLogNull            expanded null values            Constant
-
-  JLogPrefix          text before embedded JSON       Comment
-
-  JLogPlain           non-JSON entries and            Comment
-                      continuation lines              
-
-  JLogGroupHeader     group headers (virtual lines    Title
-                      and closed group folds)         
-
-  JLogSectionHeader   sidebar FILTERS / GROUP BY /    Title
-                      LIMIT / SORT / FIELDS           
-
-  JLogFieldName       field names in the FIELDS       Identifier
-                      section, when                   
-                      sidebar.fields.colors = false   
-
-  JLogFieldCount      counts in the FIELDS section    Comment
-
-  JLogFieldStale      FIELDS counts kept from the     NonText
-                      last apply while new ones are   
-                      counted                         
-
-  JLogFieldIgnored    FIELDS names of fields hidden   NonText
-                      from compact lines              
-
-  JLogFilterInvalid   The “invalid filter” note       DiagnosticWarn
-                      beside FILTERS while a filter   
-                      line fails to parse             
-
-  JLogHint            sidebar examples on empty       Comment
-                      FILTERS / GROUP BY / LIMIT      
-                      lines, :w to apply, and the     
-                      SORT order                      
-
-  JLogWinbar          jlog winbar text                WinBar
-
-  JLogOverlap         entries a page shares with its  Comment
-                      neighbours                      
-  ------------------------------------------------------------------------------------
 
 BENCHMARK                                                *jlog.nvim-benchmark*
 
@@ -633,19 +557,24 @@ options are optional; omitted keys fall back to the defaults shown below.
                                                                                                                                                  leaving insert mode redraws them. :w still applies at
                                                                                                                                                  once.
 
-  sidebar.auto_apply.debounce_ms      integer                           300                                                                      Wait this long after the last edit before an auto
-                                                                                                                                                 apply.
+  sidebar.auto_apply.debounce_ms      integer                           600                                                                      Wait this long after the last edit before an auto
+                                                                                                                                                 apply. On a paged log each apply with a filter also
+                                                                                                                                                 counts matches on every page in the background, so a
+                                                                                                                                                 short wait restarts that count often.
 
   sidebar.line_numbers                boolean                           false                                                                    Show line numbers in the sidebar window. FIELDS lines
                                                                                                                                                  are fitted to the narrower text area.
 
-  sidebar.sections                    JLogSidebarSection[]              { "filters", "group", "limit", "sort", "fields" }                        Sidebar sections in the order shown: "filters",
-                                                                                                                                                 "group", "limit", "sort", "fields". A section left out
-                                                                                                                                                 is hidden; :w then leaves its filters, group or limit
-                                                                                                                                                 as the field actions and :JLog commands set them.
-                                                                                                                                                 setup warns about unknown or repeated names and drops
-                                                                                                                                                 them, and falls back to the default order with a
-                                                                                                                                                 warning when the value is not a list.
+  sidebar.sections                    JLogSidebarSection[]              { "sort", "page", "filters", "group", "limit", "fields" }                Sidebar sections in the order shown: "sort", "page"
+                                                                                                                                                 (the page of a paged log, the keys that move between
+                                                                                                                                                 pages and, with a filter, its matches on each page;
+                                                                                                                                                 shown only when the log is paged), "filters", "group",
+                                                                                                                                                 "limit", "fields". A section left out is hidden; :w
+                                                                                                                                                 then leaves its filters, group or limit as the field
+                                                                                                                                                 actions and :JLog commands set them. setup warns about
+                                                                                                                                                 unknown or repeated names and drops them, and falls
+                                                                                                                                                 back to the default order with a warning when the
+                                                                                                                                                 value is not a list.
 
   sidebar.fields.pinned               string[]                          {}                                                                       Fields listed first in FIELDS, in this order: a field
                                                                                                                                                  path as FIELDS shows it, or a role (time, level,
@@ -691,16 +620,34 @@ options are optional; omitted keys fall back to the defaults shown below.
 
   facets.top_values                   integer                           10                                                                       Number of top values listed per field in the sidebar.
 
+  paging                              JLogPagingOptions\|false          see below                                                                false turns paging off: every entry of a log loads
+                                                                                                                                                 into one view, however large. Filters and groups then
+                                                                                                                                                 run over all of it on the main thread; at 500k lines
+                                                                                                                                                 that holds ~4x the file size in memory and grouping
+                                                                                                                                                 can pause Neovim for ~170ms.
+
   paging.size                         integer                           100000                                                                   Page size: source lines for JSONL, array elements for
                                                                                                                                                  JSON arrays and timestamped exports. A JSONL page
                                                                                                                                                  boundary moves on up to size / 10 lines to the next
                                                                                                                                                  line that starts an entry, so an entry does not split;
                                                                                                                                                  a longer run of plain lines is split there.
 
-  paging.overlap                      integer                           2000                                                                     How much of each neighbouring page is also shown on a
+  paging.filter_scope                 JLogFilterScope                   "all"                                                                    What a filter shows on a paged log. "all": the filter
+                                                                                                                                                 applies to the page shown at once, then, once every
+                                                                                                                                                 page is counted in the background, the view shows the
+                                                                                                                                                 matches of every page in one view, unless more than
+                                                                                                                                                 paging.size entries match (then it stays on the page;
+                                                                                                                                                 the winbar shows the total). "page": the filter stays
+                                                                                                                                                 on the page shown; A shows every page’s matches when
+                                                                                                                                                 asked. A and :JLog scope change it for the workspace.
+
+  paging.overlap                      integer                           500                                                                      How much of each neighbouring page is also shown on a
                                                                                                                                                  page, so a request at a page edge stays whole: source
                                                                                                                                                  lines for JSONL (extended so an entry is never cut),
                                                                                                                                                  elements for JSON arrays and timestamped exports.
+                                                                                                                                                 Going to another page puts the cursor on the overlap
+                                                                                                                                                 line nearest the page’s own entries, at the top of the
+                                                                                                                                                 window.
 
   progress                            JLogProgress                      "auto"                                                                   How long-running work (loading, indexing, applying,
                                                                                                                                                  rendering) reports: "auto" sends progress messages on
@@ -734,6 +681,22 @@ options are optional; omitted keys fall back to the defaults shown below.
 
   keymaps.prev_page                   string\|false                     "[p"                                                                     Previous page of a paged log.
 
+  keymaps.next_match_page             string\|false                     "]m"                                                                     Next page of a paged log with matches of the filters,
+                                                                                                                                                 counted in the background; notifies while counting or
+                                                                                                                                                 when no later page has matches.
+
+  keymaps.prev_match_page             string\|false                     "[m"                                                                     Previous page of a paged log with matches of the
+                                                                                                                                                 filters.
+
+  keymaps.toggle_scope                string\|false                     "A"                                                                      On a paged log with a filter, switch between the
+                                                                                                                                                 matches of every page in one view (once counted, with
+                                                                                                                                                 FIELDS and GROUP BY over them) and the page holding
+                                                                                                                                                 the cursor entry; the choice holds for later filters
+                                                                                                                                                 in the workspace (see paging.filter_scope). Every
+                                                                                                                                                 page’s matches are refused when more than paging.size
+                                                                                                                                                 entries match. Same as :JLog scope all /
+                                                                                                                                                 :JLog scope page.
+
   keymaps.focus_sidebar               string\|false                     "s"                                                                      Focus the sidebar.
 
   keymaps.toggle_sidebar              string\|false                     "S"                                                                      Show/hide the sidebar (in the log view and the
@@ -754,6 +717,139 @@ options are optional; omitted keys fall back to the defaults shown below.
   keymaps.help                        string\|false                     "?"                                                                      Sidebar: open a guide to the keys; shown as ? help on
                                                                                                                                                  the sidebar’s first line.
   -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+HIGHLIGHT GROUPS                                  *jlog.nvim-highlight-groups*
+
+Every highlight group jlog draws with, what it colors and its default.
+
+
+OVERRIDING ~
+
+All groups are defined with `default = true`, so a definition of your own wins
+whether it is set before or after jlog loads, and jlog re-applies its defaults
+on `ColorScheme`. Override them with `vim.api.nvim_set_hl(0, "JLogLevelError",
+{ ... })` or `:hi`. Level groups are badges: the linked group’s color,
+reversed and bold, so the level reads as a colored label in compact lines.
+
+`:colorscheme` clears every highlight, your own overrides included; to keep
+them across theme changes, set them in a `ColorScheme` autocmd:
+
+>lua
+    vim.api.nvim_create_autocmd("ColorScheme", {
+      callback = function()
+        vim.api.nvim_set_hl(0, "JLogPageCurrent", { fg = "#ffffff", bold = true })
+      end,
+    })
+<
+
+
+GROUPS ~
+
+  --------------------------------------------------------------------------------------------
+  Group               Used for                                Default link
+  ------------------- --------------------------------------- --------------------------------
+  JLogTime            timestamp in compact lines              Comment
+
+  JLogLevelError      ERROR / FATAL / PANIC                   badge: DiagnosticError color as
+                                                              background
+
+  JLogLevelWarn       WARN / WARNING                          badge: DiagnosticWarn color as
+                                                              background
+
+  JLogLevelInfo       INFO                                    badge: DiagnosticInfo color as
+                                                              background
+
+  JLogLevelDebug      DEBUG                                   badge: DiagnosticHint color as
+                                                              background
+
+  JLogLevelTrace      TRACE and unknown levels                badge: Comment color as
+                                                              background
+
+  JLogStatus2xx       status field with a 2xx value, in       DiagnosticOk
+                      compact lines                           
+
+  JLogStatus3xx       status field with a 3xx value           DiagnosticInfo
+
+  JLogStatus4xx       status field with a 4xx value           DiagnosticWarn
+
+  JLogStatus5xx       status field with a 5xx value           DiagnosticError
+
+  JLogBadge*          derived on first use: a color group’s   none; redefined on ColorScheme
+                      color reversed and bold, for inverted   
+                      and pill fields                         
+                      (e.g. JLogBadgeJLogStatus2xx)           
+
+  JLogCap*            derived on first use: a pill’s end caps none; redefined on ColorScheme
+                      (compact.pill / sidebar.fields.pill     
+                      glyphs), drawn in the color its badge   
+                      shows as background                     
+                      (e.g. JLogCapJLogBadgeJLogStatus2xx);   
+                      restyle the pill’s color group rather   
+                      than these                              
+
+  JLogMessage         message text                            Normal
+
+  JLogKey             key= in compact, object keys in         Identifier
+                      expanded, when                          
+                      view.field_colors = false               
+
+  JLogField1 …        keys and FIELDS names, one color per    the first distinctly colored of
+  JLogField8          field in first-seen order, cycling      Identifier, Function, Type,
+                                                              Constant, Special, Statement,
+                                                              PreProc, Character, Label,
+                                                              Keyword, Tag, Directory,
+                                                              skipping any colored like a
+                                                              value (JLogValue, JLogString,
+                                                              JLogNumber, JLogBoolean,
+                                                              JLogNull)
+
+  JLogValue           compact values                          String
+
+  JLogString          expanded string values                  String
+
+  JLogNumber          expanded number values                  Number
+
+  JLogBoolean         expanded boolean values                 Boolean
+
+  JLogNull            expanded null values                    Constant
+
+  JLogPrefix          text before embedded JSON               Comment
+
+  JLogPlain           non-JSON entries and continuation lines Comment
+
+  JLogGroupHeader     group headers (virtual lines and closed Title
+                      group folds)                            
+
+  JLogSectionHeader   sidebar FILTERS / GROUP BY / LIMIT /    Title
+                      SORT / FIELDS                           
+
+  JLogFieldName       field names in the FIELDS section, when Identifier
+                      sidebar.fields.colors = false           
+
+  JLogFieldCount      counts in the FIELDS section            Comment
+
+  JLogFieldStale      FIELDS counts kept from the last apply  NonText
+                      while new ones are counted              
+
+  JLogFieldIgnored    FIELDS names of fields hidden from      NonText
+                      compact lines                           
+
+  JLogFilterInvalid   The “invalid filter” note beside        DiagnosticWarn
+                      FILTERS while a filter line fails to    
+                      parse                                   
+
+  JLogHint            sidebar examples on empty FILTERS /     Comment
+                      GROUP BY / LIMIT lines, :w to apply,    
+                      and the SORT order                      
+
+  JLogWinbar          jlog winbar text                        WinBar
+
+  JLogOverlap         entries a page shares with its          Comment
+                      neighbours                              
+
+  JLogPageCurrent     the page shown, beside the sidebar’s    Normal
+                      PAGE and in its per-page counts         
+  --------------------------------------------------------------------------------------------
 
 Generated by panvimdoc <https://github.com/kdheepak/panvimdoc>
 

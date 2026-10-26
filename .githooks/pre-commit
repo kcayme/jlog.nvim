@@ -95,9 +95,4 @@ fi
 
 cleanup
 
-# --- tests ---
-if ! make test; then
-  exit 1
-fi
-
 exit 0

@@ -87,11 +87,13 @@ end
 describe("scan", function()
   local chunk_bytes = scan.chunk_bytes
   local main_chunk_bytes = scan.main_chunk_bytes
+  local chunk_elements = pages.chunk_elements
   local run_job = workers.run
 
   after_each(function()
     scan.chunk_bytes = chunk_bytes
     scan.main_chunk_bytes = main_chunk_bytes
+    pages.chunk_elements = chunk_elements
     workers.disabled = nil
     workers.run = run_job
   end)
@@ -205,16 +207,100 @@ describe("scan", function()
     )
   end)
 
-  for _, from_end in ipairs({ false, true }) do
-    it("should scan a JSON array page by page on the main thread, from_end " .. tostring(from_end), function()
-      local text = "[\n" .. table.concat(gen.jsonl_lines(500, true), ",\n") .. "\n]"
-      local index = index_of(text, "array", from_end)
-      local result = run(index, "array", { "status>=500" })
+  describe("arrays", function()
+    local array_text = "[\n" .. table.concat(gen.jsonl_lines(500, true), ",\n") .. "\n]"
+    local sources = {
+      { format = "array", text = array_text },
+      { format = "loki", text = gen.loki_text(500) },
+    }
 
-      assert.is_true(index:count() > 2)
-      assert.are.same(expected_srcs(text, "array", { "status>=500" }), srcs_of(result))
+    before_each(function()
+      -- several chunks per page
+      pages.chunk_elements = 40
     end)
-  end
+
+    for _, case in ipairs(sources) do
+      for _, from_end in ipairs({ false, true }) do
+        it(
+          "should match "
+            .. case.format
+            .. " chunks on worker threads as the store matches, from_end "
+            .. tostring(from_end),
+          function()
+            local index = index_of(case.text, case.format, from_end)
+            local jobs, failed = 0, 0
+
+            workers.run = function(name, payload, on_result)
+              jobs = jobs + 1
+              run_job(name, payload, function(err, result)
+                failed = failed + (err and 1 or 0)
+                on_result(err, result)
+              end)
+            end
+            assert.is_true(index:count() > 2)
+            for _, filters in ipairs(FILTERS) do
+              jobs = 0
+              assert.are.same(
+                expected_srcs(case.text, case.format, filters),
+                srcs_of(run(index, case.format, filters)),
+                table.concat(filters, " / ")
+              )
+              -- every chunk went to a worker, none fell back to the main thread
+              assert.are.equal(#index.chunks, jobs)
+            end
+            assert.are.equal(0, failed)
+          end
+        )
+      end
+
+      it("should match " .. case.format .. " elements on the main thread without workers", function()
+        local index = index_of(case.text, case.format)
+
+        workers.disabled = true
+        for _, filters in ipairs(FILTERS) do
+          assert.are.same(
+            expected_srcs(case.text, case.format, filters),
+            srcs_of(run(index, case.format, filters)),
+            table.concat(filters, " / ")
+          )
+        end
+      end)
+    end
+
+    it("should go on from the failed chunk on the main thread, without counting a chunk twice", function()
+      local index = index_of(array_text, "array")
+      local jobs = 0
+      local result
+
+      workers.run = function(name, payload, on_result)
+        jobs = jobs + 1
+        if jobs == 2 then
+          vim.defer_fn(function()
+            on_result("boom", nil)
+          end, 0)
+
+          return
+        end
+        run_job(name, payload, on_result)
+      end
+      result = run(index, "array", { "status=500 OR status=502" })
+      assert.are.same(expected_srcs(array_text, "array", { "status=500 OR status=502" }), srcs_of(result))
+      -- a picked field with no other lines counts every element once
+      assert.are.equal(500, result.facets.fields.status.present)
+    end)
+
+    it("should stop where a broken array breaks, keeping the matches before it", function()
+      local lines = gen.jsonl_lines(300, true)
+      local text, expected, result
+
+      lines[150] = '{"status":500, broken'
+      text = "[\n" .. table.concat(lines, ",\n") .. "\n]"
+      expected =
+        expected_srcs("[\n" .. table.concat(vim.list_slice(lines, 1, 149), ",\n") .. "\n]", "array", { "status>=500" })
+      result = run(index_of(text, "array"), "array", { "status>=500" })
+      assert.are.same(expected, srcs_of(result))
+    end)
+  end)
 
   describe("entries", function()
     ---The entries a scan's matches read back into, once done.
@@ -241,7 +327,7 @@ describe("scan", function()
       end
       for _, entry in ipairs(source.build(text, format)) do
         if srcs[entry.src] then
-          out[#out + 1] = { src = entry.src, raw = entry.raw, cont = entry.cont }
+          out[#out + 1] = { src = entry.src, raw = entry.raw, cont = entry.cont, labels = entry.labels }
         end
       end
 
@@ -250,7 +336,7 @@ describe("scan", function()
 
     local function shape(entries)
       return vim.tbl_map(function(entry)
-        return { src = entry.src, raw = entry.raw, cont = entry.cont }
+        return { src = entry.src, raw = entry.raw, cont = entry.cont, labels = entry.labels }
       end, entries)
     end
 
@@ -279,6 +365,16 @@ describe("scan", function()
         )
       end)
     end
+
+    it("should read matched loki elements with their labels, in file order", function()
+      local text = gen.loki_text(500)
+      local filters = { "status>=500" }
+
+      assert.are.same(
+        expected_entries(text, "loki", filters),
+        shape(entries_of(run(index_of(text, "loki"), "loki", filters)))
+      )
+    end)
 
     it("should never call on_done once cancelled", function()
       local text = edge_text()

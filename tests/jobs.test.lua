@@ -21,7 +21,7 @@ end
 
 describe("jobs", function()
   it("should list its job names", function()
-    assert.are.same({ "parse_lines", "count_entries", "scan_lines" }, jobs.NAMES)
+    assert.are.same({ "parse_lines", "count_entries", "scan_lines", "scan_elements" }, jobs.NAMES)
   end)
 
   it("should find the same JSON lines as a main-thread load", function()

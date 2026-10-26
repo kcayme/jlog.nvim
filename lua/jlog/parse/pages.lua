@@ -24,6 +24,7 @@ local utils = require("jlog.core.utils")
 ---@field seps table<integer, integer> arrays: byte of the `,` or `]` after the elements a range needs
 ---@field scanned integer arrays: elements scanned so far
 ---@field total integer|nil arrays: element count, once known
+---@field chunks { element: integer, first: integer }[] arrays: first element and byte of each scan chunk, in file order
 ---@field done boolean
 ---@field deadline number
 ---@field worker thread
@@ -31,6 +32,9 @@ local Index = {}
 Index.__index = Index
 
 local M = {}
+
+-- arrays: elements per filter scan chunk, about 1MB of typical log elements
+M.chunk_elements = 5000
 
 local BYTE_NEWLINE = 10
 local BYTE_QUOTE = 34
@@ -316,6 +320,10 @@ local function scan_elements(index)
   end
   total = walk_elements(index, function(element, start, sep)
     last_sep = sep
+    if (element - 1) % M.chunk_elements == 0 then
+      -- the first chunk starts at the `[`, as reading element 1 expects
+      index.chunks[#index.chunks + 1] = { element = element, first = element == 1 and 1 or start }
+    end
     if element == 1 or (element - base) % size == 0 then
       index.starts[#index.starts + 1] = element
       index.offsets[element] = start
@@ -454,6 +462,7 @@ M.new = function(text, format, opts, from_end)
     starts = {},
     offsets = {},
     seps = {},
+    chunks = {},
     scanned = 0,
     done = false,
     deadline = 0,

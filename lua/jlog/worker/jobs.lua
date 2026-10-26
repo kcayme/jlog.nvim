@@ -7,7 +7,7 @@ local json = require("jlog.parse.json")
 
 local M = {}
 
-M.NAMES = { "parse_lines", "count_entries", "scan_lines" }
+M.NAMES = { "parse_lines", "count_entries", "scan_lines", "scan_elements" }
 
 ---Runs in a worker thread: find the JSON object in each line and count the fields of those lines.
 ---@param payload string vim.mpack of `{ text = string }`, lines joined by "\n"
@@ -67,6 +67,40 @@ M.scan_lines = function(payload)
   result.exact, result.values = exact, counter.fields
 
   return vim.mpack.encode(result)
+end
+
+---Runs in a worker thread: the elements of an array or loki chunk that match `filters`, regex terms deferred.
+---@param payload string vim.mpack of `{ text, first_src, first_byte, count, format, filters, opts }`, as `scan_lines`
+---@return string vim.mpack of `{ spans, values }`: spans in absolute bytes (`chunk.match_elements`), picked fields' counts
+M.scan_elements = function(payload)
+  local args = vim.mpack.decode(payload)
+  local counter = facets.counter()
+  local offset = args.first_byte - 1
+  local opts, pred, spans, err, _
+
+  opts =
+    config.setup({ unwrap = args.opts.unwrap, fields = args.opts.fields, view = { time_utc = args.opts.time_utc } })
+  pred = filter.compile(args.filters, { defer_regex = true })
+  spans, _, _, err = chunk.match_elements(
+    args.text,
+    1,
+    args.first_src,
+    args.count,
+    args.format,
+    pred,
+    opts,
+    chunk.field_preds(args.filters),
+    counter
+  )
+  -- a broken array fails the job: the main thread scans on and stops where the array breaks
+  if err then
+    error(err, 0)
+  end
+  for at = 2, #spans, 3 do
+    spans[at], spans[at + 1] = spans[at] + offset, spans[at + 1] + offset
+  end
+
+  return vim.mpack.encode({ spans = spans, values = counter.fields })
 end
 
 return M

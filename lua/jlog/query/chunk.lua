@@ -2,6 +2,7 @@ local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")
 local json = require("jlog.parse.json")
+local source = require("jlog.parse.source")
 
 local M = {}
 
@@ -29,6 +30,34 @@ M.field_preds = function(filters)
   end
 
   return preds
+end
+
+---A predicate context reading an entry as the store does: simple fields from the text, the rest from one decode.
+---@param opts JLogOptions
+---@return table ctx
+---@return fun(entry: JLogEntry, decoded: table|nil) set the entry read next, and its decode when already known
+M.entry_ctx = function(opts)
+  local ctx = {}
+  local current, decoded, decoded_done
+
+  ctx.get = function(path)
+    local value, found = entry_model.peek(current, path, opts)
+
+    if found then
+      return value
+    end
+    if not decoded_done then
+      decoded, decoded_done = entry_model.decode(current), true
+    end
+
+    return entry_model.get(current, decoded, path, opts)
+  end
+
+  return ctx,
+    function(entry, entry_decoded)
+      current, decoded, decoded_done = entry, entry_decoded, entry_decoded ~= nil
+      ctx.raw = entry_model.key(entry)
+    end
 end
 
 ---The entries of a JSONL chunk that `pred` accepts, as `source.append_lines` builds them.
@@ -103,6 +132,54 @@ M.match = function(text, first_src, first_byte, pred, opts, field_preds, counter
     last_json_src = last_json_src,
     lines = math.max(src - first_src, 1),
   }
+end
+
+---The next `count` elements of an array or loki text that `pred` accepts, as spans read back by `source.read_elements`.
+---@param text string
+---@param pos integer where the element `src` is read from: the `[` for element 1, else its start or the `,` before it
+---@param src integer ordinal of that element
+---@param count integer
+---@param format JLogFormat
+---@param pred fun(ctx: JLogMatchCtx): boolean
+---@param opts JLogOptions
+---@param field_preds table<string, fun(ctx: JLogMatchCtx): boolean>|nil per picked field, its other filter lines
+---@param counter JLogFacetCounter|nil counts each picked field's values on the elements its predicate accepts
+---@return integer[] spans src, first byte, last byte per matching element
+---@return integer|nil next_pos where the element after the last one read is read from; nil at the array's end
+---@return integer next_src
+---@return string|nil err the text is not a valid array from `next_pos` on
+M.match_elements = function(text, pos, src, count, format, pred, opts, field_preds, counter)
+  local spans = {}
+  local ctx, set = M.entry_ctx(opts)
+  local decoded, read, next_pos, err, size
+
+  local function on_json(_, element_decoded)
+    decoded = element_decoded
+  end
+
+  for _ = 1, count do
+    decoded = nil
+    read, next_pos, err = source.read_elements(text, pos, 1, format, src, on_json)
+    if err or not read[1] then
+      return spans, nil, src, err
+    end
+    set(read[1], decoded)
+    for name, field_pred in pairs(field_preds or {}) do
+      if field_pred(ctx) then
+        facets.add_value(counter, name, ctx.get(name))
+      end
+    end
+    if pred(ctx) then
+      size = #spans
+      spans[size + 1], spans[size + 2], spans[size + 3] = src, pos, (next_pos or #text + 1) - 1
+    end
+    pos, src = next_pos, src + 1
+    if not pos then
+      break
+    end
+  end
+
+  return spans, pos, src
 end
 
 return M

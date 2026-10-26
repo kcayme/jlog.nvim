@@ -94,7 +94,9 @@ describe("entry", function()
       { '{"n":1e300}', "n" },
       { '{"n":1.5}', "n" },
       { '{"a":{"b":"x"}}', "a.b" },
-      { '{"level":"info"}', "level" },
+      { '{"level":null}', "level" },
+      { '{"msg":"low level","severity":"warn"}', "level" },
+      { '{"severity":"a","severity":"b"}', "level" },
       { '{"request\\u005fid":"b","request_id":"a"}', "request_id" },
       { '{"a":{"x":1,"k":2},"k":3}', "k" },
     }
@@ -102,6 +104,26 @@ describe("entry", function()
       local value, found = entry.peek(build(case[1], case[3])[1], case[2], opts)
       assert.is_nil(value, case[1])
       assert.is_false(found, case[1])
+    end
+  end)
+
+  it("should peek aliases in get's order and prove missing fields", function()
+    local reordered = vim.tbl_deep_extend("force", opts, { fields = { level = { "severity", "lvl" } } })
+    local cases = {
+      { '{"level":"info","severity":"warn"}', "level", reordered, "info" },
+      { '{"severity":"warn","lvl":"debug"}', "level", opts, "debug" },
+      { '{"severity":"warn","lvl":"debug"}', "level", reordered, "warn" },
+      { '{"message":"hi"}', "msg", opts, "hi" },
+      { '{"ts":1700000000}', "time", opts, 1700000000 },
+      { '{"other":"x"}', "level", opts, nil },
+      { '{"other":"x"}', "status", opts, nil },
+    }
+    for _, case in ipairs(cases) do
+      local e = build(case[1])[1]
+      local value, found = entry.peek(e, case[2], case[3])
+      assert.is_true(found, case[1])
+      assert.are.equal(case[4], value, case[1])
+      assert.are.equal(entry.get(e, entry.decode(e), case[2], case[3]), value, case[1])
     end
   end)
 
@@ -123,6 +145,13 @@ describe("entry", function()
     }
     local undecoded = 0
     local compared, answered, built = 0, 0, 0
+    -- every alias list reversed, so `peek` must follow the configured order, not the default one
+    local reordered = vim.deepcopy(opts)
+    for _, names in pairs(reordered.fields) do
+      for index = 1, math.floor(#names / 2) do
+        names[index], names[#names + 1 - index] = names[#names + 1 - index], names[index]
+      end
+    end
     for _, name in ipairs(vim.fn.readdir("tests/fixtures")) do
       local text = table.concat(vim.fn.readfile("tests/fixtures/" .. name), "\n")
       sources[#sources + 1] = { text, detect.detect(text, opts) or "jsonl" }
@@ -138,14 +167,20 @@ describe("entry", function()
             assert.is_false(select(2, entry.peek(e, key, opts)), e.body .. " " .. key)
           end
         end
+        local keys = { "time", "level", "msg", "no_such_field" }
         for key in pairs(type(decoded) == "table" and decoded or {}) do
-          local value, found = entry.peek(e, key, opts)
-          compared = compared + 1
-          if found then
-            answered = answered + 1
-            local expected = entry.get(e, decoded, key, opts)
-            assert.are.equal(type(expected), type(value), e.body .. " " .. key)
-            assert.are.equal(expected, value, e.body .. " " .. key)
+          keys[#keys + 1] = key
+        end
+        for _, key_opts in ipairs({ opts, reordered }) do
+          for _, key in ipairs(keys) do
+            local value, found = entry.peek(e, key, key_opts)
+            compared = compared + 1
+            if found then
+              answered = answered + 1
+              local expected = entry.get(e, decoded, key, key_opts)
+              assert.are.equal(type(expected), type(value), e.body .. " " .. key)
+              assert.are.equal(expected, value, e.body .. " " .. key)
+            end
           end
         end
       end

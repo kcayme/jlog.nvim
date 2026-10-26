@@ -20,10 +20,10 @@ local path_segments = setmetatable({}, {
   end,
 })
 
--- whether `peek` may read a path: no alias, no dot, no character a key could only spell with an escape
+-- whether `peek` may read a path: no dot, no character a key could only spell with an escape
 local peekable = setmetatable({}, {
   __index = function(cache, path)
-    local simple = not ALIAS_FIELDS[path] and path:find('^[^%c"\\/.]+$') ~= nil
+    local simple = path:find('^[^%c"\\/.]+$') ~= nil
 
     rawset(cache, path, simple)
 
@@ -222,38 +222,32 @@ M.text = function(value)
   return string.format("%.17g", value)
 end
 
----`get` of a simple top-level field, read from the text without decoding; `nil, false` unless provably the same.
----@param entry JLogEntry
----@param path string
----@param _opts JLogOptions unused: alias fields are declined rather than resolved
+---A top-level key's simple value read from the text: "found", "absent" (the name is nowhere in it), or "unknown".
+---@param body string
+---@param json_at integer
+---@param name string a `peekable` name, in a body with no `\u` escape, so no other spelling of it exists
 ---@return any value
----@return boolean found
-M.peek = function(entry, path, _opts)
-  local body, json_at = entry.body, entry.json_at
+---@return "found"|"absent"|"unknown" state
+local function read_key(body, json_at, name)
   local key_at, key_end, value_at, value_end, escape_at, digits_at, byte
 
-  -- \u could spell the key another way; plain finds only: pattern finds stop LuaJIT from compiling the scan
-  if not json_at or not peekable[path] or str_find(body, "\\u", json_at, true) then
-    return nil, false
+  key_at, key_end = str_find(body, name, json_at, true)
+  if not key_at then
+    return nil, "absent"
   end
-  -- the Lua parser accepts NUL in array elements but vim.json.decode does not, so `get` sees no fields
-  if str_find(body, "\0", json_at, true) then
-    return nil, false
-  end
-  key_at, key_end = str_find(body, path, json_at, true)
-  if not key_at or str_find(body, path, key_end + 1, true) then
-    return nil, false
+  if str_find(body, name, key_end + 1, true) then
+    return nil, "unknown"
   end
   -- an unescaped opening quote, with no object or array opened before it: a top-level key
   if str_byte(body, key_at - 1) ~= 34 or str_byte(body, key_at - 2) == 92 or str_byte(body, key_end + 1) ~= 34 then
-    return nil, false
+    return nil, "unknown"
   end
   if opens_before(body, "{", json_at + 1, key_at) or opens_before(body, "[", json_at + 1, key_at) then
-    return nil, false
+    return nil, "unknown"
   end
   value_at = skip_space(body, key_end + 2)
   if str_byte(body, value_at) ~= 58 then
-    return nil, false
+    return nil, "unknown"
   end
   value_at = skip_space(body, value_at + 1)
   byte = str_byte(body, value_at)
@@ -262,10 +256,10 @@ M.peek = function(entry, path, _opts)
     value_end = str_find(body, '"', value_at + 1, true)
     escape_at = str_find(body, "\\", value_at + 1, true)
     if not value_end or (escape_at and escape_at < value_end) then
-      return nil, false
+      return nil, "unknown"
     end
 
-    return str_sub(body, value_at + 1, value_end - 1), true
+    return str_sub(body, value_at + 1, value_end - 1), "found"
   end
 
   digits_at = byte == 45 and value_at + 1 or value_at
@@ -277,10 +271,47 @@ M.peek = function(entry, path, _opts)
   end
   -- 15 digits stay below 2^53; a fraction or exponent may round
   if value_end == digits_at or value_end - digits_at > 15 or byte == 46 or byte == 101 or byte == 69 then
-    return nil, false
+    return nil, "unknown"
   end
 
-  return tonumber(str_sub(body, value_at, value_end - 1)), true
+  return tonumber(str_sub(body, value_at, value_end - 1)), "found"
+end
+
+---`get` of a simple top-level field or alias, read from the text; `nil, true` when proven missing, `nil, false` unsure.
+---@param entry JLogEntry
+---@param path string
+---@param opts JLogOptions
+---@return any value
+---@return boolean found
+M.peek = function(entry, path, opts)
+  local body, json_at = entry.body, entry.json_at
+  local aliases = ALIAS_FIELDS[path] and opts and opts.fields[ALIAS_FIELDS[path]]
+  local value, state
+
+  -- \u could spell the key another way; plain finds only: pattern finds stop LuaJIT from compiling the scan
+  if not json_at or not peekable[path] or str_find(body, "\\u", json_at, true) then
+    return nil, false
+  end
+  -- the Lua parser accepts NUL in array elements but vim.json.decode does not, so `get` sees no fields
+  if str_find(body, "\0", json_at, true) then
+    return nil, false
+  end
+  value, state = read_key(body, json_at, path)
+  if state ~= "absent" or not aliases then
+    return value, state ~= "unknown"
+  end
+  -- the literal key is missing: the first configured alias present wins
+  for _, alias in ipairs(aliases) do
+    if not peekable[alias] then
+      return nil, false
+    end
+    value, state = read_key(body, json_at, alias)
+    if state ~= "absent" then
+      return value, state == "found"
+    end
+  end
+
+  return nil, true
 end
 
 ---Like `decode`, but integers too big for a double are kept as their literal text (slower: Lua parser).

@@ -12,7 +12,7 @@ local SIZES = { 10000, 100000, 500000 }
 local opts = config.options
 local has_jq = vim.fn.executable("jq") == 1
 -- parsing: jlog against vim.json.decode and jq; workspace: what a user waits for in the plugin, no jq equivalent
-local rows = { parsing = {}, workspace = {}, scan = {}, all = {} }
+local rows = { parsing = {}, workspace = {}, all = {} }
 
 local function write_file(path, text)
   local fd = assert(io.open(path, "wb"))
@@ -168,32 +168,26 @@ local function workspace_rows(input, path)
   rows.workspace[#rows.workspace + 1] = row
 end
 
----Median ms from applying `filter` to every page's matches counted, and the longest stall the scan caused in any run.
----@param ws JLogWorkspace
----@param filter string
+---Median ms from `reset` then `action` to `done`, and the longest stall the main loop had in any run.
 ---@return number ms
 ---@return number stall_ms
-local function scan_median(ws, filter)
+local function stall_median(ws, reset, action, done)
   local stall = 0
   local ms = median(function()
     local timer = vim.uv.new_timer()
-    local last = now_ms()
-    local start
+    local last, start
 
-    ws:clear_filters()
+    reset()
     wait_settled(ws)
     collectgarbage("collect")
-    start = now_ms()
-    ws:add_filter(filter)
-    -- the scan starts once the page has rendered; a 1ms timer that fires late measures how long it kept the loop busy
-    wait_settled(ws)
-    last = now_ms()
+    start, last = now_ms(), now_ms()
     timer:start(1, 1, function()
       stall = math.max(stall, now_ms() - last)
       last = now_ms()
     end)
+    action()
     assert(vim.wait(120000, function()
-      return ws.scan ~= nil and ws.scan.done
+      return done() and not ws.loading and ws.rendered == ws.store.generation
     end, 1))
     timer:stop()
     timer:close()
@@ -204,71 +198,38 @@ local function scan_median(ws, filter)
   return ms, stall
 end
 
----One row of the cross-page count: an exact filter and a regex-only one, counted on every page of a paged file.
-local function scan_rows(input, path)
-  local ws = assert(workspace.open({ path = path }))
-  local exact_ms, exact_stall, regex_ms, regex_stall, heap
-
-  wait_settled(ws)
-  exact_ms, exact_stall = scan_median(ws, "status>=500")
-  regex_ms, regex_stall = scan_median(ws, "licence")
-  collectgarbage("collect")
-  heap = collectgarbage("count") / 1024
-  rows.scan[#rows.scan + 1] = {
-    input,
-    ms_cell(exact_ms),
-    ms_cell(exact_stall),
-    ms_cell(regex_ms),
-    ms_cell(regex_stall),
-    string.format("%.0f", heap),
-    string.format("%.0f", vim.uv.fs_stat(path).size / 1024 / 1024),
-  }
-  ws:close()
-  collectgarbage("collect")
-end
-
----One combined-view row: median ms from `toggle_scope` to every page's `filter` matches shown, stall and heap.
+---One combined-view row: median ms from a `filter` to every page's matches shown, then to a group over them.
 local function all_rows(input, path, filter)
   local ws = assert(workspace.open({ path = path }))
-  local stall = 0
-  local ms, heap
+  local filter_ms, filter_stall, group_ms, group_stall, heap, shown
+
+  local function in_all()
+    return ws.scope == "all"
+  end
 
   wait_settled(ws)
-  ws:add_filter(filter)
-  assert(vim.wait(120000, function()
-    return ws.scan ~= nil and ws.scan.done and not ws.loading and ws.rendered == ws.store.generation
-  end, 1))
-  ms = median(function()
-    local timer = vim.uv.new_timer()
-    local last = now_ms()
-    local start
-
-    if ws.scope == "all" then
-      ws:toggle_scope()
-      wait_settled(ws)
-    end
-    collectgarbage("collect")
-    start, last = now_ms(), now_ms()
-    timer:start(1, 1, function()
-      stall = math.max(stall, now_ms() - last)
-      last = now_ms()
-    end)
-    ws:toggle_scope()
-    assert(vim.wait(120000, function()
-      return ws.scope == "all" and not ws.loading and ws.rendered == ws.store.generation
-    end, 1))
-    timer:stop()
-    timer:close()
-
-    return now_ms() - start
+  filter_ms, filter_stall = stall_median(ws, function()
+    ws:clear_filters()
+  end, function()
+    ws:add_filter(filter)
+  end, in_all)
+  shown = #ws.entries
+  group_ms, group_stall = stall_median(ws, function()
+    ws:set_group(nil)
+  end, function()
+    ws:set_group("request_id")
+  end, function()
+    return in_all() and ws.state.group == "request_id"
   end)
   collectgarbage("collect")
   heap = collectgarbage("count") / 1024
   rows.all[#rows.all + 1] = {
     input,
-    tostring(#ws.entries),
-    ms_cell(ms),
-    ms_cell(stall),
+    tostring(shown),
+    ms_cell(filter_ms),
+    ms_cell(filter_stall),
+    ms_cell(group_ms),
+    ms_cell(group_stall),
     string.format("%.0f", heap),
     string.format("%.0f", vim.uv.fs_stat(path).size / 1024 / 1024),
   }
@@ -314,16 +275,13 @@ end
 collectgarbage("collect")
 for _, size in ipairs(SIZES) do
   if size > config.options.paging.size then
-    scan_rows(string.format("jsonl %dk", size / 1000), DATA_DIR .. "/app-" .. size .. ".jsonl")
     -- one entry in five is an error: 100k at 500k lines, the most the combined view takes
     all_rows(string.format("jsonl %dk", size / 1000), DATA_DIR .. "/app-" .. size .. ".jsonl", "level=ERROR")
   end
 end
--- arrays scan on the main thread, page by page
 local array_path = ensure("array-500000.json", function()
   return "[\n" .. table.concat(gen.jsonl_lines(500000, true), ",\n") .. "\n]\n"
 end)
-scan_rows("array 500k", array_path)
 all_rows("array 500k", array_path, "level=ERROR")
 
 ---Append a Markdown table of `list` to `out`, with its header and alignment rows.
@@ -386,33 +344,19 @@ out[#out + 1] =
 out[#out + 1] = "- Open to screen stops at the first screen, not the whole load."
 
 out[#out + 1] = ""
-out[#out + 1] = "## Cross-page count"
-out[#out + 1] = ""
-out[#out + 1] =
-  "Median ms from applying a filter on a paged file to its matches counted on every page, in the background."
-out[#out + 1] = ""
-table_lines(
-  out,
-  "| input | exact filter (ms) | longest stall (ms) | regex filter (ms) | longest stall (ms) | Lua heap (MB) | file (MB) |",
-  "|---|---:|---:|---:|---:|---:|---:|",
-  rows.scan
-)
-out[#out + 1] = "- The exact filter is `status>=500`, matched on worker threads; the regex filter is the bare term `licence`, "
-  .. "whose candidates the main thread confirms. Arrays scan on the main thread."
-out[#out + 1] = "- Longest stall is the longest the main loop was busy in one go while counting, in any run, as a 1ms timer "
-  .. "sees it; applying the filter to the page shown is in the Workspace table."
-out[#out + 1] = "- Lua heap is after a full collection with the workspace open and the count done."
-out[#out + 1] = ""
 out[#out + 1] = "## All pages in one view"
 out[#out + 1] = ""
-out[#out + 1] = "Median ms from `A` to every page's matches of `level=ERROR` shown in one view, once they are counted."
+out[#out + 1] =
+  "Median ms from a filter to every page's matches shown in one view, and from a group to it grouped over them."
 out[#out + 1] = ""
 table_lines(
   out,
-  "| input | entries shown | to shown (ms) | longest stall (ms) | Lua heap (MB) | file (MB) |",
-  "|---|---:|---:|---:|---:|---:|",
+  "| input | entries shown | filter (ms) | longest stall (ms) | group (ms) | longest stall (ms) | Lua heap (MB) | file (MB) |",
+  "|---|---:|---:|---:|---:|---:|---:|---:|",
   rows.all
 )
+out[#out + 1] =
+  "- The filter is `level=ERROR`, counted on every page then shown; the group is by `request_id` over its matches."
 out[#out + 1] =
   "- 100k entries is paging.size, the most the view takes; longest stall is over every run, as a 1ms timer sees it."
 

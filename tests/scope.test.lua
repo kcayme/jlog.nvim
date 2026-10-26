@@ -497,6 +497,34 @@ describe("scope", function()
       return ws.store.counter.fields[name]
     end
 
+    it("should not check the filter again when grouping the combined matches", function()
+      local filter = require("jlog.query.filter")
+      local compile = filter.compile
+      local checks = 0
+
+      ws = workspace.open({ path = path })
+      wait(settled)
+      ws:add_filter("status=500")
+      wait(counted)
+      ws:toggle_scope()
+      wait(in_all)
+      filter.compile = function(...)
+        local pred, errors, exact = compile(...)
+
+        return function(ctx)
+          checks = checks + 1
+
+          return pred(ctx)
+        end, errors, exact
+      end
+      ws:set_group("msg")
+      wait(settled)
+      filter.compile = compile
+      assert.are.equal(0, checks)
+      assert.are.equal(7, #ws.entries)
+      assert.are.same({ ["500"] = 7, ["200"] = 28 }, field("status").counts)
+    end)
+
     it("should count fields over the combined matches", function()
       ws = workspace.open({ path = path })
       wait(settled)

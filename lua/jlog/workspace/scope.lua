@@ -228,6 +228,15 @@ M.override_facets = function(ws)
   store.facet_counter = counter
 end
 
+---Whether the view holds the done scan's matches of the current filters, so every entry is known to match.
+---@param ws JLogWorkspace
+---@return boolean
+M.shows_matches = function(ws)
+  local scan = ws.scan
+
+  return ws.scope == "all" and scan ~= nil and scan.done and ws.scan_index == ws.pages and ws.scan_key == key_of(ws)
+end
+
 ---The matches on every page once counted; else nil and how far the count is; nil, nil when nothing is counted.
 ---@param ws JLogWorkspace
 ---@return integer|nil total

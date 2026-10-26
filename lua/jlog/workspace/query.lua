@@ -178,7 +178,7 @@ M.apply = function(ws, on_done, counted, keep_counts)
   local counts = layout.window_in_tab(ws, ws.sidebar.bufnr) ~= nil
   local lines = vim.deepcopy(state.filters)
   local pred, errors, invalid
-  local prefilled
+  local prefilled, known
   -- only final counts can be kept: a count still running is stopped by this apply's query
   local keep = keep_counts and not ws.sidebar.stale
 
@@ -236,7 +236,14 @@ M.apply = function(ws, on_done, counted, keep_counts)
     end)
   end
 
-  ws.store:query(pred, field, publish, not counts)
+  -- every entry is a scan match, so neither the filter nor a picked field's other lines need checking again
+  known = scope.shows_matches(ws)
+  if known then
+    pred = function()
+      return true
+    end
+  end
+  ws.store:query(pred, field, publish, not counts or known)
 end
 
 ---@param ws JLogWorkspace

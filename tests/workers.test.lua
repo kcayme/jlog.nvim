@@ -175,7 +175,7 @@ describe("workers", function()
     local result
 
     workers.run(
-      "scan_lines",
+      "match_lines",
       vim.mpack.encode({
         text = '{"status":500}\n{"status":200}\n{"status":502}',
         first_src = 1,

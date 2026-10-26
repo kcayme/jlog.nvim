@@ -21,7 +21,7 @@ end
 
 describe("jobs", function()
   it("should list its job names", function()
-    assert.are.same({ "parse_lines", "count_entries", "scan_lines", "scan_elements" }, jobs.NAMES)
+    assert.are.same({ "parse_lines", "count_entries", "match_lines", "match_elements" }, jobs.NAMES)
   end)
 
   it("should find the same JSON lines as a main-thread load", function()
@@ -69,7 +69,7 @@ describe("jobs", function()
     assert.are.equal(1, result.fields.msg.counts["a"])
   end)
 
-  describe("scan_lines", function()
+  describe("match_lines", function()
     local opts = { unwrap = config.defaults.unwrap, fields = config.defaults.fields }
 
     after_each(function()
@@ -82,7 +82,7 @@ describe("jobs", function()
     ---@param extra table|nil
     local function scan(text, filters, extra)
       return run(
-        "scan_lines",
+        "match_lines",
         vim.tbl_extend("force", {
           text = text,
           first_src = 1,

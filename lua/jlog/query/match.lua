@@ -1,4 +1,4 @@
--- Matches a JSONL chunk or an array chunk against a filter, as byte spans; worker-safe.
+-- Matches JSONL lines or array elements of a text slice against a filter, as byte spans; worker-safe.
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")
@@ -9,7 +9,7 @@ local M = {}
 
 -- spans are flat lists (src, first byte, last byte per entry), which decode far faster than a table per entry
 
----@class JLogChunkMatch
+---@class JLogLinesMatch
 ---@field lead integer[] matching lines before the first JSON line, as plain entries; the caller may join them up
 ---@field lead_last integer absolute byte where those lines end, 0 when there are none
 ---@field spans integer[] spans of matching entries from the first JSON line on
@@ -69,8 +69,8 @@ end
 ---@param opts JLogOptions
 ---@param field_preds table<string, fun(ctx: JLogMatchCtx): boolean>|nil per picked field, its other filter lines
 ---@param counter JLogFacetCounter|nil counts each picked field's values on the JSON lines its predicate accepts
----@return JLogChunkMatch
-M.match = function(text, first_src, first_byte, pred, opts, field_preds, counter)
+---@return JLogLinesMatch
+M.lines = function(text, first_src, first_byte, pred, opts, field_preds, counter)
   local src, pos = first_src, first_byte
   local lead, spans = {}, {}
   local lead_last = 0
@@ -149,7 +149,7 @@ end
 ---@return integer|nil next_pos where the element after the last one read is read from; nil at the array's end
 ---@return integer next_src
 ---@return string|nil err the text is not a valid array from `next_pos` on
-M.match_elements = function(text, pos, src, count, format, pred, opts, field_preds, counter)
+M.elements = function(text, pos, src, count, format, pred, opts, field_preds, counter)
   local spans = {}
   local ctx, set = M.entry_ctx(opts)
   local decoded, read, next_pos, err, size

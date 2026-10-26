@@ -1,8 +1,8 @@
 -- Filter scan across every page: worker chunks, confirms, fallback, per-page counts.
-local chunk = require("jlog.query.chunk")
 local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")
 local gc = require("jlog.core.gc")
+local match_mod = require("jlog.query.match")
 local source = require("jlog.parse.source")
 local utils = require("jlog.core.utils")
 local workers = require("jlog.worker")
@@ -68,7 +68,7 @@ end
 
 ---Stitches chunk results into matches in file order, as `source.append_lines` joins lines into entries.
 ---@param matches JLogScanMatch[] mutated
----@return fun(result: JLogChunkMatch)
+---@return fun(result: JLogLinesMatch)
 local function merger(matches)
   local next_lnum = 1
   -- the last entry so far is JSON, and its match when it matched
@@ -126,7 +126,7 @@ end
 ---@param on_done fun()
 local function confirm(scan, text, format, filters, opts, on_progress, on_done)
   local pred = filter.compile(filters)
-  local ctx, set = chunk.entry_ctx(opts)
+  local ctx, set = match_mod.entry_ctx(opts)
   local candidates = scan.matches
   local confirmed = {}
   local next_index = 1
@@ -173,7 +173,7 @@ end
 ---@param on_done fun()
 local function scan_lines(scan, text, filters, opts, on_progress, on_done)
   local pred, _, exact = filter.compile(filters, { defer_regex = true })
-  local field_preds = chunk.field_preds(filters)
+  local field_preds = match_mod.field_preds(filters)
   local merge = merger(scan.matches)
   local payload_opts = { unwrap = opts.unwrap, fields = opts.fields, time_utc = opts.view.time_utc }
   -- dispatched and not yet merged, in source order
@@ -195,7 +195,8 @@ local function scan_lines(scan, text, filters, opts, on_progress, on_done)
       opts = payload_opts,
     })
 
-    workers.run("scan_lines", payload, function(err, result)
+    -- runs match.lines on a worker thread
+    workers.run("match_lines", payload, function(err, result)
       job.done, job.err, job.result = true, err, result
       progress_at = vim.uv.now()
     end)
@@ -224,7 +225,7 @@ local function scan_lines(scan, text, filters, opts, on_progress, on_done)
       if fallback then
         job, waiting = cut_chunk(text, cut, M.main_chunk_bytes), false
         cut = job.next_pos
-        merge(chunk.match(text:sub(job.first, job.last), 1, job.first, pred, opts, field_preds, scan.facets))
+        merge(match_mod.lines(text:sub(job.first, job.last), 1, job.first, pred, opts, field_preds, scan.facets))
       else
         -- the shared cap also counts jobs of a cancelled scan that are still running
         while cut <= #text and #jobs < workers.limit() and workers.in_flight() < workers.limit() do
@@ -278,7 +279,7 @@ local function scan_elements(scan, index, format, filters, opts, on_progress, on
   local chunks = index.chunks
   local total = index.total
   local pred, _, exact = filter.compile(filters, { defer_regex = true })
-  local field_preds = chunk.field_preds(filters)
+  local field_preds = match_mod.field_preds(filters)
   local payload_opts = { unwrap = opts.unwrap, fields = opts.fields, time_utc = opts.view.time_utc }
   -- dispatched and not yet merged, in file order
   local jobs = {}
@@ -321,7 +322,8 @@ local function scan_elements(scan, index, format, filters, opts, on_progress, on
       opts = payload_opts,
     })
 
-    workers.run("scan_elements", payload, function(err, result)
+    -- runs match.elements on a worker thread
+    workers.run("match_elements", payload, function(err, result)
       job.done, job.err, job.result = true, err, result
       progress_at = vim.uv.now()
     end)
@@ -361,7 +363,7 @@ local function scan_elements(scan, index, format, filters, opts, on_progress, on
       if fallback and pos then
         waiting = false
         spans, pos, src, err =
-          chunk.match_elements(text, pos, src, MAIN_ELEMENTS, format, pred, opts, field_preds, scan.facets)
+          match_mod.elements(text, pos, src, MAIN_ELEMENTS, format, pred, opts, field_preds, scan.facets)
         add(spans)
         scan.err = err
         pos = not err and src <= total and pos or nil

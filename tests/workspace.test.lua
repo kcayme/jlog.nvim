@@ -473,6 +473,53 @@ describe("workspace", function()
     ws:close()
   end)
 
+  it("should group without counting fields again when the counts are already final", function()
+    local ws = assert(workspace.open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") }))
+    local counts, facets
+
+    assert.is_true(vim.wait(5000, function()
+      return not ws.loading and ws.rendered == ws.engine.generation and not ws.sidebar.stale
+    end))
+    ws:add_filter("level=ERROR")
+    assert.is_true(vim.wait(5000, function()
+      return ws.rendered == ws.engine.generation and not ws.sidebar.stale
+    end))
+    counts, facets = 0, ws.sidebar.facets
+    ws.engine.count = function()
+      counts = counts + 1
+    end
+    ws:set_group("request_id")
+    assert.is_false(ws.sidebar.stale)
+    assert.is_true(vim.wait(5000, function()
+      return ws.rendered == ws.engine.generation
+    end))
+
+    assert.are.equal(0, counts)
+    assert.are.equal(facets, ws.sidebar.facets)
+    assert.are.equal("header", ws.view.items[1].kind)
+    ws:close()
+  end)
+
+  it("should count fields on group when the previous counts were not final yet", function()
+    local ws = assert(workspace.open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") }))
+    local counts = 0
+
+    assert.is_true(vim.wait(5000, function()
+      return not ws.loading and ws.rendered == ws.engine.generation
+    end))
+    ws.sidebar.stale = true
+    ws.engine.count = function()
+      counts = counts + 1
+    end
+    ws:set_group("request_id")
+    assert.is_true(vim.wait(5000, function()
+      return ws.rendered == ws.engine.generation
+    end))
+
+    assert.are.equal(1, counts)
+    ws:close()
+  end)
+
   it("should mark the counts stale while a chunked scan runs", function()
     local lines = {}
     local buf, ws, marks

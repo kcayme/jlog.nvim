@@ -319,7 +319,8 @@ end
 M.set_group = function(ws, field)
   ws.state.group = field ~= "" and field or nil
   discard_sidebar_edits(ws)
-  ws:apply()
+  -- grouping arranges the same matches, so their field counts stay
+  ws:apply(nil, nil, true)
 end
 
 -- shortcut: re-runs the filter scan (not the counts); keep the last matches if reversing 500k entries feels slow

@@ -133,4 +133,27 @@ describe("highlights", function()
       assert.is_true(names[name], name .. " is used by render.lua but not defined")
     end
   end)
+
+  it("should color names past field_groups_max from their text without storing them", function()
+    local max = highlights.field_groups_max
+    local stored, _
+
+    -- every name from here on is past the cap
+    highlights.field_group("already-stored-before-the-cap")
+    highlights.field_groups_max = 0
+    for index = 1, 60 do
+      _, stored = debug.getupvalue(highlights.field_group, index)
+      if _ == "field_groups" then
+        break
+      end
+    end
+    local first = highlights.field_group("sessions.s-0000123")
+    local again = highlights.field_group("sessions.s-0000123")
+    highlights.field_groups_max = max
+
+    assert.are.equal(first, again)
+    assert.is_truthy(first:match("^JLogField%d+$"))
+    assert.is_nil(stored["sessions.s-0000123"])
+    assert.is_not_nil(stored["already-stored-before-the-cap"])
+  end)
 end)

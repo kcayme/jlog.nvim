@@ -64,6 +64,8 @@ local VALUE_GROUPS = { "JLogValue", "JLogString", "JLogNumber", "JLogBoolean", "
 ---@type table<string, string> field path -> its `JLogField*` group, for the whole session
 local field_groups = {}
 local field_count = 0
+-- names stored with their color; later ones take a color from their text, so logs keyed by ids keep no memory
+M.field_groups_max = 100
 ---@type table<string, string> color group -> its badge group, cleared by setup so a colorscheme change rebuilds them
 local badge_groups = {}
 ---@type table<string, string> badge group -> its cap group, cleared by setup like `badge_groups`
@@ -133,7 +135,21 @@ M.link_of = function(name)
   end
 end
 
----The color group of field `name`: the next `JLogField*` group the first time it is seen, cycling after the last.
+---A `JLogField*` group picked from `name`'s text, the same each time.
+---@param name string
+---@return string
+local function hashed_group(name)
+  local hash = 5381
+
+  for index = 1, #name do
+    hash = (hash * 33 + name:byte(index)) % 2147483647
+  end
+
+  return "JLogField" .. (hash % M.FIELD_COLORS + 1)
+end
+
+---The color group of field `name`: the next `JLogField*` group the first time it is seen, cycling after the last;
+---past `field_groups_max` names, one picked from its text and not stored.
 ---@param name string dotted field path
 ---@return string
 M.field_group = function(name)
@@ -141,6 +157,9 @@ M.field_group = function(name)
 
   if group then
     return group
+  end
+  if field_count >= M.field_groups_max then
+    return hashed_group(name)
   end
   group = "JLogField" .. (field_count % M.FIELD_COLORS + 1)
   field_count = field_count + 1

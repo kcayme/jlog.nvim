@@ -367,6 +367,28 @@ M.get = function(entry, decoded, path, opts)
   return value
 end
 
+---The dotted path of `key` under `parent` ("" at the top), built once per `names` and reused after.
+---@param names table<string, table<string, string>> per parent path, each key's path
+---@param parent string
+---@param key string
+---@return string
+M.child_path = function(names, parent, key)
+  local under = names[parent]
+  local path
+
+  if not under then
+    under = {}
+    names[parent] = under
+  end
+  path = under[key]
+  if not path then
+    path = parent == "" and key or parent .. "." .. key
+    under[key] = path
+  end
+
+  return path
+end
+
 ---Whether a decoded number may have been rounded: past 2^53 a double no longer holds every integer.
 ---@param value any
 ---@return boolean

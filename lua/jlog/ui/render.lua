@@ -662,6 +662,8 @@ local function compact_json(entry, node, prefix, opts, lines, spans, ignored)
 end
 
 local push_expanded
+-- dotted paths of expanded keys, built once: only expanded entries add to it, so it stays small
+local expanded_paths = {}
 
 ---@param keys string[]|nil nil for arrays
 ---@param vals JLogNode[]
@@ -687,7 +689,7 @@ local function push_container(keys, vals, path, indent, open_line, close, comma,
   finish(open_line, lines, spans)
   for index, value in ipairs(vals) do
     -- array elements keep the array's path, as FIELDS does not index them
-    child_path = path and keys and (path == "" and keys[index] or path .. "." .. keys[index]) or path
+    child_path = path and keys and entry_model.child_path(expanded_paths, path, keys[index]) or path
     push_expanded(keys and keys[index], child_path, value, child_indent, index < #vals and "," or "", lines, spans)
   end
   lines[#lines + 1] = indent .. close .. comma

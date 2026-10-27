@@ -46,34 +46,12 @@ end
 ---@class JLogFacetCounter
 ---@field fields table<string, JLogFacetField>
 ---@field names string[]
----@field paths table<string, table<string, string>> per prefix, each key's dotted name, built once
+---@field paths table<string, table<string, string>> per parent path, each key's dotted name (`entry.child_path`)
 
 ---Incremental counting, so a caller can feed entries as it reads them.
 ---@return JLogFacetCounter
 M.counter = function()
   return { fields = {}, names = {}, paths = {} }
-end
-
----`prefix .. key`, built once per counter: entries of one log share their keys, so later ones reuse the string.
----@param paths table<string, table<string, string>>
----@param prefix string
----@param key string
----@return string
-local function child_name(paths, prefix, key)
-  local under = paths[prefix]
-  local name
-
-  if not under then
-    under = {}
-    paths[prefix] = under
-  end
-  name = under[key]
-  if not name then
-    name = prefix .. key
-    under[key] = name
-  end
-
-  return name
 end
 
 ---Count one entry's `value` of the field `name`; nil and tables (absent, objects, arrays) are skipped.
@@ -130,19 +108,19 @@ end
 
 ---Count every scalar under `value` by its dotted name, depth first; arrays and nulls are skipped.
 ---@param counter JLogFacetCounter
----@param prefix string
+---@param parent string dotted path of `value`, "" at the top
 ---@param value table
 ---@param only table<string, boolean>|nil count only these names
 ---@param rounded table<string, boolean>|nil names skipped so far
 ---@return table<string, boolean>|nil rounded names of numbers the decoder may have rounded, left uncounted
-local function walk(counter, prefix, value, only, rounded)
+local function walk(counter, parent, value, only, rounded)
   local paths = counter.paths
   local name
 
   for key, child in pairs(value) do
-    name = child_name(paths, prefix, key)
+    name = entry_model.child_path(paths, parent, key)
     if type(child) == "table" and not vim.islist(child) then
-      rounded = walk(counter, child_name(paths, name, "."), child, only, rounded)
+      rounded = walk(counter, name, child, only, rounded)
     elseif type(child) ~= "table" and child ~= vim.NIL and (not only or only[name]) then
       if not only and entry_model.is_inexact(child) then
         rounded = rounded or {}
@@ -168,7 +146,7 @@ M.count_entry = function(counter, entry, decoded)
     walk(counter, "", entry_model.decode_exact(entry) or {}, rounded)
   end
   for key, value in pairs(entry.labels or {}) do
-    M.add_value(counter, child_name(counter.paths, "labels.", key), value)
+    M.add_value(counter, entry_model.child_path(counter.paths, "labels", key), value)
   end
 end
 

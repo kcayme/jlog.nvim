@@ -38,6 +38,16 @@ describe("entry", function()
     assert.are.same({ "level" }, node.keys)
   end)
 
+  it("should build a dotted child path once and hand back the same string", function()
+    local names = {}
+    local path = entry.child_path(names, "http", "status")
+
+    assert.are.equal("req", entry.child_path(names, "", "req"))
+    assert.are.equal("http.status", path)
+    assert.are.equal(path, entry.child_path(names, "http", "status"))
+    assert.are.equal("status", next(names.http))
+  end)
+
   it("should read dotted label keys with get", function()
     local e = build('{"a":1}')[1]
     e.labels = { ["app.kubernetes.io/name"] = "api" }

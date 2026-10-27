@@ -963,4 +963,22 @@ describe("sidebar", function()
     assert.is_truthy(lines:find("r0 (20)", 1, true))
     assert.is_falsy(lines:find("~", 1, true))
   end)
+
+  it("should list values without their counts when sidebar.fields.counts is off", function()
+    local lines
+
+    require("jlog.config").setup({ sidebar = { fields = { counts = false } } })
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/loki.json", ":p") })
+    ws.sidebar.facets = {
+      { name = "level", distinct = 2, top = { { value = "INFO", count = 7 }, { value = "ERROR", count = 3 } } },
+      { name = "request_id", distinct = 40, top = { { value = "r0", count = 20 } } },
+    }
+    ws.sidebar:expand_field("request_id")
+    lines = table.concat(vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, -1, false), "\n")
+    require("jlog.config").setup()
+    assert.is_truthy(lines:find("INFO  ERROR", 1, true))
+    assert.is_truthy(lines:find("40 values", 1, true))
+    assert.is_truthy(lines:find("\n  r0\n", 1, true) or lines:find("\n  r0$"))
+    assert.is_falsy(lines:find("(", 1, true))
+  end)
 end)

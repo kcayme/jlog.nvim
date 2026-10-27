@@ -96,13 +96,13 @@ local function count_text(facet, count)
   return (facet.estimated and "~" or "") .. count
 end
 
----`value (count)`, the value cut so the whole fits in `width` cells.
+---`value (count)`, or `value` without a count, the value cut so the whole fits in `width` cells.
 ---@param value string
----@param count string
+---@param count string|nil
 ---@param width integer
 ---@return string
 local function counted(value, count, width)
-  local suffix = " (" .. count .. ")"
+  local suffix = count and " (" .. count .. ")" or ""
 
   return truncate(display(value), width - #suffix) .. suffix
 end
@@ -110,17 +110,18 @@ end
 ---The inline values of a field line, or their number when there are many or they do not fit in `width` cells.
 ---@param facet JLogFacet
 ---@param width integer
+---@param counts boolean show each value's count
 ---@return string
-local function summary(facet, width)
+local function summary(facet, width, counts)
   local parts = {}
   local text
 
   if facet.distinct == 1 then
-    return counted(facet.top[1].value, count_text(facet, facet.top[1].count), width)
+    return counted(facet.top[1].value, counts and count_text(facet, facet.top[1].count) or nil, width)
   end
   if facet.distinct <= INLINE_VALUES then
     for _, top in ipairs(facet.top) do
-      parts[#parts + 1] = display(top.value) .. " (" .. count_text(facet, top.count) .. ")"
+      parts[#parts + 1] = display(top.value) .. (counts and " (" .. count_text(facet, top.count) .. ")" or "")
     end
     text = table.concat(parts, "  ")
     if vim.fn.strdisplaywidth(text) <= width then
@@ -151,7 +152,7 @@ end
 local function add_fields(sidebar, lines, highlights, width)
   local count_group = sidebar.stale and "JLogFieldStale" or "JLogFieldCount"
   local opts = sidebar.ws.opts
-  local pill = opts.sidebar.fields.pill
+  local pill, counts = opts.sidebar.fields.pill, opts.sidebar.fields.counts
   local name, group, cap_group, caps
   local head
   local count
@@ -173,7 +174,8 @@ local function add_fields(sidebar, lines, highlights, width)
     if ignored then
       lines[#lines + 1] = truncate(vim.trim(head), width)
     else
-      lines[#lines + 1] = truncate(head .. summary(facet, width - caps - vim.fn.strdisplaywidth(head)), width - caps)
+      lines[#lines + 1] =
+        truncate(head .. summary(facet, width - caps - vim.fn.strdisplaywidth(head), counts), width - caps)
     end
     sidebar.rows[#lines] = { name = facet.name }
     highlights[#highlights + 1] = { #lines - 1, 4, math.min(4 + #name, #lines[#lines]), group, cap_group }
@@ -183,10 +185,12 @@ local function add_fields(sidebar, lines, highlights, width)
 
     if sidebar.expanded[facet.name] and not ignored then
       for _, top in ipairs(facet.top) do
-        count = count_text(facet, top.count)
+        count = counts and count_text(facet, top.count) or nil
         lines[#lines + 1] = "  " .. counted(top.value, count, width - 2)
         sidebar.rows[#lines] = { name = facet.name, value = top.value }
-        highlights[#highlights + 1] = { #lines - 1, #lines[#lines] - #count - 2, -1, count_group }
+        if count then
+          highlights[#highlights + 1] = { #lines - 1, #lines[#lines] - #count - 2, -1, count_group }
+        end
       end
     end
   end

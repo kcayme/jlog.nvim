@@ -64,6 +64,7 @@
 ---@field styles table<string, JLogSidebarField> per field path or role (`time`, `level`, `message`, `status`)
 ---@field pinned string[] field paths or roles listed first in FIELDS, in this order
 ---@field sort JLogFieldSort the other fields: by name, or by entries once the counts are final
+---@field counts boolean show each value's count; values are still counted, to find and order them
 
 ---@class JLogSidebarAutoApplyOptions
 ---@field enable boolean apply FILTERS, GROUP BY and LIMIT edits without `:w`
@@ -162,6 +163,7 @@ M.defaults = {
       styles = {},
       pinned = {},
       sort = "alphabetical",
+      counts = true,
     },
     sections = { "sort", "page", "filters", "group", "limit", "fields" },
   },

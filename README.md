@@ -86,6 +86,7 @@ require("jlog").setup({
       -- the other fields: "alphabetical", or "count" (in the most entries first; applied once the counts are final,
       -- so rows hold still while a file loads)
       sort = "alphabetical",
+      counts = true, -- false hides each value's count; values are still counted to find and order them
     },
     -- sections in the order shown, e.g. { "fields", "filters", "group" }; one left out is hidden, and :w then keeps
     -- the filters or group that field actions and commands set

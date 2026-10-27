@@ -1,15 +1,8 @@
--- Helpers shared across modules: whitespace skipping, centered floats, the tick budget.
+-- Helpers shared across modules: centered floats and the tick budget.
 local M = {}
 
 -- the event loop pass the shared tick deadline belongs to, by its cached loop time, and that deadline
 local pass_time, pass_deadline
-
----@param text string
----@param pos integer
----@return integer pos first non-whitespace byte at or after `pos`
-M.skip_space = function(text, pos)
-  return (text:find("[^ \t\r\n]", pos)) or #text + 1
-end
 
 ---Where a background job's tick stops: jobs run in one event loop pass share the first one's budget.
 ---@param tick_ns number the job's own budget; 0 does one unit of work per tick

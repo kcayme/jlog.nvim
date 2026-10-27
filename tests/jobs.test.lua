@@ -24,6 +24,44 @@ describe("jobs", function()
     assert.are.same({ "parse_lines", "count_entries", "match_lines", "match_elements" }, jobs.NAMES)
   end)
 
+  it("should load only worker-safe modules into a thread", function()
+    local saved, loaded = {}, {}
+
+    -- a fresh load, as a worker thread does it; the modules already loaded are put back after
+    for name, module in pairs(package.loaded) do
+      if name:match("^jlog%.") then
+        saved[name], package.loaded[name] = module, nil
+      end
+    end
+    require("jlog.worker.jobs")
+    for name in pairs(package.loaded) do
+      if name:match("^jlog%.") then
+        loaded[#loaded + 1] = name
+      end
+    end
+    for name in pairs(package.loaded) do
+      if name:match("^jlog%.") then
+        package.loaded[name] = saved[name]
+      end
+    end
+    for name, module in pairs(saved) do
+      package.loaded[name] = module
+    end
+    table.sort(loaded)
+
+    assert.are.same({
+      "jlog.config",
+      "jlog.parse.entry",
+      "jlog.parse.json",
+      "jlog.parse.source",
+      "jlog.parse.time",
+      "jlog.query.facets",
+      "jlog.query.filter",
+      "jlog.query.match",
+      "jlog.worker.jobs",
+    }, loaded)
+  end)
+
   it("should find the same JSON lines as a main-thread load", function()
     local fixture = table.concat(vim.fn.readfile("tests/fixtures/app.jsonl", "b"), "\n")
     local text = fixture .. "\n" .. table.concat(gen.nested_lines(300), "\n")

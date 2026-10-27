@@ -1,4 +1,5 @@
 local config = require("jlog.config")
+local count_mod = require("jlog.query.count")
 local engine_mod = require("jlog.query.engine")
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
@@ -218,7 +219,7 @@ describe("engine", function()
     local run = workers.run
     local in_flight = workers.in_flight
     local defer_fn = vim.defer_fn
-    local batch_bytes = engine_mod.count_batch_bytes
+    local batch_bytes = count_mod.batch_bytes
     local stall_ms = workers.stall_ms
 
     local function build_lines()
@@ -271,7 +272,7 @@ describe("engine", function()
       workers.run = run
       workers.in_flight = in_flight
       vim.defer_fn = defer_fn
-      engine_mod.count_batch_bytes = batch_bytes
+      count_mod.batch_bytes = batch_bytes
       workers.stall_ms = stall_ms
     end)
 
@@ -279,7 +280,7 @@ describe("engine", function()
       local jobs = 0
       local expected, actual
 
-      engine_mod.count_batch_bytes = 4096
+      count_mod.batch_bytes = 4096
       expected = count_all(false)
       workers.run = function(job, payload, on_result)
         jobs = jobs + (job == "count_entries" and 1 or 0)
@@ -295,7 +296,7 @@ describe("engine", function()
     it("should not publish a superseded query's counts", function()
       local done = false
 
-      engine_mod.count_batch_bytes = 4096
+      count_mod.batch_bytes = 4096
       engine.source.entries = source.build(build_lines(), "jsonl")
       engine:query(function()
         return true
@@ -314,7 +315,7 @@ describe("engine", function()
       local delays = {}
       local counter
 
-      engine_mod.count_batch_bytes = 4096
+      count_mod.batch_bytes = 4096
       engine.source.entries = source.build(build_lines(), "jsonl")
       engine:query(function()
         return true
@@ -347,7 +348,7 @@ describe("engine", function()
       local calls = 0
       local expected, actual
 
-      engine_mod.count_batch_bytes = 4096
+      count_mod.batch_bytes = 4096
       expected = count_all(false)
       workers.run = function(job, payload, on_result)
         calls = calls + 1
@@ -369,7 +370,7 @@ describe("engine", function()
       local calls = 0
       local expected, counter, before
 
-      engine_mod.count_batch_bytes = 4096
+      count_mod.batch_bytes = 4096
       expected = count_all(false)
       workers.stall_ms = 50
       workers.run = function(job, payload, on_result)
@@ -404,7 +405,7 @@ describe("engine", function()
       local pending = {}
       local done = false
 
-      engine_mod.count_batch_bytes = 4096
+      count_mod.batch_bytes = 4096
       engine.source.entries = source.build(build_lines(), "jsonl")
       workers.stall_ms = 50
       -- the transport keeps every callback until its worker answers, as `workers.run` does

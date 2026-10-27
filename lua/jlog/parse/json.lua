@@ -1,4 +1,4 @@
--- JSON decoder that keeps key order and number literals as written.
+-- JSON decoder that keeps key order and number literals as written; finds array element ends without decoding.
 
 ---@class JLogNode
 ---@field t "object"|"array"|"string"|"number"|"boolean"|"null"
@@ -328,6 +328,27 @@ local function unwrap_at(node, depth, max_depth)
   return node
 end
 
+---@param text string
+---@param quote integer byte of the opening quote
+---@return integer|nil closing the closing quote
+local function skip_string(text, quote)
+  local at, before
+
+  repeat
+    at = str_find(text, '"', quote + 1, true)
+    if not at then
+      return nil
+    end
+    before = at - 1
+    while str_byte(text, before) == BYTE_BACKSLASH do
+      before = before - 1
+    end
+    quote = at
+  until (at - 1 - before) % 2 == 0
+
+  return at
+end
+
 ---Parse one JSON value starting at the first non-whitespace at `pos`.
 ---@param text string
 ---@param pos integer|nil defaults to 1
@@ -404,6 +425,43 @@ end
 ---@return JLogNode node
 M.unwrap = function(node, max_depth)
   return unwrap_at(node, 0, max_depth)
+end
+
+---@param text string
+---@param pos integer
+---@return integer pos first non-whitespace byte at or after `pos`
+M.skip_space = function(text, pos)
+  return (str_find(text, "[^ \t\r\n]", pos)) or #text + 1
+end
+
+---The `,` or `]` that ends the array element at `pos`, without decoding it; `#text + 1` when the text ends first.
+---@param text string
+---@param pos integer first byte of an element
+---@return integer sep
+M.element_end = function(text, pos)
+  local depth = 0
+  local at, code
+
+  while true do
+    at = str_find(text, '[%[%]{}",]', pos)
+    if not at then
+      return #text + 1
+    end
+    code = str_byte(text, at)
+    if code == BYTE_QUOTE then
+      at = skip_string(text, at)
+      if not at then
+        return #text + 1
+      end
+    elseif code == BYTE_OPEN_BRACKET or code == BYTE_OPEN_BRACE then
+      depth = depth + 1
+    elseif depth > 0 and (code == BYTE_CLOSE_BRACKET or code == BYTE_CLOSE_BRACE) then
+      depth = depth - 1
+    elseif depth == 0 then
+      return at
+    end
+    pos = at + 1
+  end
 end
 
 return M

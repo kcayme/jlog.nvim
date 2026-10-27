@@ -108,6 +108,15 @@ end
 ---Adds another counter's fields into `counter`, keeping at most MAX_DISTINCT values per field.
 ---@param counter JLogFacetCounter
 ---@param fields table<string, {counts: table<string, integer>, distinct: integer, capped: boolean, present: integer}>
+---Count the fields of every entry in `entries` into `counter`, decoding each.
+---@param counter JLogFacetCounter
+---@param entries JLogEntry[]
+M.count_entries = function(counter, entries)
+  for _, entry in ipairs(entries) do
+    M.add(counter, entry_model.flatten(entry, entry_model.decode(entry)))
+  end
+end
+
 M.merge = function(counter, fields)
   local field
   local dropped

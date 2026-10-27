@@ -1,7 +1,5 @@
 -- Turns source lines or array elements into raw records without dropping any input.
 local json = require("jlog.parse.json")
-local pages = require("jlog.parse.pages")
-local utils = require("jlog.core.utils")
 
 ---@class JLogEntry
 ---@field src integer source line (jsonl) or 1-based element index (loki/array)
@@ -178,7 +176,7 @@ local function element_entry(node, text, index, format)
   return { src = index, raw = raw, body = raw, json_at = node.t == "object" and 1 or nil }
 end
 
-local skip_space = utils.skip_space
+local skip_space = json.skip_space
 
 ---@param text string
 ---@param pos integer at the array's closing `]`
@@ -288,6 +286,31 @@ M.append_lines = function(entries, lines, first_lnum, on_json)
   end
 end
 
+---Where the JSON object of each line of `text` starts, 0 for none, as `append_lines` would find it.
+---@param text string lines joined by "\n"
+---@param on_json fun(entry: JLogEntry, decoded: table)|nil called with each JSON line's entry and its decoded object
+---@return integer[] positions one per line, blank lines included
+M.json_positions = function(text, on_json)
+  local positions = {}
+  local json_at, decoded
+
+  for index, line in ipairs(vim.split(text, "\n", { plain = true })) do
+    json_at = nil
+    if line:byte(-1) == 13 then
+      line = line:sub(1, -2)
+    end
+    if line:find("%S") then
+      json_at, decoded = json.object_at(line)
+      if json_at and on_json then
+        on_json({ raw = line, body = line, json_at = json_at }, decoded)
+      end
+    end
+    positions[index] = json_at or 0
+  end
+
+  return positions
+end
+
 ---Up to `count` lines of `text` from `pos`, stopping once past `stop`; the last line may lack its newline.
 ---@param text string
 ---@param pos integer
@@ -351,7 +374,7 @@ M.read_elements = function(text, pos, count, format, first_index, on_json)
   for index = first_index, first_index + count - 1 do
     entry, after = nil, nil
     if format == "loki" then
-      after = pages.element_end(text, pos) - 1
+      after = json.element_end(text, pos) - 1
       while after > pos and text:find("^%s", after) do
         after = after - 1
       end

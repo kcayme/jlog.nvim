@@ -1,6 +1,5 @@
 -- Page index: splits a large source into pages in ticks, and arrays into scan chunks.
 local json = require("jlog.parse.json")
-local utils = require("jlog.core.utils")
 
 ---@class JLogPageRange
 ---@field first integer first byte of the page's text, overlap included
@@ -39,12 +38,8 @@ local M = {}
 M.chunk_elements = 5000
 
 local BYTE_NEWLINE = 10
-local BYTE_QUOTE = 34
-local BYTE_BACKSLASH = 92
 local BYTE_OPEN_BRACKET = 91
 local BYTE_CLOSE_BRACKET = 93
-local BYTE_OPEN_BRACE = 123
-local BYTE_CLOSE_BRACE = 125
 -- units (lines or elements) scanned between deadline checks; also the least progress of a scan call
 local CHECK_EVERY = 1024
 -- lines tried while snapping between deadline checks: a line that is not JSON costs a failed decode
@@ -52,7 +47,7 @@ local SNAP_CHECK_EVERY = 64
 
 local find, byte, sub = string.find, string.byte, string.sub
 
-local skip_space = utils.skip_space
+local element_end, skip_space = json.element_end, json.skip_space
 
 ---@param text string
 ---@param pos integer
@@ -94,56 +89,6 @@ local function is_entry(text, first, last)
   local line = sub(text, first, last):gsub("\r$", "")
 
   return json.object_at(line) ~= nil
-end
-
----@param text string
----@param quote integer byte of the opening quote
----@return integer|nil closing the closing quote
-local function skip_string(text, quote)
-  local at, before
-
-  repeat
-    at = find(text, '"', quote + 1, true)
-    if not at then
-      return nil
-    end
-    before = at - 1
-    while byte(text, before) == BYTE_BACKSLASH do
-      before = before - 1
-    end
-    quote = at
-  until (at - 1 - before) % 2 == 0
-
-  return at
-end
-
----@param text string
----@param pos integer first byte of an element
----@return integer sep the `,` or `]` that ends the element, `#text + 1` when the text ends first
-local function element_end(text, pos)
-  local depth = 0
-  local at, code
-
-  while true do
-    at = find(text, '[%[%]{}",]', pos)
-    if not at then
-      return #text + 1
-    end
-    code = byte(text, at)
-    if code == BYTE_QUOTE then
-      at = skip_string(text, at)
-      if not at then
-        return #text + 1
-      end
-    elseif code == BYTE_OPEN_BRACKET or code == BYTE_OPEN_BRACE then
-      depth = depth + 1
-    elseif depth > 0 and (code == BYTE_CLOSE_BRACKET or code == BYTE_CLOSE_BRACE) then
-      depth = depth - 1
-    elseif depth == 0 then
-      return at
-    end
-    pos = at + 1
-  end
 end
 
 ---@param index JLogPageIndex
@@ -487,7 +432,5 @@ M.new = function(text, format, opts, from_end)
 
   return index
 end
-
-M.element_end = element_end
 
 return M

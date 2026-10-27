@@ -2,6 +2,7 @@
 local count_mod = require("jlog.query.count")
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
+local field_cache = require("jlog.query.field_cache")
 local filter = require("jlog.query.filter")
 local gc = require("jlog.core.gc")
 local group = require("jlog.query.group")
@@ -25,6 +26,7 @@ local utils = require("jlog.core.utils")
 ---@field counting JLogFacetCounting|nil the latest query's facet count, still running (see `query/count`)
 ---@field facet_counter JLogFacetCounter fields with a `field=value` filter line, counted as if that line were off
 ---@field facet_preds table<string, fun(ctx: table): boolean> per such field, the other filter lines
+---@field field_cache JLogFieldCache field values read by earlier queries over the same entries
 local Engine = {}
 Engine.__index = Engine
 
@@ -59,6 +61,7 @@ M.new = function(source)
     matched = {},
     facet_counter = facets.counter(),
     facet_preds = {},
+    field_cache = field_cache.new(),
   }, Engine)
 end
 
@@ -75,7 +78,7 @@ Engine.query = function(self, pred, field, on_items, skip_facets)
   local count = #entries
   local matched = {}
   local group_values = {}
-  local entry, decoded, decoded_done
+  local entry, entry_index, decoded, decoded_done
   local next_index = 1
   local collected
   local ctx = { raw = "" }
@@ -99,7 +102,7 @@ Engine.query = function(self, pred, field, on_items, skip_facets)
     return decoded
   end
   -- simple top-level values are read from the text, the rest from the decode
-  local function read(path)
+  local function read_entry(path)
     local value, found = entry_model.peek(entry, path, opts)
 
     if found then
@@ -108,11 +111,16 @@ Engine.query = function(self, pred, field, on_items, skip_facets)
 
     return entry_model.get(entry, current_decoded(), path, opts)
   end
+  -- a field read by an earlier query over these entries is not read again
+  local function read(path)
+    return field_cache.get(self.field_cache, entry_index, entry, path, read_entry)
+  end
   ctx.get = read
+  field_cache.use(self.field_cache, entries)
 
   local function scan(first, last)
     for index = first, last do
-      entry, decoded_done = entries[index], false
+      entry, entry_index, decoded_done = entries[index], index, false
       ctx.raw = entry_model.key(entry)
       if pred(ctx) then
         matched[index] = true

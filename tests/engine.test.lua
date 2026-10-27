@@ -49,6 +49,24 @@ describe("engine", function()
     assert.are.equal(2, shown)
   end)
 
+  it("should not decode an entry again for a field an earlier query read", function()
+    local decode = entry_model.decode
+    local decodes = 0
+    local nested = filter.compile({ "req.method=GET" })
+
+    engine.source.entries = source.build('{"req":{"method":"GET"}}\n{"req":{"method":"POST"}}', "jsonl")
+    entry_model.decode = function(...)
+      decodes = decodes + 1
+
+      return decode(...)
+    end
+    engine:query(nested, nil, function() end, true)
+    engine:query(nested, "req.method", function() end, true)
+    entry_model.decode = decode
+
+    assert.are.equal(2, decodes)
+  end)
+
   it("should group by a field", function()
     local items
 

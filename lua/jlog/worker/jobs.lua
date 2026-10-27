@@ -11,25 +11,25 @@ M.NAMES = { "parse_lines", "count_entries", "match_lines", "match_elements" }
 
 ---Runs in a worker thread: find the JSON object in each line and count the fields of those lines.
 ---@param payload string vim.mpack of `{ text = string }`, lines joined by "\n"
----@return string vim.mpack of `{ positions = integer[], fields = table }`
+---@return string vim.mpack of `{ positions = integer[], fields = table, visits = table }`
 M.parse_lines = function(payload)
   local counter = facets.counter()
   local positions = source.json_positions(vim.mpack.decode(payload).text, function(entry, decoded)
     facets.count_entry(counter, entry, decoded)
   end)
 
-  return vim.mpack.encode({ positions = positions, fields = counter.fields })
+  return vim.mpack.encode({ positions = positions, fields = counter.fields, visits = counter.visits })
 end
 
 ---Runs in a worker thread: count the fields of the given entries.
 ---@param payload string vim.mpack of `{ entries = { { body, json_at, labels }, ... } }`
----@return string vim.mpack of `{ fields = table }`
+---@return string vim.mpack of `{ fields = table, visits = table }`
 M.count_entries = function(payload)
   local counter = facets.counter()
 
   facets.count_entries(counter, vim.mpack.decode(payload).entries)
 
-  return vim.mpack.encode({ fields = counter.fields })
+  return vim.mpack.encode({ fields = counter.fields, visits = counter.visits })
 end
 
 ---Runs in a worker thread: the entries of a JSONL chunk that match `filters`, regex terms deferred (see `match.lines`).

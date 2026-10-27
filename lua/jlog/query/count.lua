@@ -99,7 +99,7 @@ M.run = function(engine, on_done)
   end
 
   tick_threaded = function()
-    local batch
+    local batch, result
     local deadline = utils.tick_deadline(M.timing.tick_ns)
     local entries = engine.source.entries
     local usable, complete, entry
@@ -114,7 +114,8 @@ M.run = function(engine, on_done)
         if batch.err then
           facets.count_entries(counting.counter, batch.entries)
         else
-          facets.merge(counting.counter, vim.mpack.decode(batch.result).fields)
+          result = vim.mpack.decode(batch.result)
+          facets.merge(counting.counter, result.fields, result.visits)
         end
       end
     end

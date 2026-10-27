@@ -946,6 +946,17 @@ describe("sidebar", function()
     assert.is_truthy(lines:find("r0 (~20)", 1, true))
   end)
 
+  it("should show a folded object's key count instead of values", function()
+    local lines
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/loki.json", ":p") })
+    ws.sidebar.facets = {
+      { name = "sessions", distinct = 100, capped = true, folded = true, present = 7, top = {} },
+    }
+    ws.sidebar:render()
+    lines = table.concat(vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, -1, false), "\n")
+    assert.is_truthy(lines:find("sessions%s+100%+ keys"))
+  end)
+
   it("should show exact counts without ~", function()
     local lines
     ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/loki.json", ":p") })

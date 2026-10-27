@@ -10,7 +10,7 @@ M.chunk_size = 500
 ---Reads `count` more units (default `chunk_size`) into `entries`; returns the fraction read (nil when done),
 ---true while waiting on workers, and why an array or loki text is broken (then nothing more is read).
 ---@alias JLogReader fun(entries: JLogEntry[], on_json: function|nil, count: integer|nil,
----on_fields: fun(fields: table)|nil): number|nil, boolean|nil, string|nil
+---on_fields: fun(fields: table, visits: table)|nil): number|nil, boolean|nil, string|nil
 
 ---@param text string
 ---@param pos integer byte position of the next unparsed line

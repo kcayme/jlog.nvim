@@ -11,6 +11,7 @@ local source = require("jlog.parse.source")
 ---@field result string|nil the job's mpack result, until decoded
 ---@field positions integer[]|nil decoded JSON position of each line
 ---@field fields table|nil decoded field counts
+---@field visits table|nil decoded object visits (`facets.merge`)
 ---@field next_line integer|nil index of the next line to append
 
 local M = {}
@@ -153,7 +154,8 @@ M.line_reader = function(text, pos, lnum, stop)
 
     if not chunk.positions then
       decoded = vim.mpack.decode(chunk.result)
-      chunk.positions, chunk.fields, chunk.next_line, chunk.result = decoded.positions, decoded.fields, 1, nil
+      chunk.positions, chunk.fields, chunk.visits = decoded.positions, decoded.fields, decoded.visits
+      chunk.next_line, chunk.result = 1, nil
     end
     -- a slice per call, so the caller checks its tick budget between slices of a chunk
     pos, appended = append_slice(entries, text, chunk, pos, lnum, LINES_PER_CALL)
@@ -163,7 +165,7 @@ M.line_reader = function(text, pos, lnum, stop)
       table.remove(chunks, 1)
       pos = chunk.next_pos
       if on_fields then
-        on_fields(chunk.fields)
+        on_fields(chunk.fields, chunk.visits)
       end
     end
 

@@ -116,6 +116,9 @@ local function summary(facet, width, counts)
   local parts = {}
   local text
 
+  if facet.folded then
+    return facet.distinct .. "+ keys"
+  end
   if facet.distinct == 1 then
     return counted(facet.top[1].value, counts and count_text(facet, facet.top[1].count) or nil, width)
   end

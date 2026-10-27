@@ -92,8 +92,8 @@ local function load_rest(ws, entries, read, on_done, counter, token, notified)
     facets.count_entry(counter, entry, decoded)
   end
   -- field counts a worker thread found for a chunk it parsed
-  local merge_fields = counter and function(fields)
-    facets.merge(counter, fields)
+  local merge_fields = counter and function(fields, visits)
+    facets.merge(counter, fields, visits)
   end
 
   if ws.closed or (token and ws.load_token ~= token) then

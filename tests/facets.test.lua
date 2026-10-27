@@ -187,3 +187,82 @@ describe("facets.count_entry", function()
     )
   end)
 end)
+
+describe("facets folding", function()
+  local entry_model = require("jlog.parse.entry")
+  local source = require("jlog.parse.source")
+
+  ---`count` lines whose `sessions` object is keyed by an id, the id of line `index` being `index % ids`.
+  local function id_keyed(count, ids)
+    local lines = {}
+
+    for index = 1, count do
+      lines[index] = string.format('{"level":"info","sessions":{"s-%d":{"user":"u","ms":%d}}}', index % ids, index)
+    end
+
+    return source.build(table.concat(lines, "\n"), "jsonl")
+  end
+
+  ---Count `entries` in batches of `size`, each merged as a worker's result is.
+  local function counted_in_batches(entries, size)
+    local counter = facets_mod.counter()
+    local batch, result
+
+    for first = 1, #entries, size do
+      batch = facets_mod.counter()
+      facets_mod.count_entries(batch, vim.list_slice(entries, first, first + size - 1))
+      result = vim.mpack.decode(vim.mpack.encode({ fields = batch.fields, visits = batch.visits }))
+      facets_mod.merge(counter, result.fields, result.visits)
+    end
+
+    return counter
+  end
+
+  ---Each listed field by name, and whether it is folded.
+  local function listed(counter)
+    local by_name = {}
+
+    for _, facet in ipairs(facets_mod.result(counter, 1)) do
+      by_name[facet.name] = { present = facet.present, folded = facet.folded }
+    end
+
+    return by_name
+  end
+
+  it("should fold an object with more than 100 keys into one field counting its entries", function()
+    local counter = facets_mod.counter()
+
+    facets_mod.count_entries(counter, id_keyed(500, 500))
+
+    assert.are.same({
+      level = { present = 500, folded = false },
+      sessions = { present = 500, folded = true },
+    }, listed(counter))
+    assert.is_nil(next(counter.visits))
+  end)
+
+  it("should keep listing the fields of an object with at most 100 keys", function()
+    local counter = facets_mod.counter()
+
+    facets_mod.count_entries(counter, id_keyed(500, 100))
+
+    assert.are.equal(201, #counter.names)
+    assert.are.same({ present = 5, folded = false }, listed(counter)["sessions.s-7.user"])
+  end)
+
+  it("should fold the same way when batches each under the limit are merged", function()
+    local counter = counted_in_batches(id_keyed(500, 500), 50)
+
+    assert.are.same({
+      level = { present = 500, folded = false },
+      sessions = { present = 500, folded = true },
+    }, listed(counter))
+  end)
+
+  it("should count every entry when merged batches fold on their own", function()
+    local counter = counted_in_batches(id_keyed(1000, 1000), 300)
+
+    assert.are.same({ present = 1000, folded = true }, listed(counter).sessions)
+    assert.are.equal(2, #counter.names)
+  end)
+end)

@@ -1,11 +1,11 @@
 -- Filter scan across every page: worker chunks, confirms, fallback, per-page counts.
+local dispatcher = require("jlog.worker.dispatcher")
 local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")
 local gc = require("jlog.core.gc")
 local match_mod = require("jlog.query.match")
 local source = require("jlog.parse.source")
 local utils = require("jlog.core.utils")
-local workers = require("jlog.worker")
 
 ---@class JLogScanMatch
 ---@field src integer source line (jsonl) or element ordinal (arrays) of the entry
@@ -180,27 +180,21 @@ local function scan_lines(scan, text, filters, opts, on_progress, on_done)
   local jobs = {}
   local cut = 1
   local fallback = false
-  local progress_at = vim.uv.now()
+  local sender = dispatcher.new()
 
   for name in pairs(field_preds) do
     scan.facet_names[name] = true
   end
 
   local function dispatch(job)
-    local payload = vim.mpack.encode({
+    -- runs match.lines on a worker thread
+    dispatcher.send(sender, "match_lines", {
       text = text:sub(job.first, job.last),
       first_src = 1,
       first_byte = job.first,
       filters = filters,
       opts = payload_opts,
-    })
-
-    -- runs match.lines on a worker thread
-    workers.run("match_lines", payload, function(err, result)
-      job.done, job.err, job.result = true, err, result
-      progress_at = vim.uv.now()
-    end)
-    progress_at = vim.uv.now()
+    }, job)
   end
 
   local function finish()
@@ -221,14 +215,14 @@ local function scan_lines(scan, text, filters, opts, on_progress, on_done)
       return
     end
     repeat
-      fallback = fallback or (not jobs[1] and not workers.available())
+      fallback = fallback or (not jobs[1] and not dispatcher.available())
       if fallback then
         job, waiting = cut_chunk(text, cut, M.main_chunk_bytes), false
         cut = job.next_pos
         merge(match_mod.lines(text:sub(job.first, job.last), 1, job.first, pred, opts, field_preds, scan.facets))
       else
         -- the shared cap also counts jobs of a cancelled scan that are still running
-        while cut <= #text and #jobs < workers.limit() and workers.in_flight() < workers.limit() do
+        while cut <= #text and dispatcher.has_room(#jobs) do
           job = cut_chunk(text, cut, M.chunk_bytes)
           cut = job.next_pos
           jobs[#jobs + 1] = job
@@ -245,7 +239,7 @@ local function scan_lines(scan, text, filters, opts, on_progress, on_done)
           job.result = vim.mpack.decode(job.result)
           facets.merge(scan.facets, job.result.values)
           merge(job.result)
-        elseif waiting and vim.uv.now() - progress_at > workers.stall_ms then
+        elseif waiting and dispatcher.stalled(sender) then
           fallback, cut, jobs, waiting = true, job and job.first or cut, {}, false
         end
       end
@@ -288,7 +282,7 @@ local function scan_elements(scan, index, format, filters, opts, on_progress, on
   -- main thread: where the next element is read from, and its ordinal; pos is nil past the end
   local pos, src = 1, 1
   local ticks = 0
-  local progress_at = vim.uv.now()
+  local sender = dispatcher.new()
 
   for name in pairs(field_preds) do
     scan.facet_names[name] = true
@@ -312,7 +306,8 @@ local function scan_elements(scan, index, format, filters, opts, on_progress, on
   end
 
   local function dispatch(job)
-    local payload = vim.mpack.encode({
+    -- runs match.elements on a worker thread
+    dispatcher.send(sender, "match_elements", {
       text = text:sub(job.first, job.last),
       first_src = job.src,
       first_byte = job.first,
@@ -320,14 +315,7 @@ local function scan_elements(scan, index, format, filters, opts, on_progress, on
       format = format,
       filters = filters,
       opts = payload_opts,
-    })
-
-    -- runs match.elements on a worker thread
-    workers.run("match_elements", payload, function(err, result)
-      job.done, job.err, job.result = true, err, result
-      progress_at = vim.uv.now()
-    end)
-    progress_at = vim.uv.now()
+    }, job)
   end
 
   -- the main thread goes on from the first chunk not merged; the jobs still out are dropped
@@ -357,7 +345,7 @@ local function scan_elements(scan, index, format, filters, opts, on_progress, on
       return
     end
     repeat
-      if not fallback and not jobs[1] and not workers.available() then
+      if not fallback and not jobs[1] and not dispatcher.available() then
         fall_back()
       end
       if fallback and pos then
@@ -369,7 +357,7 @@ local function scan_elements(scan, index, format, filters, opts, on_progress, on
         pos = not err and src <= total and pos or nil
       elseif not fallback then
         -- the shared cap also counts jobs of a cancelled scan that are still running
-        while chunks[next_chunk] and #jobs < workers.limit() and workers.in_flight() < workers.limit() do
+        while chunks[next_chunk] and dispatcher.has_room(#jobs) do
           job = cut_elements(next_chunk)
           next_chunk = next_chunk + 1
           jobs[#jobs + 1] = job
@@ -385,7 +373,7 @@ local function scan_elements(scan, index, format, filters, opts, on_progress, on
           facets.merge(scan.facets, job.result.values)
           add(job.result.spans)
           src = job.src + job.count
-        elseif waiting and vim.uv.now() - progress_at > workers.stall_ms then
+        elseif waiting and dispatcher.stalled(sender) then
           fall_back(job)
           waiting = false
         end

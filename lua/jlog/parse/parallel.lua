@@ -1,6 +1,6 @@
 -- JSONL range reader that parses chunks on worker threads, with a main-thread fallback.
+local dispatcher = require("jlog.worker.dispatcher")
 local source = require("jlog.parse.source")
-local workers = require("jlog.worker")
 
 ---@class JLogChunk
 ---@field first integer first byte
@@ -36,17 +36,6 @@ local function cut_chunk(text, pos, stop)
   end
 
   return { first = pos, last = newline - 1, next_pos = newline + 1 }
-end
-
----@param text string
----@param chunk JLogChunk
----@param progress { at: integer } its `at` set to `vim.uv.now()` when the job reports
-local function dispatch(text, chunk, progress)
-  -- the callback holds only the chunk and progress, so a dropped load keeps neither the text nor its entries alive
-  workers.run("parse_lines", vim.mpack.encode({ text = text:sub(chunk.first, chunk.last) }), function(err, result)
-    chunk.done, chunk.err, chunk.result = true, err, result
-    progress.at = vim.uv.now()
-  end)
 end
 
 ---Append up to `max_lines` lines of a chunk from `pos`, as `source.append_lines` would, using the job's positions.
@@ -106,7 +95,7 @@ M.line_reader = function(text, pos, lnum, stop)
   local cut = pos
   local fallback = false
   -- when it last dispatched, received or appended
-  local progress = { at = vim.uv.now() }
+  local sender = dispatcher.new()
 
   local function fraction()
     return pos <= stop and (pos - start) / (stop - start + 1) or nil
@@ -115,7 +104,7 @@ M.line_reader = function(text, pos, lnum, stop)
   ---Give up on workers when waiting for them has made no progress for `workers.stall_ms`.
   ---@return boolean stalled
   local function stalled()
-    if vim.uv.now() - progress.at <= workers.stall_ms then
+    if not dispatcher.stalled(sender) then
       return false
     end
     -- the chunks still out are dropped, so their late results are never read; their lines are parsed here
@@ -128,7 +117,7 @@ M.line_reader = function(text, pos, lnum, stop)
     local lines, chunk, decoded, appended, gave_up
 
     -- chunks already out still report, as a result or an error
-    fallback = fallback or (not chunks[1] and not workers.available())
+    fallback = fallback or (not chunks[1] and not dispatcher.available())
     if fallback or (count and not chunks[1]) then
       lines, pos = source.take_lines(text, pos, count or LINES_PER_CALL, stop)
       source.append_lines(entries, lines, lnum, on_json)
@@ -138,12 +127,12 @@ M.line_reader = function(text, pos, lnum, stop)
     end
 
     -- the shared cap also counts jobs of a dropped load that are still running
-    while cut <= stop and #chunks < workers.limit() and workers.in_flight() < workers.limit() and workers.available() do
+    while cut <= stop and dispatcher.has_room(#chunks) and dispatcher.available() do
       chunk = cut_chunk(text, cut, stop)
       cut = chunk.next_pos
       chunks[#chunks + 1] = chunk
-      dispatch(text, chunk, progress)
-      progress.at = vim.uv.now()
+      -- the job's callback holds only the chunk, so a dropped load keeps neither the text nor its entries alive
+      dispatcher.send(sender, "parse_lines", { text = text:sub(chunk.first, chunk.last) }, chunk)
     end
     chunk = chunks[1]
     if not chunk and cut > stop then
@@ -169,7 +158,7 @@ M.line_reader = function(text, pos, lnum, stop)
     -- a slice per call, so the caller checks its tick budget between slices of a chunk
     pos, appended = append_slice(entries, text, chunk, pos, lnum, LINES_PER_CALL)
     lnum = lnum + appended
-    progress.at = vim.uv.now()
+    dispatcher.progress(sender)
     if chunk.next_line > #chunk.positions then
       table.remove(chunks, 1)
       pos = chunk.next_pos

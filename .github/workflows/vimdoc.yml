@@ -2,13 +2,8 @@ name: Generate Vimdoc
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - README.md
-      - docs/options.md
-      - docs/highlights.md
-      - .github/workflows/vimdoc.yml
+    tags:
+      - "v*"
   workflow_dispatch:
 
 jobs:

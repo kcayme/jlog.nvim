@@ -27,7 +27,7 @@ describe("scope", function()
   local ws
 
   local function settled()
-    return not ws.loading and ws.indexing == nil and ws.rendered == ws.store.generation
+    return not ws.loading and ws.indexing == nil and ws.rendered == ws.engine.generation
   end
 
   local function winbar()
@@ -491,10 +491,10 @@ describe("scope", function()
     ---Field counts once the sidebar has them for the current apply.
     local function field(name)
       wait(function()
-        return not ws.sidebar.stale and ws.store.counter ~= nil
+        return not ws.sidebar.stale and ws.engine.counter ~= nil
       end)
 
-      return ws.store.counter.fields[name]
+      return ws.engine.counter.fields[name]
     end
 
     it("should not check the filter again when grouping the combined matches", function()

@@ -1,11 +1,11 @@
 local config = require("jlog.config")
+local engine = require("jlog.query.engine")
+local loader = require("jlog.workspace.loader")
 local parallel = require("jlog.parse.parallel")
 local reader = require("jlog.parse.reader")
-local store = require("jlog.query.store")
 local view = require("jlog.ui.view")
 local workers = require("jlog.worker")
 local workspace = require("jlog.workspace")
-local loader = require("jlog.workspace.loader")
 
 local gen = dofile("bench/gen.lua")
 
@@ -19,7 +19,7 @@ end
 
 describe("workspace", function()
   local timing = vim.deepcopy(loader.timing)
-  local store_timing = vim.deepcopy(store.timing)
+  local engine_timing = vim.deepcopy(engine.timing)
   local view_tick_ns = view.tick_ns
 
   before_each(function()
@@ -27,7 +27,7 @@ describe("workspace", function()
   end)
   after_each(function()
     loader.timing = vim.deepcopy(timing)
-    store.timing = vim.deepcopy(store_timing)
+    engine.timing = vim.deepcopy(engine_timing)
     view.tick_ns = view_tick_ns
     pcall(vim.cmd, "silent! tabonly")
   end)
@@ -289,7 +289,7 @@ describe("workspace", function()
     end
     ws.state.filters = { "status=500" }
     -- a 25k-entry scan can fit in one tick: both scans run past their first tick, so the first is in flight
-    store.timing = { tick_ns = 0 }
+    engine.timing = { tick_ns = 0 }
     ws:apply(function()
       done = done + 1
     end)
@@ -297,7 +297,7 @@ describe("workspace", function()
     ws:apply(function()
       done = done + 10
     end)
-    store.timing = vim.deepcopy(store_timing)
+    engine.timing = vim.deepcopy(engine_timing)
     assert.is_true(vim.wait(10000, function()
       return done > 0
     end))
@@ -328,7 +328,7 @@ describe("workspace", function()
       return not ws.loading
     end))
     loader.timing = { tick_ns = 1e12, publish_ns = timing.publish_ns }
-    store.timing = { tick_ns = 1e12 }
+    engine.timing = { tick_ns = 1e12 }
     -- the placeholder layout fits in one tick: keep this render running past it so the next apply supersedes it
     view.tick_ns = 0
     ws.state.filters = { "status=500" }
@@ -337,7 +337,7 @@ describe("workspace", function()
     end)
     view.tick_ns = view_tick_ns
     loader.timing = vim.deepcopy(timing)
-    store.timing = vim.deepcopy(store_timing)
+    engine.timing = vim.deepcopy(engine_timing)
     ws.state.filters = { "status=200" }
     ws:apply(function()
       done = done + 10
@@ -412,20 +412,20 @@ describe("workspace", function()
     local counts, facets, first
 
     assert.is_true(vim.wait(5000, function()
-      return not ws.loading and ws.rendered == ws.store.generation and not ws.sidebar.stale
+      return not ws.loading and ws.rendered == ws.engine.generation and not ws.sidebar.stale
     end))
     ws:add_filter("level=INFO")
     assert.is_true(vim.wait(5000, function()
-      return ws.rendered == ws.store.generation and not ws.sidebar.stale
+      return ws.rendered == ws.engine.generation and not ws.sidebar.stale
     end))
     counts, facets, first = 0, ws.sidebar.facets, ws.view.items[1].idx
-    ws.store.count = function()
+    ws.engine.count = function()
       counts = counts + 1
     end
     ws:toggle_reverse()
     assert.is_false(ws.sidebar.stale)
     assert.is_true(vim.wait(5000, function()
-      return ws.rendered == ws.store.generation
+      return ws.rendered == ws.engine.generation
     end))
 
     assert.are.equal(0, counts)
@@ -439,15 +439,15 @@ describe("workspace", function()
     local counts = 0
 
     assert.is_true(vim.wait(5000, function()
-      return not ws.loading and ws.rendered == ws.store.generation
+      return not ws.loading and ws.rendered == ws.engine.generation
     end))
     ws.sidebar.stale = true
-    ws.store.count = function()
+    ws.engine.count = function()
       counts = counts + 1
     end
     ws:toggle_reverse()
     assert.is_true(vim.wait(5000, function()
-      return ws.rendered == ws.store.generation
+      return ws.rendered == ws.engine.generation
     end))
 
     assert.are.equal(1, counts)
@@ -465,16 +465,16 @@ describe("workspace", function()
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     ws = assert(workspace.open({ bufnr = buf }))
     assert.is_true(vim.wait(10000, function()
-      return not ws.loading and ws.rendered == ws.store.generation and not ws.sidebar.stale
+      return not ws.loading and ws.rendered == ws.engine.generation and not ws.sidebar.stale
     end))
     ws.sidebar:expand_field("level")
     loader.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
-    store.timing = { tick_ns = 0 }
+    engine.timing = { tick_ns = 0 }
 
     ws:add_filter("level=ERROR")
     marks = vim.api.nvim_buf_get_extmarks(ws.sidebar.bufnr, -1, 0, -1, { details = true })
 
-    assert.are_not.equal(ws.store.generation, ws.rendered)
+    assert.are_not.equal(ws.engine.generation, ws.rendered)
     assert.are.equal("level=ERROR", vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 2, 3, false)[1])
     assert.is_truthy(vim.iter(marks):any(function(mark)
       return mark[4].hl_group == "JLogFieldStale"
@@ -496,7 +496,7 @@ describe("workspace", function()
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     ws = assert(workspace.open({ bufnr = buf }))
     assert.is_true(vim.wait(10000, function()
-      return not ws.loading and ws.rendered == ws.store.generation and not ws.sidebar.stale
+      return not ws.loading and ws.rendered == ws.engine.generation and not ws.sidebar.stale
     end))
 
     view.tick_ns = 0
@@ -510,7 +510,7 @@ describe("workspace", function()
     assert.is_true(vim.wait(10000, function()
       return ws.sidebar.stale == false
     end))
-    assert.are.equal(12500, ws.store.counter.fields.status.counts["500"])
+    assert.are.equal(12500, ws.engine.counter.fields.status.counts["500"])
     ws:close()
   end)
 
@@ -525,14 +525,14 @@ describe("workspace", function()
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     ws = assert(workspace.open({ bufnr = buf }))
     assert.is_true(vim.wait(10000, function()
-      return not ws.loading and ws.rendered == ws.store.generation and not ws.sidebar.stale
+      return not ws.loading and ws.rendered == ws.engine.generation and not ws.sidebar.stale
     end))
     loader.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
-    store.timing = { tick_ns = 0 }
+    engine.timing = { tick_ns = 0 }
 
     ws:add_filter("level=ERROR")
     assert.is_true(vim.wait(10000, function()
-      return ws.rendered == ws.store.generation
+      return ws.rendered == ws.engine.generation
     end, 1))
     stale_at_render = ws.sidebar.stale
     assert.is_true(vim.wait(10000, function()
@@ -592,7 +592,7 @@ describe("workspace", function()
         assert.are.equal(index % 5 == 0 and 1 or nil, entry.cont and #entry.cont)
       end
       assert.is_true(vim.wait(2000, function()
-        return ws.rendered == ws.store.generation
+        return ws.rendered == ws.engine.generation
       end))
       view_lines = vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false)
       assert.are.equal(#lines, #view_lines)
@@ -613,7 +613,7 @@ describe("workspace", function()
       loader.load_sizes = { first = 4 }
       reader.chunk_size = 2
       loader.timing = { tick_ns = 0, publish_ns = 0 }
-      store.timing = { tick_ns = 0 }
+      engine.timing = { tick_ns = 0 }
 
       ws = assert(workspace.open({ bufnr = buf }))
       local render = ws.sidebar.render
@@ -629,7 +629,7 @@ describe("workspace", function()
         end
       end
       assert.is_true(vim.wait(2000, function()
-        return not ws.loading and ws.rendered == ws.store.generation
+        return not ws.loading and ws.rendered == ws.engine.generation
       end))
 
       assert.is_true(#partial > 0)
@@ -678,7 +678,7 @@ describe("workspace", function()
       loader.load_sizes = { first = 4 }
       reader.chunk_size = 2
       loader.timing = { tick_ns = 0, publish_ns = 0 }
-      store.timing = { tick_ns = 0 }
+      engine.timing = { tick_ns = 0 }
       -- these messages are read through vim.notify, which `progress = "notify"` uses on every Neovim
       config.options.progress = "notify"
       vim.notify = function(msg)
@@ -717,7 +717,7 @@ describe("workspace", function()
 
       ws = assert(workspace.open({ bufnr = buf }))
       local ok = vim.wait(2000, function()
-        return not ws.loading and ws.rendered == ws.store.generation
+        return not ws.loading and ws.rendered == ws.engine.generation
       end)
       entry_model.decode = decode
 
@@ -786,7 +786,7 @@ describe("workspace", function()
       assert.are.equal(elements[1].timestamp, ws.entries[1].ts)
       assert.are.equal(1, ws.view.items[1].idx)
       assert.is_true(vim.wait(5000, function()
-        return not ws.loading and ws.rendered == ws.store.generation
+        return not ws.loading and ws.rendered == ws.engine.generation
       end))
       assert.are.equal(3000, #ws.entries)
       assert.are.equal(1, ws.view.items[1].idx)
@@ -810,7 +810,7 @@ describe("workspace", function()
 
       assert.is_true(ws.loading)
       assert.is_true(vim.wait(2000, function()
-        return not ws.loading and ws.rendered == ws.store.generation
+        return not ws.loading and ws.rendered == ws.engine.generation
       end))
       assert.are.equal(#stamps, #ws.entries)
       assert.is_false(ws.stored_newest_first)
@@ -840,7 +840,7 @@ describe("workspace", function()
         path = write_loki(elements)
         ws = assert(workspace.open({ path = path }))
         assert.is_true(vim.wait(2000, function()
-          return not ws.loading and ws.rendered == ws.store.generation
+          return not ws.loading and ws.rendered == ws.engine.generation
         end))
         assert.are.equal(50, #ws.entries)
         for index = 2, #ws.entries do
@@ -867,10 +867,10 @@ describe("workspace", function()
       end
       path = write_loki(elements)
       loader.timing = { tick_ns = 0, publish_ns = 0 }
-      store.timing = { tick_ns = 0 }
+      engine.timing = { tick_ns = 0 }
       ws = assert(workspace.open({ path = path }))
       ok = vim.wait(10000, function()
-        return not ws.loading and ws.rendered == ws.store.generation
+        return not ws.loading and ws.rendered == ws.engine.generation
       end)
 
       assert.is_true(ok)
@@ -935,10 +935,10 @@ describe("workspace", function()
       assert.are.equal("jsonl", ws.format)
       assert.are.equal(1, #errors)
       assert.is_true(vim.wait(2000, function()
-        return not ws.loading and ws.rendered == ws.store.generation and not ws.sidebar.stale
+        return not ws.loading and ws.rendered == ws.engine.generation and not ws.sidebar.stale
       end))
       -- the one line is plain, so nothing is counted; `msg` would come from the loki element read before the break
-      assert.is_nil(ws.store.counter.fields.msg)
+      assert.is_nil(ws.engine.counter.fields.msg)
       ws:close()
       vim.fn.delete(path)
     end)
@@ -959,7 +959,7 @@ describe("workspace", function()
       end
 
       local function settled()
-        return not ws.loading and ws.indexing == nil and ws.rendered == ws.store.generation
+        return not ws.loading and ws.indexing == nil and ws.rendered == ws.engine.generation
       end
 
       after_each(function()
@@ -1026,11 +1026,11 @@ describe("workspace", function()
         local lines
 
         assert.is_true(vim.wait(2000, function()
-          return not ws.loading and ws.rendered == ws.store.generation
+          return not ws.loading and ws.rendered == ws.engine.generation
         end))
         ws:set_group("request_id")
         assert.is_true(vim.wait(2000, function()
-          return ws.rendered == ws.store.generation
+          return ws.rendered == ws.engine.generation
         end))
         lines = vim.list_extend(header_texts(ws.view.bufnr), vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false))
         ws:close()
@@ -1070,7 +1070,7 @@ describe("workspace", function()
       assert.is_false(ws.stored_newest_first)
       assert.is_true(ws.state.reverse)
       assert.is_true(vim.wait(2000, function()
-        return not ws.loading and ws.rendered == ws.store.generation
+        return not ws.loading and ws.rendered == ws.engine.generation
       end))
       assert.are.equal(9, #ws.entries)
       assert.are.equal(9, ws.view.items[1].idx)
@@ -1080,7 +1080,7 @@ describe("workspace", function()
       ws:reload()
       assert.is_true(ws.loading)
       assert.is_true(vim.wait(2000, function()
-        return not ws.loading and #ws.entries == 10 and ws.rendered == ws.store.generation
+        return not ws.loading and #ws.entries == 10 and ws.rendered == ws.engine.generation
       end))
       assert.are.equal(10, ws.view.items[1].idx)
       vim.fn.delete(path)

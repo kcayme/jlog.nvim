@@ -215,15 +215,15 @@ end
 ---In `all` scope, picked fields list their values from every page, as the scan counted them, instead of the view's.
 ---@param ws JLogWorkspace
 M.override_facets = function(ws)
-  local scan, store = ws.scan, ws.store
+  local scan, engine = ws.scan, ws.engine
   local counter = facets.counter()
 
   if ws.scope ~= "all" or not (scan and scan.done) then
     return
   end
-  for _, name in ipairs(store.facet_counter.names) do
+  for _, name in ipairs(engine.facet_counter.names) do
     if not scan.facet_names[name] then
-      facets.merge(counter, { [name] = store.facet_counter.fields[name] })
+      facets.merge(counter, { [name] = engine.facet_counter.fields[name] })
     end
   end
   for name in pairs(scan.facet_names) do
@@ -231,7 +231,7 @@ M.override_facets = function(ws)
       facets.merge(counter, { [name] = scan.facets.fields[name] })
     end
   end
-  store.facet_counter = counter
+  engine.facet_counter = counter
 end
 
 ---Whether the view holds the done scan's matches of the current filters, so every entry is known to match.

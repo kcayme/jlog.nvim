@@ -304,7 +304,7 @@ describe("sidebar", function()
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, { '{"msg":"a","k\\ney":"x"}', '{"msg":"b","k\\ney":"y"}' })
     ws = assert(require("jlog.workspace").open({ bufnr = buf }))
     assert.is_truthy(vim.wait(2000, function()
-      return ws.rendered == ws.store.generation
+      return ws.rendered == ws.engine.generation
     end, 10))
     ws.sidebar:expand_field("k\ney")
     ws.sidebar:cursor_to_value("k\ney", "x")
@@ -315,7 +315,7 @@ describe("sidebar", function()
     vim.api.nvim_feedkeys("g", "x", false)
     assert.are.equal("k\\ney", ws.state.group)
     assert.is_truthy(vim.wait(2000, function()
-      return ws.rendered == ws.store.generation
+      return ws.rendered == ws.engine.generation
     end, 10))
     assert.is_truthy(vim.tbl_contains(vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, 0, -1, false), "k\\ney"))
   end)
@@ -329,7 +329,7 @@ describe("sidebar", function()
     })
     ws = assert(require("jlog.workspace").open({ bufnr = buf }))
     assert.is_truthy(vim.wait(2000, function()
-      return ws.rendered == ws.store.generation
+      return ws.rendered == ws.engine.generation
     end, 10))
     ws.sidebar:expand_field("path")
     local winid = vim.fn.bufwinid(ws.sidebar.bufnr)
@@ -352,7 +352,7 @@ describe("sidebar", function()
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, { '{"msg":"a","path":"' .. long .. '"}', '{"msg":"b","path":"y"}' })
     ws = assert(require("jlog.workspace").open({ bufnr = buf }))
     assert.is_truthy(vim.wait(2000, function()
-      return ws.rendered == ws.store.generation
+      return ws.rendered == ws.engine.generation
     end, 10))
     ws.sidebar:expand_field("path")
     local winid = vim.fn.bufwinid(ws.sidebar.bufnr)
@@ -382,7 +382,7 @@ describe("sidebar", function()
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, { '{"msg":"a","path":"/x"}', '{"msg":"b","path":"/y"}' })
     ws = assert(require("jlog.workspace").open({ bufnr = buf }))
     assert.is_truthy(vim.wait(2000, function()
-      return ws.rendered == ws.store.generation
+      return ws.rendered == ws.engine.generation
     end, 10))
     ws.sidebar:expand_field("path")
     ws.sidebar:cursor_to_value("path", "/y")
@@ -430,7 +430,7 @@ describe("sidebar", function()
       local buf = vim.api.nvim_create_buf(true, false)
       local function settle()
         assert.is_truthy(vim.wait(2000, function()
-          return ws.rendered == ws.store.generation and not ws.sidebar.stale
+          return ws.rendered == ws.engine.generation and not ws.sidebar.stale
         end, 10))
       end
       local function press(value)
@@ -478,7 +478,7 @@ describe("sidebar", function()
     ws = assert(require("jlog.workspace").open({ bufnr = buf }))
     ws:add_filter("level=ERROR")
     assert.is_truthy(vim.wait(2000, function()
-      return ws.rendered == ws.store.generation and not ws.sidebar.stale
+      return ws.rendered == ws.engine.generation and not ws.sidebar.stale
     end, 10))
     names = vim.tbl_map(function(facet)
       return facet.name
@@ -531,7 +531,7 @@ describe("sidebar", function()
     )
     ws = assert(require("jlog.workspace").open({ bufnr = buf }))
     assert.is_truthy(vim.wait(2000, function()
-      return ws.rendered == ws.store.generation and #ws.sidebar.facets == 3
+      return ws.rendered == ws.engine.generation and #ws.sidebar.facets == 3
     end, 10))
     ws.sidebar:cursor_to_value("pid")
     row = vim.api.nvim_win_get_cursor(0)[1]
@@ -628,7 +628,7 @@ describe("sidebar", function()
       assert.are.equal(2, ws.state.group_limit)
       assert.are.equal(3, ws.state.limit)
       assert.is_true(vim.wait(5000, function()
-        return ws.rendered == ws.store.generation
+        return ws.rendered == ws.engine.generation
       end))
       assert.is_true(ws.shown <= 3)
       assert.are.same(
@@ -753,9 +753,9 @@ describe("sidebar", function()
       assert.are.same({ "level=ERROR", "status>" }, vim.api.nvim_buf_get_lines(sb, 2, 4, false))
 
       vim.fn.mode = mode
-      generation = ws.store.generation
+      generation = ws.engine.generation
       ws.sidebar:finish_insert()
-      assert.are.equal(generation, ws.store.generation)
+      assert.are.equal(generation, ws.engine.generation)
       assert.is_false(vim.bo[sb].modified)
     end)
 

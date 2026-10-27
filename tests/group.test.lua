@@ -108,6 +108,30 @@ describe("group.build", function()
     assert.are.equal("(no request_id)", list[#list - 1].group.label)
   end)
 
+  it("should keep only the matching entries of the missing-value group", function()
+    local lines = {
+      { request_id = "a", level = "INFO" },
+      { msg = "startup", level = "INFO" },
+      { request_id = "a", level = "ERROR" },
+      { msg = "disk full", level = "ERROR" },
+      { msg = "heartbeat", level = "INFO" },
+    }
+    local list = group.build(#lines, {
+      pred = function(i)
+        return lines[i].level == "ERROR"
+      end,
+      field = "request_id",
+      get = function(i, path)
+        return lines[i][path]
+      end,
+    })
+
+    assert.are.same({ 1, 3 }, list[1].group.idxs)
+    assert.are.equal("(no request_id)", list[4].group.label)
+    assert.are.same({ 4 }, list[4].group.idxs)
+    assert.are.equal(5, #list)
+  end)
+
   it("should put the missing-value group last when the newest is on top", function()
     for _, order in ipairs({ { newest_first = true }, { reverse = true } }) do
       local list = group.build(#rows, {

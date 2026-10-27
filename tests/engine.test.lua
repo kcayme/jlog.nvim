@@ -1,9 +1,9 @@
 local config = require("jlog.config")
+local engine_mod = require("jlog.query.engine")
 local entry_model = require("jlog.parse.entry")
+local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")
 local source = require("jlog.parse.source")
-local facets = require("jlog.query.facets")
-local store_mod = require("jlog.query.store")
 local workers = require("jlog.worker")
 
 local TEXT = table.concat({
@@ -12,10 +12,10 @@ local TEXT = table.concat({
   '{"status":500,"request_id":"b"}',
 }, "\n")
 
-describe("store", function()
-  local timing = vim.deepcopy(store_mod.timing)
+describe("engine", function()
+  local timing = vim.deepcopy(engine_mod.timing)
   local notify = vim.notify
-  local store
+  local engine
 
   local function status_500()
     return (filter.compile({ "status=500" }))
@@ -23,7 +23,7 @@ describe("store", function()
 
   before_each(function()
     vim.notify = function() end
-    store = store_mod.new({
+    engine = engine_mod.new({
       key = "test",
       entries = source.build(TEXT, "jsonl"),
       opts = config.setup(),
@@ -34,13 +34,13 @@ describe("store", function()
 
   after_each(function()
     vim.notify = notify
-    store_mod.timing = vim.deepcopy(timing)
+    engine_mod.timing = vim.deepcopy(timing)
   end)
 
   it("should report the matching entries in order", function()
     local items, shown
 
-    store:query(status_500(), nil, function(result, count)
+    engine:query(status_500(), nil, function(result, count)
       items, shown = result, count
     end)
 
@@ -51,7 +51,7 @@ describe("store", function()
   it("should group by a field", function()
     local items
 
-    store:query(status_500(), "request_id", function(result)
+    engine:query(status_500(), "request_id", function(result)
       items = result
     end)
 
@@ -63,37 +63,37 @@ describe("store", function()
     local first, second = false, false
 
     -- more entries than one scan batch, so the first query spans ticks
-    store.source.entries = source.build(string.rep('{"status":500}\n', 1200), "jsonl")
-    store_mod.timing.tick_ns = 0
-    store:query(status_500(), nil, function()
+    engine.source.entries = source.build(string.rep('{"status":500}\n', 1200), "jsonl")
+    engine_mod.timing.tick_ns = 0
+    engine:query(status_500(), nil, function()
       first = true
     end)
-    store:query(status_500(), nil, function()
+    engine:query(status_500(), nil, function()
       second = true
     end)
-    assert.is_true(store.running)
+    assert.is_true(engine.running)
 
     assert.is_true(vim.wait(1000, function()
       return second
     end, 10))
     assert.is_false(first)
-    assert.is_false(store.running)
+    assert.is_false(engine.running)
   end)
 
   it("should not stay running when the filter raises", function()
-    local ok = pcall(store.query, store, function()
+    local ok = pcall(engine.query, engine, function()
       error("boom")
     end, nil, function() end)
 
     assert.is_false(ok)
-    assert.is_false(store.running)
+    assert.is_false(engine.running)
   end)
 
   it("should count the matched entries", function()
     local counter
 
-    store:query(status_500(), nil, function() end)
-    store:count(function(result)
+    engine:query(status_500(), nil, function() end)
+    engine:count(function(result)
       counter = result
     end)
 
@@ -101,22 +101,22 @@ describe("store", function()
       return counter ~= nil
     end, 10))
     assert.are.equal(2, counter.fields.status.counts["500"])
-    assert.are.equal(counter, store.counter)
+    assert.are.equal(counter, engine.counter)
   end)
 
   it("should count a field whose values are on OR lines as if those lines were off", function()
     local filters = { "status=500", "OR status=200", "AND request_id=b" }
     local counter
 
-    store = store_mod.new({
+    engine = engine_mod.new({
       key = "test",
       entries = source.build(TEXT, "jsonl"),
       opts = config.setup(),
       state = { filters = filters, reverse = false, expanded = {}, mode = "compact" },
       stored_newest_first = false,
     })
-    store:query(filter.compile(filters), nil, function() end)
-    store:count(function(result)
+    engine:query(filter.compile(filters), nil, function() end)
+    engine:count(function(result)
       counter = result
     end)
     assert.is_true(vim.wait(1000, function()
@@ -129,25 +129,25 @@ describe("store", function()
   end)
 
   it("should skip counting picked fields when asked", function()
-    store.source.state.filters = { "status=500" }
-    store:query(status_500(), nil, function() end, true)
+    engine.source.state.filters = { "status=500" }
+    engine:query(status_500(), nil, function() end, true)
 
-    assert.are.same({}, store.facet_preds)
-    assert.are.same({}, store.facet_counter.names)
+    assert.are.same({}, engine.facet_preds)
+    assert.are.same({}, engine.facet_counter.names)
   end)
 
   it("should count a field with its own filter line as if that line were off", function()
     local counter
 
-    store = store_mod.new({
+    engine = engine_mod.new({
       key = "test",
       entries = source.build(TEXT, "jsonl"),
       opts = config.setup(),
       state = { filters = { "status=500", "request_id=a" }, reverse = false, expanded = {}, mode = "compact" },
       stored_newest_first = false,
     })
-    store:query(filter.compile({ "status=500", "request_id=a" }), nil, function() end)
-    store:count(function(result)
+    engine:query(filter.compile({ "status=500", "request_id=a" }), nil, function() end)
+    engine:count(function(result)
       counter = result
     end)
     assert.is_true(vim.wait(1000, function()
@@ -166,7 +166,7 @@ describe("store", function()
       local counter, entry
       local function append()
         entry = source.build('{"status":200,"request_id":"a"}', "jsonl")[1]
-        store:count_unmatched_appended({
+        engine:count_unmatched_appended({
           raw = entry_model.key(entry),
           get = function(path)
             return entry_model.get(entry, entry_model.decode(entry), path, config.options)
@@ -174,15 +174,15 @@ describe("store", function()
         })
       end
 
-      store = store_mod.new({
+      engine = engine_mod.new({
         key = "test",
         entries = source.build(TEXT, "jsonl"),
         opts = config.setup(),
         state = { filters = filters, reverse = false, expanded = {}, mode = "compact" },
         stored_newest_first = false,
       })
-      store:query(filter.compile(filters), nil, function() end)
-      store:count(function(result)
+      engine:query(filter.compile(filters), nil, function() end)
+      engine:count(function(result)
         counter = result
       end)
       assert.is_true(vim.wait(1000, function()
@@ -192,7 +192,7 @@ describe("store", function()
       append()
       assert.are.equal(2, counter.fields.status.counts["200"])
       -- reverse runs the query again and keeps the finished count
-      store:query(filter.compile(filters), nil, function() end)
+      engine:query(filter.compile(filters), nil, function() end)
       append()
       assert.are.equal(3, counter.fields.status.counts["200"])
     end
@@ -201,15 +201,15 @@ describe("store", function()
   it("should add appended matches to a finished count", function()
     local counter, entry
 
-    store:query(status_500(), nil, function() end)
-    store:count(function(result)
+    engine:query(status_500(), nil, function() end)
+    engine:count(function(result)
       counter = result
     end)
     vim.wait(1000, function()
       return counter ~= nil
     end, 10)
     entry = source.build('{"status":500,"request_id":"c"}', "jsonl")[1]
-    store:count_appended(4, entry, entry_model.decode(entry))
+    engine:count_appended(4, entry, entry_model.decode(entry))
 
     assert.are.equal(3, counter.fields.status.counts["500"])
   end)
@@ -218,7 +218,7 @@ describe("store", function()
     local run = workers.run
     local in_flight = workers.in_flight
     local defer_fn = vim.defer_fn
-    local batch_bytes = store_mod.count_batch_bytes
+    local batch_bytes = engine_mod.count_batch_bytes
     local stall_ms = workers.stall_ms
 
     local function build_lines()
@@ -240,11 +240,11 @@ describe("store", function()
       local counter
 
       workers.disabled = not threaded or nil
-      store.source.entries = source.build(build_lines(), "jsonl")
-      store:query(function()
+      engine.source.entries = source.build(build_lines(), "jsonl")
+      engine:query(function()
         return true
       end, nil, function() end)
-      store:count(function(result)
+      engine:count(function(result)
         counter = result
       end)
       assert.is_true(vim.wait(5000, function()
@@ -271,7 +271,7 @@ describe("store", function()
       workers.run = run
       workers.in_flight = in_flight
       vim.defer_fn = defer_fn
-      store_mod.count_batch_bytes = batch_bytes
+      engine_mod.count_batch_bytes = batch_bytes
       workers.stall_ms = stall_ms
     end)
 
@@ -279,7 +279,7 @@ describe("store", function()
       local jobs = 0
       local expected, actual
 
-      store_mod.count_batch_bytes = 4096
+      engine_mod.count_batch_bytes = 4096
       expected = count_all(false)
       workers.run = function(job, payload, on_result)
         jobs = jobs + (job == "count_entries" and 1 or 0)
@@ -295,15 +295,15 @@ describe("store", function()
     it("should not publish a superseded query's counts", function()
       local done = false
 
-      store_mod.count_batch_bytes = 4096
-      store.source.entries = source.build(build_lines(), "jsonl")
-      store:query(function()
+      engine_mod.count_batch_bytes = 4096
+      engine.source.entries = source.build(build_lines(), "jsonl")
+      engine:query(function()
         return true
       end, nil, function() end)
-      store:count(function()
+      engine:count(function()
         done = true
       end)
-      store:query(status_500(), nil, function() end)
+      engine:query(status_500(), nil, function() end)
 
       assert.is_false(vim.wait(1000, function()
         return done
@@ -314,9 +314,9 @@ describe("store", function()
       local delays = {}
       local counter
 
-      store_mod.count_batch_bytes = 4096
-      store.source.entries = source.build(build_lines(), "jsonl")
-      store:query(function()
+      engine_mod.count_batch_bytes = 4096
+      engine.source.entries = source.build(build_lines(), "jsonl")
+      engine:query(function()
         return true
       end, nil, function() end)
       workers.in_flight = function()
@@ -327,7 +327,7 @@ describe("store", function()
 
         return defer_fn(callback, delay)
       end
-      store:count(function(result)
+      engine:count(function(result)
         counter = result
       end)
       vim.wait(100, function()
@@ -347,7 +347,7 @@ describe("store", function()
       local calls = 0
       local expected, actual
 
-      store_mod.count_batch_bytes = 4096
+      engine_mod.count_batch_bytes = 4096
       expected = count_all(false)
       workers.run = function(job, payload, on_result)
         calls = calls + 1
@@ -369,7 +369,7 @@ describe("store", function()
       local calls = 0
       local expected, counter, before
 
-      store_mod.count_batch_bytes = 4096
+      engine_mod.count_batch_bytes = 4096
       expected = count_all(false)
       workers.stall_ms = 50
       workers.run = function(job, payload, on_result)
@@ -378,10 +378,10 @@ describe("store", function()
         end
       end
       workers.disabled = nil
-      store:query(function()
+      engine:query(function()
         return true
       end, nil, function() end)
-      store:count(function(result)
+      engine:count(function(result)
         calls = calls + 1
         counter = result
       end)
@@ -404,18 +404,18 @@ describe("store", function()
       local pending = {}
       local done = false
 
-      store_mod.count_batch_bytes = 4096
-      store.source.entries = source.build(build_lines(), "jsonl")
+      engine_mod.count_batch_bytes = 4096
+      engine.source.entries = source.build(build_lines(), "jsonl")
       workers.stall_ms = 50
       -- the transport keeps every callback until its worker answers, as `workers.run` does
       workers.run = function(_, _, on_result)
         pending[#pending + 1] = on_result
       end
       workers.disabled = nil
-      store:query(function()
+      engine:query(function()
         return true
       end, nil, function() end)
-      store:count(function()
+      engine:count(function()
         done = true
       end)
       assert.is_true(vim.wait(5000, function()

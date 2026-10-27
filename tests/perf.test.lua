@@ -55,7 +55,7 @@ end
 ---@return fun(): boolean
 local function settled(ws)
   return function()
-    return not ws.loading and ws.rendered == ws.store.generation
+    return not ws.loading and ws.rendered == ws.engine.generation
   end
 end
 
@@ -325,7 +325,7 @@ for _, count in ipairs(SIZES) do
       path = write_log(gen.jsonl_lines(count), ".jsonl")
       ws = workspace.open({ path = path })
       assert.is_true(vim.wait(30000, function()
-        return not ws.loading and ws.rendered == ws.store.generation
+        return not ws.loading and ws.rendered == ws.engine.generation
       end, 50))
 
       before = vim.api.nvim_buf_line_count(ws.view.bufnr)
@@ -478,20 +478,20 @@ for _, count in ipairs(SIZES) do
           return elapsed
         end
 
-        -- time only Store.count: from the query's matches being known to the counter being complete
+        -- time only Engine.count: from the query's matches being known to the counter being complete
         local function count_ms(disabled)
-          local store_class, original, start, elapsed
+          local engine_class, original, start, elapsed
 
           workers.disabled = disabled
           ws = workspace.open({ path = path })
           assert.is_true(vim.wait(60000, function()
             return complete(ws)() and settled(ws)() and ws.indexing == nil and ws.sidebar.stale == false
           end, 50))
-          store_class = getmetatable(ws.store).__index
-          original = store_class.count
-          store_class.count = function(store, on_done)
+          engine_class = getmetatable(ws.engine).__index
+          original = engine_class.count
+          engine_class.count = function(engine, on_done)
             start = now_ms()
-            original(store, function(counter)
+            original(engine, function(counter)
               elapsed = now_ms() - start
               on_done(counter)
             end)
@@ -500,7 +500,7 @@ for _, count in ipairs(SIZES) do
           vim.wait(60000, function()
             return settled(ws)() and ws.sidebar.stale == false
           end, 1)
-          store_class.count = original
+          engine_class.count = original
           assert.are.equal(20000, ws.shown)
           assert.is_not_nil(elapsed)
           ws:close()
@@ -544,7 +544,7 @@ for _, count in ipairs(SIZES) do
           threaded, main_thread = best_of(count_ms)
           print(
             string.format(
-              "nested Store.count of 20000 matches, best of 3: workers %.0fms, main thread %.0fms",
+              "nested Engine.count of 20000 matches, best of 3: workers %.0fms, main thread %.0fms",
               threaded,
               main_thread
             )

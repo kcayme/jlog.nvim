@@ -697,11 +697,11 @@ describe("view", function()
       local laid_out = false
       local pending = 0
 
-      ws.store = { running = false }
+      ws.engine = { running = false }
       vim.api.nvim_win_set_buf(0, v.bufnr)
       v:render(all(vim.fn.range(1, 3000)), function()
         -- as when a filter applies right after the layout: its scan runs while this render would fill
-        ws.store.running = true
+        ws.engine.running = true
         laid_out = true
       end)
       assert.is_true(vim.wait(2000, function()
@@ -714,7 +714,7 @@ describe("view", function()
       end
       assert.are.equal(3000, pending)
 
-      ws.store.running = false
+      ws.engine.running = false
       wait_complete(v)
       assert.are.same(compact_lines(v), vim.api.nvim_buf_get_lines(v.bufnr, 0, -1, false))
     end)

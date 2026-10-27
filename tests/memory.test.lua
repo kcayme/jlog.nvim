@@ -25,7 +25,7 @@ describe("memory", function()
 
   local function settled(ws)
     return function()
-      return not ws.loading and ws.indexing == nil and ws.view.complete and ws.rendered == ws.store.generation
+      return not ws.loading and ws.indexing == nil and ws.view.complete and ws.rendered == ws.engine.generation
     end
   end
 

@@ -101,7 +101,7 @@ end
 ---@param ws JLogWorkspace
 local function wait_settled(ws)
   assert(vim.wait(120000, function()
-    return not ws.loading and ws.indexing == nil and ws.rendered == ws.store.generation
+    return not ws.loading and ws.indexing == nil and ws.rendered == ws.engine.generation
   end, 1))
 end
 
@@ -187,7 +187,7 @@ local function stall_median(ws, reset, action, done)
     end)
     action()
     assert(vim.wait(120000, function()
-      return done() and not ws.loading and ws.rendered == ws.store.generation
+      return done() and not ws.loading and ws.rendered == ws.engine.generation
     end, 1))
     timer:stop()
     timer:close()

@@ -84,7 +84,8 @@ local function build_grouped(count, args)
       if not missing then
         missing = { label = "(no " .. field .. ")", idxs = {} }
       end
-      bucket = missing
+      -- entries without the field share no group, so only those that match are kept
+      bucket = args.pred(i) and missing or nil
     else
       local key = key_of(value)
 
@@ -96,9 +97,11 @@ local function build_grouped(count, args)
       end
     end
 
-    bucket.idxs[#bucket.idxs + 1] = i
-    if not matched[bucket] and args.pred(i) then
-      matched[bucket] = true
+    if bucket then
+      bucket.idxs[#bucket.idxs + 1] = i
+      if not matched[bucket] and args.pred(i) then
+        matched[bucket] = true
+      end
     end
   end
 

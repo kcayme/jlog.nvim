@@ -1,7 +1,7 @@
-local store = require("jlog.query.store")
+local engine = require("jlog.query.engine")
+local loader = require("jlog.workspace.loader")
 local view = require("jlog.ui.view")
 local workspace = require("jlog.workspace")
-local loader = require("jlog.workspace.loader")
 
 local function wait(cond)
   assert.is_true(vim.wait(2000, cond, 20))
@@ -10,7 +10,7 @@ end
 describe("reload", function()
   local notify = vim.notify
   local timing = vim.deepcopy(loader.timing)
-  local store_timing = vim.deepcopy(store.timing)
+  local engine_timing = vim.deepcopy(engine.timing)
   local view_tick_ns = view.tick_ns
   local path
   local ws
@@ -24,7 +24,7 @@ describe("reload", function()
   after_each(function()
     vim.notify = notify
     loader.timing = vim.deepcopy(timing)
-    store.timing = vim.deepcopy(store_timing)
+    engine.timing = vim.deepcopy(engine_timing)
     view.tick_ns = view_tick_ns
     if ws then
       ws:close()
@@ -49,9 +49,9 @@ describe("reload", function()
 
     ws = workspace.open({ path = path })
     wait(function()
-      return ws.rendered == ws.store.generation
+      return ws.rendered == ws.engine.generation
     end)
-    generation = ws.store.generation
+    generation = ws.engine.generation
     vim.fn.writefile({ '{"msg":"c","level":"INFO"}' }, path, "a")
     wait(function()
       return #ws.entries == 3
@@ -59,7 +59,7 @@ describe("reload", function()
     wait(function()
       return vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, 1, false)[1]:find("c", 1, true) ~= nil
     end)
-    assert.are.equal(generation, ws.store.generation)
+    assert.are.equal(generation, ws.engine.generation)
   end)
 
   it("should count entries appended while the sidebar is still counting", function()
@@ -72,22 +72,22 @@ describe("reload", function()
     vim.fn.writefile(lines, path)
     ws = workspace.open({ path = path })
     wait(function()
-      return not ws.loading and ws.rendered == ws.store.generation and not ws.sidebar.stale
+      return not ws.loading and ws.rendered == ws.engine.generation and not ws.sidebar.stale
     end)
     loader.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
-    store.timing = { tick_ns = 0 }
+    engine.timing = { tick_ns = 0 }
     ws:add_filter("level=ERROR")
     wait(function()
-      return ws.rendered == ws.store.generation
+      return ws.rendered == ws.engine.generation
     end)
-    generation = ws.store.generation
-    assert.is_not_nil(ws.store.counting)
+    generation = ws.engine.generation
+    assert.is_not_nil(ws.engine.counting)
     vim.fn.writefile({ '{"msg":"c","level":"ERROR"}' }, path, "a")
     ws:reload()
     wait(function()
       return not ws.sidebar.stale
     end)
-    assert.are.equal(generation, ws.store.generation)
+    assert.are.equal(generation, ws.engine.generation)
     for _, facet in ipairs(ws.sidebar.facets) do
       if facet.name == "level" then
         level = facet
@@ -207,11 +207,11 @@ describe("reload", function()
     ws = workspace.open({ path = path })
     ws:set_group("level")
     wait(function()
-      return ws.rendered == ws.store.generation
+      return ws.rendered == ws.engine.generation
     end)
     vim.fn.writefile({ "panic: boom", "goroutine 1 [running]:" }, path, "a")
     wait(function()
-      return ws.entries[2].cont ~= nil and #ws.entries[2].cont == 2 and ws.rendered == ws.store.generation
+      return ws.entries[2].cont ~= nil and #ws.entries[2].cont == 2 and ws.rendered == ws.engine.generation
     end)
     wait(function()
       return vim.tbl_contains(vim.api.nvim_buf_get_lines(ws.view.bufnr, 0, -1, false), "panic: boom")
@@ -236,7 +236,7 @@ describe("reload", function()
       view.tick_ns = 0
       ws = workspace.open({ path = path })
       wait(function()
-        return ws.rendered == ws.store.generation and #ws.entries == 3000
+        return ws.rendered == ws.engine.generation and #ws.entries == 3000
       end)
       assert.is_true(next(ws.view.pending) ~= nil)
       -- reload by hand: the watcher can arrive after the fill, and a later re-render would hide bad rows
@@ -267,13 +267,13 @@ describe("reload", function()
 
     ws = workspace.open({ path = path })
     wait(function()
-      return ws.rendered == ws.store.generation
+      return ws.rendered == ws.engine.generation
     end)
     bufnr = ws.sidebar.bufnr
     vim.api.nvim_buf_set_lines(bufnr, 2, 2, false, { "level=ERROR" })
     vim.fn.writefile({ '{"msg":"c","level":"INFO"}' }, path, "a")
     wait(function()
-      return #ws.entries == 3 and ws.rendered == ws.store.generation
+      return #ws.entries == 3 and ws.rendered == ws.engine.generation
     end)
     vim.wait(100)
     assert.are.equal("level=ERROR", vim.api.nvim_buf_get_lines(bufnr, 2, 3, false)[1])

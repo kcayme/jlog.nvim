@@ -1,7 +1,7 @@
-local reader = require("jlog.parse.reader")
-local store = require("jlog.query.store")
-local workspace = require("jlog.workspace")
+local engine = require("jlog.query.engine")
 local loader = require("jlog.workspace.loader")
+local reader = require("jlog.parse.reader")
+local workspace = require("jlog.workspace")
 
 local function wait(cond)
   assert.is_true(vim.wait(3000, cond, 20))
@@ -23,7 +23,7 @@ end
 describe("paging", function()
   local notify = vim.notify
   local timing = vim.deepcopy(loader.timing)
-  local store_timing = vim.deepcopy(store.timing)
+  local engine_timing = vim.deepcopy(engine.timing)
   local load_sizes = vim.deepcopy(loader.load_sizes)
   local chunk_size = reader.chunk_size
   local open_index_ns = loader.open_index_ns
@@ -31,7 +31,7 @@ describe("paging", function()
   local ws
 
   local function settled()
-    return not ws.loading and ws.indexing == nil and ws.rendered == ws.store.generation
+    return not ws.loading and ws.indexing == nil and ws.rendered == ws.engine.generation
   end
 
   before_each(function()
@@ -43,7 +43,7 @@ describe("paging", function()
   after_each(function()
     vim.notify = notify
     loader.timing = vim.deepcopy(timing)
-    store.timing = vim.deepcopy(store_timing)
+    engine.timing = vim.deepcopy(engine_timing)
     loader.load_sizes = vim.deepcopy(load_sizes)
     reader.chunk_size = chunk_size
     loader.open_index_ns = open_index_ns
@@ -189,7 +189,7 @@ describe("paging", function()
 
     vim.fn.writefile(log_lines(5000), path)
     loader.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
-    store.timing = { tick_ns = 0 }
+    engine.timing = { tick_ns = 0 }
     loader.open_index_ns = 0
     -- these messages are read through vim.notify, which `progress = "notify"` uses on every Neovim
     require("jlog.config").options.progress = "notify"
@@ -219,7 +219,7 @@ describe("paging", function()
     require("jlog").setup({ paging = { size = 3000, overlap = 2 } })
     vim.fn.writefile(log_lines(7000), path)
     loader.timing = { tick_ns = 0, publish_ns = timing.publish_ns }
-    store.timing = { tick_ns = 0 }
+    engine.timing = { tick_ns = 0 }
     reader.chunk_size = 10
     ws = workspace.open({ path = path })
     wait(function()
@@ -349,7 +349,7 @@ describe("paging", function()
     end
     vim.fn.writefile(vim.split("[" .. table.concat(elements, ",\n") .. "]", "\n"), path)
     loader.timing.tick_ns = 0
-    store.timing.tick_ns = 0
+    engine.timing.tick_ns = 0
     loader.load_sizes.first = 3
     reader.chunk_size = 3
     ws = workspace.open({ path = path })
@@ -358,7 +358,7 @@ describe("paging", function()
     assert.are.same({ 1, 3 }, { ws.entries[1].src, #ws.entries })
     assert.are.equal(1, ws.view.items[1].idx)
     loader.timing = vim.deepcopy(timing)
-    store.timing = vim.deepcopy(store_timing)
+    engine.timing = vim.deepcopy(engine_timing)
     wait(settled)
     assert.are.same({ 1, 1, 2002 }, { ws.page, ws.entries[1].src, #ws.entries })
   end)

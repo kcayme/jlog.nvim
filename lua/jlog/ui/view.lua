@@ -421,7 +421,7 @@ end
 ---@param view JLogView
 ---@return boolean
 local function query_running(view)
-  return view.ws.store ~= nil and view.ws.store.running
+  return view.ws.engine ~= nil and view.ws.engine.running
 end
 
 ---@param view JLogView

@@ -1,4 +1,4 @@
--- A page's entries: filter and group queries, and field counts over them.
+-- Query engine over the view's entries (a page or the cross-page matches): filter, group build and field counts.
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")
@@ -8,7 +8,7 @@ local progress_mod = require("jlog.core.progress")
 local utils = require("jlog.core.utils")
 local workers = require("jlog.worker")
 
----@class JLogStoreSource
+---@class JLogEngineSource
 ---@field key string names the workspace in progress messages
 ---@field entries JLogEntry[]
 ---@field opts JLogOptions
@@ -21,8 +21,8 @@ local workers = require("jlog.worker")
 ---@field matched table<integer, boolean> entry index -> matched the query's filters
 ---@field next_index integer
 
----@class JLogStore
----@field source JLogStoreSource
+---@class JLogEngine
+---@field source JLogEngineSource
 ---@field generation integer bumped per query; stale chunked queries and counts stop
 ---@field running boolean the latest query still scans or groups: its items are not handed out yet
 ---@field matched table<integer, boolean> entry index -> matched the latest query
@@ -30,8 +30,8 @@ local workers = require("jlog.worker")
 ---@field counting JLogFacetCounting|nil the latest query's facet count, still running
 ---@field facet_counter JLogFacetCounter fields with a `field=value` filter line, counted as if that line were off
 ---@field facet_preds table<string, fun(ctx: table): boolean> per such field, the other filter lines
-local Store = {}
-Store.__index = Store
+local Engine = {}
+Engine.__index = Engine
 
 local M = {}
 
@@ -63,8 +63,8 @@ M.count_min = 2000
 -- about this many bytes of entry text go to one worker job
 M.count_batch_bytes = 256 * 1024
 
----@param source JLogStoreSource
----@return JLogStore
+---@param source JLogEngineSource
+---@return JLogEngine
 M.new = function(source)
   return setmetatable({
     source = source,
@@ -73,7 +73,7 @@ M.new = function(source)
     matched = {},
     facet_counter = facets.counter(),
     facet_preds = {},
-  }, Store)
+  }, Engine)
 end
 
 ---Filter and group in ticks; work past the first ~12ms tick continues later, a newer query wins.
@@ -82,7 +82,7 @@ end
 ---@param on_items fun(items: JLogItem[], shown: integer)
 ---@param skip_facets boolean|nil no field counts will be shown (sidebar hidden): skip counting picked fields
 ---@return integer generation
-Store.query = function(self, pred, field, on_items, skip_facets)
+Engine.query = function(self, pred, field, on_items, skip_facets)
   local source = self.source
   local generation = self.generation + 1
   local entries, opts, state = source.entries, source.opts, source.state
@@ -262,7 +262,7 @@ end
 
 ---Use counts that are already known, such as those of a load, or none.
 ---@param counter JLogFacetCounter|nil
-Store.set_counts = function(self, counter)
+Engine.set_counts = function(self, counter)
   self.counter = counter
   self.counting = nil
 end
@@ -313,7 +313,7 @@ end
 
 ---Count the facets of the matched entries in ticks, then call `on_done`; a newer query stops it.
 ---@param on_done fun(counter: JLogFacetCounter)
-Store.count = function(self, on_done)
+Engine.count = function(self, on_done)
   local generation = self.generation
   local counting = { counter = facets.counter(), matched = self.matched, next_index = 1 }
   local facet_counter = self.facet_counter
@@ -439,7 +439,7 @@ end
 ---@param index integer
 ---@param entry JLogEntry
 ---@param decoded table|nil
-Store.count_appended = function(self, index, entry, decoded)
+Engine.count_appended = function(self, index, entry, decoded)
   if self.counting then
     self.counting.matched[index] = true
     -- the count's own values of these fields are replaced by the facet counts when it finishes
@@ -454,7 +454,7 @@ end
 
 ---An appended entry that misses some filter line: it still counts for a field whose own lines alone dropped it.
 ---@param ctx JLogMatchCtx the entry's match context
-Store.count_unmatched_appended = function(self, ctx)
+Engine.count_unmatched_appended = function(self, ctx)
   -- a finished count holds the facet fields; a query that kept it (reverse) made a facet counter it never took
   local target = self.counting and self.facet_counter or self.counter
 

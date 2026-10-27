@@ -58,7 +58,7 @@ describe("jobs", function()
     assert.are.same(facets.result(expected, 50), facets.result(from_fields(result.fields), 50))
   end)
 
-  it("should count entries with labels like Store.count does", function()
+  it("should count entries with labels like Engine.count does", function()
     local entries = {
       { body = '{"msg":"a"}', json_at = 1, labels = { app = "a" } },
       { body = '{"msg":"b"}', json_at = 1, labels = { app = "a" } },
@@ -93,7 +93,7 @@ describe("jobs", function()
       )
     end
 
-    ---The source lines of the entries the full predicate matches, as the store would match them.
+    ---The source lines of the entries the full predicate matches, as the engine would match them.
     local function expected_srcs(text, filters)
       local pred = filter.compile(filters)
       local srcs = {}

@@ -1,6 +1,7 @@
 -- Workspace class and lifecycle: open, close and the registry of open workspaces.
 local config = require("jlog.config")
 local detect = require("jlog.parse.detect")
+local engine_mod = require("jlog.query.engine")
 local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local gc = require("jlog.core.gc")
@@ -10,7 +11,6 @@ local progress_mod = require("jlog.core.progress")
 local query = require("jlog.workspace.query")
 local scope = require("jlog.workspace.scope")
 local sidebar_mod = require("jlog.ui.sidebar")
-local store_mod = require("jlog.query.store")
 local view_mod = require("jlog.ui.view")
 local watcher = require("jlog.workspace.watcher")
 
@@ -41,7 +41,7 @@ local watcher = require("jlog.workspace.watcher")
 ---@field sidebar JLogSidebar
 ---@field state JLogWorkspaceState
 ---@field augroup integer
----@field store JLogStore
+---@field engine JLogEngine
 ---@field fields_seen table<string, boolean>
 ---@field published {names: integer, at: number} fields the sidebar shows from the current counter, and when
 ---@field closed boolean|nil
@@ -49,7 +49,7 @@ local watcher = require("jlog.workspace.watcher")
 ---@field complete boolean the bytes read so far end on a newline
 ---@field check string last bytes read, to detect a rewritten file
 ---@field next_lnum integer source line number of the next appended line
----@field rendered integer store generation of the last apply that finished rendering
+---@field rendered integer engine generation of the last apply that finished rendering
 ---@field watcher uv.uv_fs_event_t|nil
 ---@field timer uv.uv_timer_t|nil debounces reloads
 ---@field poll uv.uv_timer_t|nil polls for the file to come back after it was deleted or rotated
@@ -239,7 +239,7 @@ M.open = function(target)
   if slice.paged then
     ws.pages, ws.page, ws.core = slice.index, 1, loader.core_of(slice.range)
   end
-  ws.store = store_mod.new(ws)
+  ws.engine = engine_mod.new(ws)
   ws.view = view_mod.new(ws)
   ws.sidebar = sidebar_mod.new(ws)
   layout.create(ws, path)

@@ -179,7 +179,7 @@ end
 
 ---@param ws JLogWorkspace
 local function refresh_winbar(ws)
-  if not ws.loading and ws.rendered == ws.store.generation then
+  if not ws.loading and ws.rendered == ws.engine.generation then
     ws.view:set_winbar(query.winbar_text(ws, ws.shown))
   end
 end
@@ -244,7 +244,7 @@ local function scan_pages(ws, index, on_known, wait_done)
     collect(ws)
   end
   -- the pages are known now: a rendered view starts counting the filters' matches on each, an old count is dropped
-  query.update_scan(ws, not ws.loading and ws.rendered == ws.store.generation)
+  query.update_scan(ws, not ws.loading and ws.rendered == ws.engine.generation)
   refresh_winbar(ws)
   -- PAGE shows the page count in place of `…`
   ws.sidebar:show_status()
@@ -518,7 +518,7 @@ M.reload = function(ws)
   if
     ws.state.group
     or ws.state.limit
-    or ws.rendered ~= ws.store.generation
+    or ws.rendered ~= ws.engine.generation
     or not query.extend(ws, old_count, old_key)
   then
     -- the last entry took continuation lines, so its old lines must not be reused

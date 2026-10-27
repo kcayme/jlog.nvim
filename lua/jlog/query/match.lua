@@ -33,7 +33,7 @@ M.field_preds = function(filters)
   return preds
 end
 
----A predicate context reading an entry as the store does: simple fields from the text, the rest from one decode.
+---A predicate context reading an entry as the engine does: simple fields from the text, the rest from one decode.
 ---@param opts JLogOptions
 ---@return table ctx
 ---@return fun(entry: JLogEntry, decoded: table|nil) set the entry read next, and its decode when already known

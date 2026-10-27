@@ -41,7 +41,7 @@ local function index_of(text, format, from_end)
   return index
 end
 
----The sources of the entries the full predicate matches over the unpaged source, as the store would match them.
+---The sources of the entries the full predicate matches over the unpaged source, as the engine would match them.
 local function expected_srcs(text, format, filters)
   local pred = filter.compile(filters)
   local srcs = {}
@@ -109,7 +109,7 @@ describe("scan", function()
   }
 
   for _, on_workers in ipairs({ true, false }) do
-    it("should match what the store matches over the unpaged source, workers " .. tostring(on_workers), function()
+    it("should match what the engine matches over the unpaged source, workers " .. tostring(on_workers), function()
       local text = edge_text()
       local index = index_of(text, "jsonl")
 
@@ -224,7 +224,7 @@ describe("scan", function()
         it(
           "should match "
             .. case.format
-            .. " chunks on worker threads as the store matches, from_end "
+            .. " chunks on worker threads as the engine matches, from_end "
             .. tostring(from_end),
           function()
             local index = index_of(case.text, case.format, from_end)

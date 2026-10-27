@@ -161,7 +161,7 @@ end
 M.update_scan = function(ws, start)
   scope.update(ws, start == true, function()
     -- while an apply or load runs, its own publish shows the winbar
-    if not ws.loading and ws.rendered == ws.store.generation then
+    if not ws.loading and ws.rendered == ws.engine.generation then
       ws.view:set_winbar(M.winbar_text(ws, ws.shown))
     end
     ws.sidebar:show_status()
@@ -196,7 +196,7 @@ M.apply = function(ws, on_done, counted, keep_counts)
   -- every entry matches, so the load's counts are this apply's counts
   prefilled = counts and counted ~= nil and #state.filters == 0
   if not keep then
-    ws.store:set_counts(prefilled and counted or nil)
+    ws.engine:set_counts(prefilled and counted or nil)
     -- the sidebar keeps the last counts until this apply's are counted
     ws.sidebar.stale = counts and not prefilled
   end
@@ -205,7 +205,7 @@ M.apply = function(ws, on_done, counted, keep_counts)
   end
 
   local function publish(items, shown)
-    local generation = ws.store.generation
+    local generation = ws.engine.generation
     local cursor_entry = ws.view:entry_at_cursor()
 
     ws.shown = own_shown(ws, items, shown)
@@ -214,7 +214,7 @@ M.apply = function(ws, on_done, counted, keep_counts)
     scope.override_facets(ws)
     -- counting does not wait for the render: a superseded render never calls its on_done
     if ws.sidebar.stale then
-      ws.store:count(function(counter)
+      ws.engine:count(function(counter)
         ws.sidebar.stale = false
         -- unsaved FILTERS edits are kept; the next sync renders the counts
         ws.sidebar:refresh({ counter = counter })
@@ -222,7 +222,7 @@ M.apply = function(ws, on_done, counted, keep_counts)
     end
     ws.view:render(items, function()
       -- a newer apply that has not rendered yet supersedes this render too
-      if ws.store.generation ~= generation or ws.closed then
+      if ws.engine.generation ~= generation or ws.closed then
         return
       end
       ws.rendered = generation
@@ -244,7 +244,7 @@ M.apply = function(ws, on_done, counted, keep_counts)
       return true
     end
   end
-  ws.store:query(pred, field, publish, not counts or known)
+  ws.engine:query(pred, field, publish, not counts or known)
 end
 
 ---@param ws JLogWorkspace
@@ -345,7 +345,7 @@ end
 ---@param old_key string|nil key of the last old entry before the append
 ---@return boolean
 M.extend = function(ws, old_count, old_key)
-  local entries, view, counter = ws.entries, ws.view, ws.store.counter
+  local entries, view, counter = ws.entries, ws.view, ws.engine.counter
   local pred = filter.compile(ws.state.filters)
   local changed = old_key ~= nil and entry_model.key(entries[old_count]) ~= old_key
   local indexes = {}
@@ -371,9 +371,9 @@ M.extend = function(ws, old_count, old_key)
       indexes[#indexes + 1] = index
     end
     if matches and index > old_count then
-      ws.store:count_appended(index, entry, decoded)
+      ws.engine:count_appended(index, entry, decoded)
     elseif index > old_count then
-      ws.store:count_unmatched_appended(ctx)
+      ws.engine:count_unmatched_appended(ctx)
     end
   end
 

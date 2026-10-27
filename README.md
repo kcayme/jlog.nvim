@@ -214,9 +214,8 @@ Buffer-local, configurable under `keymaps`; set any to `false` to disable it.
 
 ### Filter syntax
 
-One clause per `:JLog filter` call or sidebar `FILTERS` line. Every line after the first starts with its operator:
-`AND` starts a new condition that must also match, `OR` adds an alternative to the condition above. A line typed
-without one is taken as `AND`, and the operator is written in when the filter applies.
+Each `:JLog filter` call or sidebar `FILTERS` line is one condition. A line starting with `OR` is an alternative to
+the line above; any other line must also match.
 
 ```
 service=user-api
@@ -226,34 +225,23 @@ OR request_id=req-00000002
 
 This reads as `service=user-api AND (request_id=req-00000001 OR request_id=req-00000002)`.
 
-```
-:JLog filter status>=500 path=/api/licence-checks
-```
-
 | Syntax | Meaning |
 |--------|---------|
-| `field=value`, `field!=value` | Equality on the value's text; numbers also compare numerically (`status=500`). |
-| `field>n`, `>=`, `<`, `<=` | Numeric comparison; non-numeric values never match. |
-| `time>=2026-10-22T10:00`, `<`, ... | Time comparison when the value is a date (`2026-10-22`), a date and time, or a full ISO time; fields holding ISO 8601 times compare as instants, whatever their offset. |
-| `field~regex` | Vim regex (same flavor as `/`, honors `'ignorecase'`) against the field's string form. |
-| `value` | Bare term: Vim regex against the entry's raw source text. |
-| `-term` | Negate a term. |
-| `term term`, `term AND term` | Inside a line, a space or `AND` means AND. |
-| `a OR b` | Uppercase `OR` separates alternatives; AND binds tighter. |
-| `"quoted value"` | Needed for spaces or the words `OR` and `AND`, e.g. `msg="request completed"`, `"AND"`. |
+| `field=value`, `field!=value` | Equal, not equal (`status=500`) |
+| `field>n`, `>=`, `<`, `<=` | Number or time comparison (`status>=500`, `time>=2026-10-22T10:00`) |
+| `field~regex` | Vim regex on the field's value |
+| `value` | Vim regex on the whole entry |
+| `-term` | Negate a term |
+| `a b`, `a AND b` | Both match |
+| `a OR b` | Either matches; AND binds tighter |
+| `"quoted value"` | For spaces or the words `AND`/`OR`: `msg="request completed"` |
 
-- Fields are dotted paths (`req.headers.host`). `time`, `level` and `msg` resolve through the configured `fields`
-  aliases (e.g. `message`, `severity`); `level` compares case-insensitively.
-- A missing field never matches, so `-term` matches it. Filtering while grouped keeps whole groups.
-- A condition made only of `field=value` alternatives on one field (picked values on `OR` lines, or
-  `status=500 OR status=502`) leaves that field's FIELDS counts as if it were off, so all its values stay listed to
-  pick from; the other fields count only the matches.
-- In field names a newline is written `\n` and a backslash `\\`. Inside quotes only `\"`, `\\` and `\n` are
-  escapes, so a quoted `~` regex that needs a literal backslash writes `\\\\` (`msg~"a\\\\b"` matches `a\b`).
-- A typed time without a zone is local time, like the view shows (UTC with `view.time_utc`); a date alone is
-  midnight. Quote one with a space: `time<"2026-10-22 11:00"`. `=` and `~` still match the time's text.
-- Integers are exact at any size: `id=12345678901234567890` works. `>`, `>=`, `<` and `<=` compare as doubles, so
-  past 2^53 they are approximate.
+- Fields are dotted paths (`req.headers.host`). `time`, `level` and `msg` also match their `fields` aliases
+  (e.g. `message`, `severity`); `level` ignores case.
+- A missing field never matches, so a negated term matches entries without it.
+- A time without a zone is local (UTC with `view.time_utc`); a date alone is midnight.
+- While grouped, a group shows whole if any entry in it matches, within the entries loaded (a page, or the
+  cross-page matches); entries without the group field show only if they match.
 
 ## Highlights
 

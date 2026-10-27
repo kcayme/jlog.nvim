@@ -1248,6 +1248,9 @@ describe("workspace", function()
       require("jlog").setup({ paging = { size = 6000, overlap = 2 } })
       workers.disabled = true
       ws = assert(workspace.open({ path = path }))
+      assert.is_true(vim.wait(5000, function()
+        return ws.pages and ws.pages:range(2)
+      end, 1))
       assert.is_true(ws:goto_page(2))
       assert.is_true(vim.wait(10000, function()
         return not ws.loading and ws.page == 2
@@ -1262,7 +1265,7 @@ describe("workspace", function()
       ws = assert(workspace.open({ path = path }))
       opened = ws
       assert.is_true(vim.wait(5000, function()
-        return lists[#lists]
+        return lists[#lists] and ws.pages and ws.pages:range(2)
       end, 1))
       old = lists[#lists]
       assert.is_true(ws:goto_page(2))

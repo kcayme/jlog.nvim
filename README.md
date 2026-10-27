@@ -254,3 +254,20 @@ it. See [docs/highlights.md](docs/highlights.md) for every group and its default
 On 10k to 500k-line JSONL files, jlog's load is compared with `jq` and `vim.json.decode`, and opening, searching,
 filtering and grouping are timed in a workspace; see [bench/results.md](bench/results.md). `make bench` regenerates it
 (jq is needed for its column).
+
+## Running tests
+
+Tests use [plenary.nvim](https://github.com/nvim-lua/plenary.nvim) and run in headless Neovim. `tests/minimal_init.lua`
+looks for plenary under `~/.local/share/nvim/lazy/plenary.nvim`.
+
+```sh
+make test                                  # every test file
+make test-file FILE=tests/config.test.lua  # one file
+```
+
+The performance checks (first screen, tick length, filter and group time, memory on 10k to 500k lines) are skipped
+unless `JLOG_PERF` is set; run them on a quiet machine, since they assert wall-clock budgets:
+
+```sh
+JLOG_PERF=1 make test-file FILE=tests/perf.test.lua
+```

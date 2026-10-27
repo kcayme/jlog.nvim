@@ -778,7 +778,9 @@ View.render = function(self, items, on_done)
   local notified = false
   -- rows filled since the last sweep began; a sweep that fills none leaves only entries no sweep reaches
   local swept_fill = true
-  local below, above, next_item
+  -- nothing was under the cursor (a new view): the lines inserted above would push it to the bottom
+  local fresh = item_at_cursor(self) == nil
+  local below, above, next_item, first_done
 
   for _, item in ipairs(items) do
     if item.kind == "entry" then
@@ -959,7 +961,14 @@ View.render = function(self, items, on_done)
   end
   next_item = 1
   -- the first chunk is synchronous so the first screen shows at once; a view that fits in it is done
-  if work(true) then
+  first_done = work(true)
+
+  if fresh then
+    for _, winid in ipairs(vim.fn.win_findbuf(self.bufnr)) do
+      vim.api.nvim_win_set_cursor(winid, { 1, 0 })
+    end
+  end
+  if first_done then
     finish()
 
     return

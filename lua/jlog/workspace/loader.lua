@@ -410,7 +410,16 @@ local function load_first(ws, entries, read, early, counter)
   vim.defer_fn(function()
     if early then
       load_rest(ws, entries, read, function()
-        ws:apply(nil, counter)
+        local winid = vim.fn.bufwinid(ws.view.bufnr)
+        -- the first screen may be the source's first lines, not the view's top: a cursor left on line 1 stays there
+        local at_top = winid ~= -1 and vim.api.nvim_win_get_cursor(winid)[1] == 1
+
+        ws:apply(function()
+          winid = vim.fn.bufwinid(ws.view.bufnr)
+          if at_top and winid ~= -1 then
+            vim.api.nvim_win_set_cursor(winid, { 1, 0 })
+          end
+        end, counter)
       end, counter, token)
 
       return

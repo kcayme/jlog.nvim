@@ -38,6 +38,25 @@ describe("workspace", function()
     assert.are.equal("loki", ws.format)
   end)
 
+  it("should leave the cursor on the newest entry at the top once opened", function()
+    local path = vim.fn.tempname() .. ".jsonl"
+
+    -- more lines than the first screen reads, so the rest loads after it and the view renders again
+    vim.fn.writefile(gen.jsonl_lines(loader.load_sizes.first * 2, true), path)
+    for _, file in ipairs({ vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p"), path }) do
+      local ws = assert(workspace.open({ path = file }))
+      local winid = vim.fn.bufwinid(ws.view.bufnr)
+
+      assert.is_true(vim.wait(10000, function()
+        return not ws.loading and ws.rendered == ws.engine.generation and ws.view.complete
+      end, 10))
+      assert.are.equal(1, vim.api.nvim_win_get_cursor(winid)[1])
+      assert.are.equal(ws.entries[#ws.entries], ws.entries[ws.view:entry_at_cursor()])
+      ws:close()
+    end
+    vim.fn.delete(path)
+  end)
+
   it("should filter, group and report counts in the winbar", function()
     local ws = workspace.open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
     ws:add_filter("status>=500")

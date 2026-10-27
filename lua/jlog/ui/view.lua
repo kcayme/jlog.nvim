@@ -49,6 +49,8 @@ local M = {}
 M.fold_expr_limit = 50000
 -- a chunked render yields to the event loop after this much work, keeping every tick within ~16ms
 M.tick_ns = 12e6
+-- a fill waiting on a newer query checks again after this long; a 0ms timer spins the main loop the scan runs on
+M.query_poll_ms = 10
 -- old lines deleted per call during a render (~4ms per 50k; replacing 500k lines at once costs ~50ms)
 M.trim_slice = 50000
 -- old lines read back at a time while a render reuses them (~2ms per 5k)
@@ -861,7 +863,7 @@ View.render = function(self, items, on_done)
     end
     -- its render replaces this one; until it starts, this fill waits
     if query_running(self) then
-      vim.defer_fn(fill_step, 0)
+      vim.defer_fn(fill_step, M.query_poll_ms)
 
       return
     end

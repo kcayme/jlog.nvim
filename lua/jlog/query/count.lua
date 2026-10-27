@@ -84,7 +84,7 @@ M.run = function(engine, on_done)
       for index = counting.next_index, last do
         if counting.matched[index] then
           entry = entries[index]
-          facets.add(counting.counter, entry_model.flatten(entry, entry_model.decode(entry)))
+          facets.count_entry(counting.counter, entry, entry_model.decode(entry))
         end
       end
       counting.next_index = last + 1
@@ -191,7 +191,7 @@ M.appended = function(engine, index, entry, decoded)
     end
   elseif engine.counter then
     -- a finished count shares the facet counts' fields, so this adds to them too
-    facets.add(engine.counter, entry_model.flatten(entry, decoded))
+    facets.count_entry(engine.counter, entry, decoded)
   end
 end
 

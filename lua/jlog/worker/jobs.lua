@@ -1,6 +1,5 @@
 -- Jobs run inside worker threads: parse lines, count fields, match lines or elements.
 local config = require("jlog.config")
-local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local filter = require("jlog.query.filter")
 local match = require("jlog.query.match")
@@ -16,7 +15,7 @@ M.NAMES = { "parse_lines", "count_entries", "match_lines", "match_elements" }
 M.parse_lines = function(payload)
   local counter = facets.counter()
   local positions = source.json_positions(vim.mpack.decode(payload).text, function(entry, decoded)
-    facets.add(counter, entry_model.flatten(entry, decoded))
+    facets.count_entry(counter, entry, decoded)
   end)
 
   return vim.mpack.encode({ positions = positions, fields = counter.fields })

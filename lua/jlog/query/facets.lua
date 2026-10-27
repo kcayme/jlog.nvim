@@ -46,11 +46,34 @@ end
 ---@class JLogFacetCounter
 ---@field fields table<string, JLogFacetField>
 ---@field names string[]
+---@field paths table<string, table<string, string>> per prefix, each key's dotted name, built once
 
----Incremental counting, so a caller can feed flattened entries as it produces them.
+---Incremental counting, so a caller can feed entries as it reads them.
 ---@return JLogFacetCounter
 M.counter = function()
-  return { fields = {}, names = {} }
+  return { fields = {}, names = {}, paths = {} }
+end
+
+---`prefix .. key`, built once per counter: entries of one log share their keys, so later ones reuse the string.
+---@param paths table<string, table<string, string>>
+---@param prefix string
+---@param key string
+---@return string
+local function child_name(paths, prefix, key)
+  local under = paths[prefix]
+  local name
+
+  if not under then
+    under = {}
+    paths[prefix] = under
+  end
+  name = under[key]
+  if not name then
+    name = prefix .. key
+    under[key] = name
+  end
+
+  return name
 end
 
 ---Count one entry's `value` of the field `name`; nil and tables (absent, objects, arrays) are skipped.
@@ -105,18 +128,62 @@ M.override = function(counter, other)
   end
 end
 
----Adds another counter's fields into `counter`, keeping at most MAX_DISTINCT values per field.
+---Count every scalar under `value` by its dotted name, depth first; arrays and nulls are skipped.
 ---@param counter JLogFacetCounter
----@param fields table<string, {counts: table<string, integer>, distinct: integer, capped: boolean, present: integer}>
+---@param prefix string
+---@param value table
+---@param only table<string, boolean>|nil count only these names
+---@param rounded table<string, boolean>|nil names skipped so far
+---@return table<string, boolean>|nil rounded names of numbers the decoder may have rounded, left uncounted
+local function walk(counter, prefix, value, only, rounded)
+  local paths = counter.paths
+  local name
+
+  for key, child in pairs(value) do
+    name = child_name(paths, prefix, key)
+    if type(child) == "table" and not vim.islist(child) then
+      rounded = walk(counter, child_name(paths, name, "."), child, only, rounded)
+    elseif type(child) ~= "table" and child ~= vim.NIL and (not only or only[name]) then
+      if not only and entry_model.is_inexact(child) then
+        rounded = rounded or {}
+        rounded[name] = true
+      else
+        M.add_value(counter, name, child)
+      end
+    end
+  end
+
+  return rounded
+end
+
+---Count one entry's fields: its decoded object by dotted name, then its labels as `labels.<name>`.
+---@param counter JLogFacetCounter
+---@param entry JLogEntry
+---@param decoded table|nil
+M.count_entry = function(counter, entry, decoded)
+  local rounded = decoded and walk(counter, "", decoded)
+
+  if rounded then
+    -- rare: the decoder may have rounded these numbers, so their literals are counted instead
+    walk(counter, "", entry_model.decode_exact(entry) or {}, rounded)
+  end
+  for key, value in pairs(entry.labels or {}) do
+    M.add_value(counter, child_name(counter.paths, "labels.", key), value)
+  end
+end
+
 ---Count the fields of every entry in `entries` into `counter`, decoding each.
 ---@param counter JLogFacetCounter
 ---@param entries JLogEntry[]
 M.count_entries = function(counter, entries)
   for _, entry in ipairs(entries) do
-    M.add(counter, entry_model.flatten(entry, entry_model.decode(entry)))
+    M.count_entry(counter, entry, entry_model.decode(entry))
   end
 end
 
+---Adds another counter's fields into `counter`, keeping at most MAX_DISTINCT values per field.
+---@param counter JLogFacetCounter
+---@param fields table<string, {counts: table<string, integer>, distinct: integer, capped: boolean, present: integer}>
 M.merge = function(counter, fields)
   local field
   local dropped

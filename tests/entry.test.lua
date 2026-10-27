@@ -32,24 +32,15 @@ describe("entry", function()
     assert.are.equal(2, entry.get(e, entry.decode(e), "a", opts))
   end)
 
-  it("should flatten nested objects to dotted paths", function()
-    local e = build('{"req":{"method":"GET","h":{"host":"x"}},"n":1}')[1]
-    local flat = entry.flatten(e, entry.decode(e))
-    assert.are.equal("GET", flat["req.method"])
-    assert.are.equal("x", flat["req.h.host"])
-  end)
-
   it("should return the line prefix with the tree", function()
     local node, prefix = entry.tree(build('2026-10-22T10:00:01Z {"level":"INFO"}')[1], opts)
     assert.are.equal("2026-10-22T10:00:01Z ", prefix)
     assert.are.same({ "level" }, node.keys)
   end)
 
-  it("should round-trip dotted label keys through flatten and get", function()
+  it("should read dotted label keys with get", function()
     local e = build('{"a":1}')[1]
     e.labels = { ["app.kubernetes.io/name"] = "api" }
-    local flat = entry.flatten(e, entry.decode(e))
-    assert.are.equal("api", flat["labels.app.kubernetes.io/name"])
     assert.are.equal("api", entry.get(e, nil, "labels.app.kubernetes.io/name", opts))
   end)
 

@@ -137,3 +137,53 @@ describe("facets.override", function()
     assert.are.same({ "path" }, counter.names)
   end)
 end)
+
+describe("facets.count_entry", function()
+  local entry_model = require("jlog.parse.entry")
+  local source = require("jlog.parse.source")
+
+  ---Count the entries of `text` and return each field's value counts.
+  local function counts_of(text, labels)
+    local counter = facets_mod.counter()
+    local result = {}
+
+    for _, entry in ipairs(source.build(text, "jsonl")) do
+      entry.labels = labels
+      facets_mod.count_entry(counter, entry, entry_model.decode(entry))
+    end
+    for name, field in pairs(counter.fields) do
+      result[name] = field.counts
+    end
+
+    return result
+  end
+
+  it("should count nested values by dotted name and skip arrays and nulls", function()
+    assert.are.same({
+      ["req.method"] = { GET = 1 },
+      ["req.h.host"] = { x = 1 },
+      n = { ["1"] = 1 },
+    }, counts_of('{"req":{"method":"GET","h":{"host":"x"}},"n":1,"tags":["a"],"gone":null}'))
+  end)
+
+  it("should count a field that first appears in a later entry", function()
+    assert.are.same(
+      { level = { INFO = 2 }, ["http.status"] = { ["500"] = 1 } },
+      counts_of('{"level":"INFO"}\n{"level":"INFO","http":{"status":500}}')
+    )
+  end)
+
+  it("should count labels under labels. with their dotted keys", function()
+    assert.are.same(
+      { a = { ["1"] = 1 }, ["labels.app.kubernetes.io/name"] = { api = 1 } },
+      counts_of('{"a":1}', { ["app.kubernetes.io/name"] = "api" })
+    )
+  end)
+
+  it("should count integers too big for a double as written, and the rest of the entry once", function()
+    assert.are.same(
+      { id = { ["12345678901234567890"] = 1 }, n = { ["1"] = 1 } },
+      counts_of('{"id":12345678901234567890,"n":1}')
+    )
+  end)
+end)

@@ -1,4 +1,3 @@
-local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local parallel = require("jlog.parse.parallel")
 local workers = require("jlog.worker")
@@ -13,7 +12,7 @@ local function load(text, threaded)
   local fraction, waiting
   local give_up = vim.uv.now() + 5000
   local function count_entry(entry, decoded)
-    facets.add(counter, entry_model.flatten(entry, decoded))
+    facets.count_entry(counter, entry, decoded)
   end
   local function merge_fields(fields)
     facets.merge(counter, fields)

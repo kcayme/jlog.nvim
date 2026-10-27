@@ -143,25 +143,6 @@ local function unwrap_string_exact(text)
   return to_lua(node)
 end
 
----@param prefix string
----@param value table
----@param out table<string, any>
----@return boolean inexact a number may have been rounded by the decoder
-local function flatten_into(prefix, value, out)
-  local inexact = false
-
-  for key, child in pairs(value) do
-    if type(child) == "table" and not vim.islist(child) then
-      inexact = flatten_into(prefix .. key .. ".", child, out) or inexact
-    elseif type(child) ~= "table" and child ~= vim.NIL then
-      out[prefix .. key] = child
-      inexact = inexact or is_inexact(child)
-    end
-  end
-
-  return inexact
-end
-
 ---@param entry JLogEntry
 ---@param decoded table|nil
 ---@param path string
@@ -386,30 +367,16 @@ M.get = function(entry, decoded, path, opts)
   return value
 end
 
+---Whether a decoded number may have been rounded: past 2^53 a double no longer holds every integer.
+---@param value any
+---@return boolean
+M.is_inexact = is_inexact
+
 ---Whether `get` reads `path` through the `fields` aliases (`time`, `level`, `msg`) when the entry lacks it.
 ---@param path string
 ---@return boolean
 M.aliased = function(path)
   return ALIAS_FIELDS[path] ~= nil
-end
-
----Dotted path to scalar for every field, including labels. Arrays and nulls are skipped.
----@param entry JLogEntry
----@param decoded table|nil
----@return table<string, any>
-M.flatten = function(entry, decoded)
-  local out = {}
-
-  if decoded and flatten_into("", decoded, out) then
-    -- rare: the decoder may have rounded a number, take the literals instead
-    out = {}
-    flatten_into("", M.decode_exact(entry) or {}, out)
-  end
-  for key, value in pairs(entry.labels or {}) do
-    out["labels." .. key] = value
-  end
-
-  return out
 end
 
 ---Identity across reloads (not `src`, which shifts when lines are inserted above).

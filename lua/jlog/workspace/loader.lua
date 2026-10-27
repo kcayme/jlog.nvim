@@ -88,10 +88,9 @@ end
 local function load_rest(ws, entries, read, on_done, counter, token, notified)
   local deadline = vim.uv.hrtime() + M.timing.tick_ns
   local fraction, progress, waiting, err
-  local count_entry = counter
-    and function(entry, decoded)
-      facets.add(counter, entry_model.flatten(entry, decoded))
-    end
+  local count_entry = counter and function(entry, decoded)
+    facets.count_entry(counter, entry, decoded)
+  end
   -- field counts a worker thread found for a chunk it parsed
   local merge_fields = counter and function(fields)
     facets.merge(counter, fields)

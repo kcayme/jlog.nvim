@@ -448,7 +448,7 @@ describe("engine", function()
         repeat
           name, batch = debug.getupvalue(on_result, index)
           index = index + 1
-        until name == nil or name == "batch"
+        until name == nil or name == "job"
         assert.is_nil(batch.entries)
       end
     end)

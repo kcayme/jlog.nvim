@@ -90,7 +90,7 @@ describe("jobs", function()
     local expected = facets.counter()
 
     for _, entry in ipairs(source.build(table.concat(lines, "\n"), "jsonl")) do
-      facets.add(expected, entry_model.flatten(entry, entry_model.decode(entry)))
+      facets.count_entry(expected, entry, entry_model.decode(entry))
     end
 
     assert.are.same(facets.result(expected, 50), facets.result(from_fields(result.fields), 50))

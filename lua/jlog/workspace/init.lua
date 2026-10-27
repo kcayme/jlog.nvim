@@ -2,7 +2,6 @@
 local config = require("jlog.config")
 local detect = require("jlog.parse.detect")
 local engine_mod = require("jlog.query.engine")
-local entry_model = require("jlog.parse.entry")
 local facets = require("jlog.query.facets")
 local gc = require("jlog.core.gc")
 local layout = require("jlog.workspace.layout")
@@ -185,7 +184,7 @@ M.open = function(target)
   local text, format, err, ws, slice
   local counter = facets.counter()
   local function count_entry(entry, decoded)
-    facets.add(counter, entry_model.flatten(entry, decoded))
+    facets.count_entry(counter, entry, decoded)
   end
 
   if existing and vim.api.nvim_tabpage_is_valid(existing.tab) then

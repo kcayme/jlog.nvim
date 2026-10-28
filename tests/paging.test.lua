@@ -101,7 +101,8 @@ describe("paging", function()
     wait(settled)
     text, row = page_mark()
     assert.are.equal("PAGE  1/4  (]p next, [p prev)", text)
-    assert.are.equal("FIELDS", vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, row, row + 1, false)[1])
+    -- hung below the line before the FIELDS header
+    assert.are.equal("FIELDS", vim.api.nvim_buf_get_lines(ws.sidebar.bufnr, row + 1, row + 2, false)[1])
   end)
 
   it("should hide PAGE when sidebar.sections leaves it out", function()

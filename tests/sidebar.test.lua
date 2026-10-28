@@ -159,7 +159,7 @@ describe("sidebar", function()
       ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
 
       assert.are.same({ "FIELDS", "GROUP BY", "FILTERS" }, headers())
-      assert.are.same({ row_of("GROUP BY"), true }, sort_mark())
+      assert.are.same({ row_of("GROUP BY") - 1, false }, sort_mark())
       assert.are.same({ "SORT  newest first (R)", "" }, sort_lines())
     end)
 
@@ -991,5 +991,57 @@ describe("sidebar", function()
     assert.is_truthy(lines:find("40 values", 1, true))
     assert.is_truthy(lines:find("\n  r0\n", 1, true) or lines:find("\n  r0$"))
     assert.is_falsy(lines:find("(", 1, true))
+  end)
+
+  it("should fold a section from its header and keep it folded when the sidebar redraws or reopens", function()
+    local winid
+    local fields_lnum
+
+    require("jlog.config").setup({ sidebar = { foldable = true } })
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    require("jlog.config").setup()
+    assert.is_true(vim.wait(5000, function()
+      return not ws.loading and not ws.sidebar.stale
+    end))
+    ws:focus_sidebar()
+    winid = vim.api.nvim_get_current_win()
+    fields_lnum = row_of("FIELDS") + 1
+    vim.api.nvim_win_set_cursor(winid, { fields_lnum, 0 })
+
+    assert.is_true(ws.sidebar:activate())
+    assert.are.equal(fields_lnum, vim.fn.foldclosed(fields_lnum + 1))
+    assert.are.equal(fields_lnum, vim.fn.foldclosed(fields_lnum))
+
+    ws:apply()
+    assert.is_true(vim.wait(2000, function()
+      return ws.rendered == ws.engine.generation and not ws.sidebar.stale
+    end))
+    assert.are.equal(fields_lnum, vim.fn.foldclosed(fields_lnum + 1))
+
+    ws:toggle_sidebar()
+    ws:focus_sidebar()
+    assert.is_true(vim.wait(2000, function()
+      return ws.rendered == ws.engine.generation and not ws.sidebar.stale
+    end))
+    assert.are.equal(fields_lnum, vim.fn.foldclosed(fields_lnum + 1))
+
+    vim.api.nvim_win_set_cursor(0, { fields_lnum, 0 })
+    vim.cmd("normal! zo")
+    assert.are.equal(-1, vim.fn.foldclosed(fields_lnum + 1))
+    vim.api.nvim_win_set_cursor(0, { row_of("FILTERS") + 1, 0 })
+    vim.cmd("normal! zc")
+    assert.are.equal(row_of("FILTERS") + 1, vim.fn.foldclosed(row_of("FILTERS") + 1))
+    -- SORT hangs below the line before FILTERS, which the fold leaves shown
+    assert.are.same({ row_of("FILTERS") - 1, false }, sort_mark())
+  end)
+
+  it("should leave <CR> on a section header alone when sidebar.foldable is off", function()
+    require("jlog.config").setup({ sidebar = { foldable = false } })
+    ws = require("jlog.workspace").open({ path = vim.fn.fnamemodify("tests/fixtures/app.jsonl", ":p") })
+    require("jlog.config").setup()
+    ws:focus_sidebar()
+    vim.api.nvim_win_set_cursor(0, { row_of("FILTERS") + 1, 0 })
+
+    assert.is_false(ws.sidebar:activate())
   end)
 end)

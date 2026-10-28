@@ -74,6 +74,7 @@
 ---@field width integer
 ---@field position JLogSidebarPosition
 ---@field line_numbers boolean show line numbers in the sidebar window
+---@field foldable boolean fold a section's lines under its header: `<CR>` on the header, or `za` in the section
 ---@field auto_apply JLogSidebarAutoApplyOptions
 ---@field fields JLogSidebarFieldsOptions how FIELDS shows its field names
 ---@field sections JLogSidebarSection[] sections in the order shown; one left out is hidden
@@ -155,6 +156,7 @@ M.defaults = {
     width = 45,
     position = "right",
     line_numbers = false,
+    foldable = true,
     auto_apply = { enable = false, debounce_ms = 600 },
     fields = {
       colors = true,

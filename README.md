@@ -73,6 +73,7 @@ require("jlog").setup({
     width = 45,
     position = "right",
     line_numbers = false, -- show line numbers in the sidebar
+    foldable = true, -- fold a section under its header: <CR> on the header, or za
     -- apply FILTERS, GROUP BY and LIMIT edits without :w, once edits pause for debounce_ms
     auto_apply = { enable = false, debounce_ms = 600 },
     fields = { -- how FIELDS lists and styles field names

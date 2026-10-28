@@ -23,6 +23,7 @@ local keymaps = require("jlog.ui.keymaps")
 ---@field width integer|nil text cells the FIELDS lines were last fitted to
 ---@field stale boolean the facets are the last apply's, kept while the current apply counts its own
 ---@field limit_marks table<string, integer> LIMIT label -> extmark id of the label drawn on its value line
+---@field folded table<string, boolean> sections whose lines are folded, with `sidebar.foldable`
 ---@field auto_token table|nil the pending auto apply; a newer edit replaces it
 ---@field auto_spec table|nil what an auto apply in insert mode applied, still shown as typed
 local Sidebar = {}
@@ -33,6 +34,8 @@ local M = {}
 local HEADERS = { filters = "FILTERS", group = "GROUP BY", limit = "LIMIT", fields = "FIELDS" }
 -- sections drawn as virtual lines, which an edit or `:w` cannot touch
 local STATUS_SECTIONS = { sort = true, page = true }
+-- header line -> section name
+local SECTION_OF = { FILTERS = "filters", ["GROUP BY"] = "group", LIMIT = "limit", FIELDS = "fields" }
 local COUNTING = "counting…"
 local INLINE_VALUES = 3
 local NAME_WIDTH = 14
@@ -341,6 +344,51 @@ local function add_caps(sidebar, hl)
   end
 end
 
+---The sections folded in `winid`, found by their header lines; a user's `zc`/`zo` counts too.
+---@param sidebar JLogSidebar
+---@param winid integer
+---@return table<string, boolean>
+local function read_folds(sidebar, winid)
+  local folded = {}
+  local name
+
+  vim.api.nvim_win_call(winid, function()
+    for lnum, line in ipairs(vim.api.nvim_buf_get_lines(sidebar.bufnr, 0, -1, false)) do
+      name = SECTION_OF[vim.trim(line)]
+      if name and vim.fn.foldclosed(lnum) ~= -1 then
+        folded[name] = true
+      end
+    end
+  end)
+
+  return folded
+end
+
+---One manual fold per section, from its header to its last line; closed for `sidebar.folded`.
+---@param sidebar JLogSidebar
+---@param winid integer
+---@param ranges table<string, integer[]> section -> first and last 1-based line
+local function make_folds(sidebar, winid, ranges)
+  local wo = vim.wo[winid][0]
+
+  wo.foldmethod = "manual"
+  wo.foldenable = true
+  -- a header and one line, like GROUP BY, only folds with this at 0
+  wo.foldminlines = 0
+  wo.foldtext = "v:lua.require'jlog.ui.sidebar'.foldtext()"
+  wo.fillchars = "fold: "
+  vim.api.nvim_win_call(winid, function()
+    vim.cmd("silent! normal! zE")
+    for name, range in pairs(ranges) do
+      -- `:fold` makes a closed fold
+      vim.cmd(range[1] .. "," .. range[2] .. "fold")
+      if not sidebar.folded[name] then
+        vim.cmd(range[1] .. "foldopen")
+      end
+    end
+  end)
+end
+
 ---Rewrite the buffer from state and facets; FIELDS edits are discarded and a FIELDS cursor stays on its row.
 ---@param progress string|nil shown after the FIELDS header while the counts are partial
 Sidebar.render = function(self, progress)
@@ -356,10 +404,17 @@ Sidebar.render = function(self, progress)
   local anchor = cursor and self.rows[cursor[1]]
   local fields_row, filters_row, anchor_row
   local limit_rows = {}
+  local foldable = self.ws.opts.sidebar.foldable and winid ~= -1
+  local ranges = {}
+  local header_lnum
   local dim
   local msg, col, end_col
 
   progress = progress or (self.stale and COUNTING or nil)
+  -- the buffer is rewritten below, which drops its folds
+  if foldable then
+    self.folded = read_folds(self, winid)
+  end
   self.width = width
   self.rows = {}
   for _, section in ipairs(self.ws.opts.sidebar.sections) do
@@ -370,6 +425,7 @@ Sidebar.render = function(self, progress)
         lines[#lines + 1] = ""
       end
     end
+    header_lnum = #lines + 1
     if section == "filters" then
       lines[#lines + 1] = HEADERS.filters
       filters_row = #lines
@@ -409,6 +465,9 @@ Sidebar.render = function(self, progress)
       fields_row = #lines
       add_fields(self, lines, highlights, width)
     end
+    if not STATUS_SECTIONS[section] and #lines > header_lnum then
+      ranges[section] = { header_lnum, #lines }
+    end
   end
 
   vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, lines)
@@ -433,6 +492,9 @@ Sidebar.render = function(self, progress)
   anchor_row = anchor and find_row(self.rows, anchor)
   if anchor_row then
     vim.api.nvim_win_set_cursor(winid, { anchor_row, cursor[2] })
+  end
+  if foldable then
+    make_folds(self, winid, ranges)
   end
 
   vim.api.nvim_buf_clear_namespace(self.bufnr, hl_ns, 0, -1)
@@ -589,7 +651,8 @@ local function status_lines(sidebar, section)
   return { { { "SORT", "JLogSectionHeader" }, { "  " .. order, "JLogHint" } } }
 end
 
----Show SORT and PAGE as virtual lines (never in the buffer or `:w`): above the next section, else below the end.
+---Show SORT and PAGE as virtual lines (never in the buffer or `:w`): above the next section, else below the end;
+---hung below the line before its header, so folding the section does not hide them.
 Sidebar.show_status = function(self)
   local sections = self.ws.opts.sidebar.sections
   local lines = vim.api.nvim_buf_get_lines(self.bufnr, 0, -1, false)
@@ -609,9 +672,10 @@ Sidebar.show_status = function(self)
       if #pending > 0 and not STATUS_SECTIONS[next_section] then
         row = next_section and header_rows[HEADERS[next_section]]
         if row then
-          vim.api.nvim_buf_set_extmark(self.bufnr, status_ns, row, 0, {
+          vim.api.nvim_buf_set_extmark(self.bufnr, status_ns, math.max(row - 1, 0), 0, {
             virt_lines = vim.list_extend(pending, { {} }),
-            virt_lines_above = true,
+            -- only once an edit left the header on the first line
+            virt_lines_above = row == 0,
           })
         else
           -- last, or the header after it was deleted by an edit
@@ -780,11 +844,35 @@ Sidebar.cursor_to_value = function(self, name, value)
   end
 end
 
----`<CR>`: on a value, add it to or take it out of its field's filter line; on a field name, fold/unfold it.
+---On a section header or a folded section with `sidebar.foldable`, fold or unfold the section.
+---@param sidebar JLogSidebar
+---@return boolean handled
+local function toggle_section(sidebar)
+  local lnum = vim.api.nvim_win_get_cursor(0)[1]
+  -- on a folded section the cursor may be on any of its lines
+  local start = vim.fn.foldclosed(lnum)
+  local name
+
+  lnum = start ~= -1 and start or lnum
+  name = SECTION_OF[vim.trim(vim.fn.getline(lnum))]
+  if not sidebar.ws.opts.sidebar.foldable or not name or vim.fn.foldlevel(lnum) == 0 then
+    return false
+  end
+  sidebar.folded[name] = start == -1 or nil
+  vim.cmd(lnum .. (sidebar.folded[name] and "foldclose" or "foldopen"))
+
+  return true
+end
+
+---`<CR>`: on a value, add it to or take it out of its field's filter line; on a field name, fold/unfold it; on a
+---section header with `sidebar.foldable`, fold/unfold the section.
 ---@return boolean handled
 Sidebar.activate = function(self)
   local row = self:row_at_cursor()
 
+  if vim.api.nvim_get_current_buf() == self.bufnr and toggle_section(self) then
+    return true
+  end
   if not row then
     return false
   end
@@ -827,10 +915,17 @@ end
 ---@return JLogSidebar
 M.new = function(ws)
   local bufnr = vim.api.nvim_create_buf(false, true)
-  local sidebar = setmetatable(
-    { bufnr = bufnr, ws = ws, facets = {}, expanded = {}, errors = {}, rows = {}, stale = false, limit_marks = {} },
-    Sidebar
-  )
+  local sidebar = setmetatable({
+    bufnr = bufnr,
+    ws = ws,
+    facets = {},
+    expanded = {},
+    errors = {},
+    rows = {},
+    stale = false,
+    limit_marks = {},
+    folded = {},
+  }, Sidebar)
 
   vim.bo[bufnr].buftype = "acwrite"
   vim.bo[bufnr].filetype = "jlog_sidebar"
@@ -882,6 +977,20 @@ M.new = function(ws)
   keymaps.attach(bufnr, "sidebar", ws)
 
   return sidebar
+end
+
+---A folded section's line: its header with the notes drawn after it, and how many lines it hides.
+---@return table[]
+M.foldtext = function()
+  local row = vim.v.foldstart - 1
+  local chunks = { { vim.fn.getline(vim.v.foldstart), "JLogSectionHeader" } }
+
+  for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(0, hl_ns, { row, 0 }, { row, -1 }, { details = true })) do
+    vim.list_extend(chunks, mark[4].virt_text or {})
+  end
+  chunks[#chunks + 1] = { ("  ··· %d lines"):format(vim.v.foldend - vim.v.foldstart), "JLogHint" }
+
+  return chunks
 end
 
 ---Completes field names (`ws:field_names()`) in the sidebar.

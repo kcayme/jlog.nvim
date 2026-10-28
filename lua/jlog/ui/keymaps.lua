@@ -41,6 +41,21 @@ local HELP = {
       { actions = { "close" }, text = "close" },
     },
   },
+  {
+    title = "Filter syntax",
+    rows = {
+      { key = "field=value", text = "equal; != not equal" },
+      { key = "field>n", text = "number or time comparison; also >=, <, <=" },
+      { key = "field~regex", text = "Vim regex on the field's value" },
+      { key = "value", text = "Vim regex on the whole entry" },
+      { key = "-term", text = "negate a term" },
+      { key = "a b", text = "both match; same as a AND b" },
+      { key = "a OR b", text = "either matches; AND binds tighter" },
+      { key = 'msg="a b"', text = "quote spaces and the words AND/OR" },
+      { key = "OR line", text = "a line starting with OR joins the one above" },
+      { key = "AND line", text = "any other line must also match" },
+    },
+  },
 }
 
 ---The guide's lines, with the keys as configured; rows whose keys are all disabled are left out.
@@ -48,16 +63,17 @@ local HELP = {
 ---@return string[]
 local function help_lines(keys)
   local lines = {}
-  local key
+  local rows, width
 
   for index, section in ipairs(HELP) do
     if index > 1 then
       lines[#lines + 1] = ""
     end
     lines[#lines + 1] = section.title
+    rows, width = {}, 8
     for _, row in ipairs(section.rows) do
-      key = row.key
-        or table.concat(
+      rows[#rows + 1] = {
+        key = row.key or table.concat(
           vim.tbl_filter(
             function(lhs)
               return lhs ~= false
@@ -67,9 +83,15 @@ local function help_lines(keys)
             end, row.actions)
           ),
           " "
-        )
-      if key ~= "" then
-        lines[#lines + 1] = string.format("  %-8s %s", key, row.text)
+        ),
+        text = row.text,
+      }
+      width = math.max(width, #rows[#rows].key)
+    end
+    -- keys are padded to the section's longest, so the filter syntax lines up without widening the key sections
+    for _, row in ipairs(rows) do
+      if row.key ~= "" then
+        lines[#lines + 1] = string.format("  %-" .. width .. "s %s", row.key, row.text)
       end
     end
   end
